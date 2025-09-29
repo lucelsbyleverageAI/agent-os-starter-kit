@@ -71,3 +71,10 @@ Once the services are up and running, you can explore the platform:
     -   Run `npx @modelcontextprotocol/inspector` in a separate terminal and connect to `http://localhost:8002/mcp`. Follow the auth discovery process to inspect your tools.
 10. **View API Docs**: Explore the `langconnect` FastAPI endpoints and interactive documentation at `http://localhost:8080/docs`.
 11. **Debug in LangGraph Studio**: The local langgraph studio will automatically open as the local langgraph service starts. This interface allows you to interact directly with your agents and is helpful for debugging and tracing agent behaviour. It uses its own authentication and does not require a Supabase login. The commercial Langgraph Platform allows seamless deployment of these agents to a production environment.
+
+## Documentation and deployment guides
+
+For comprehensive usage and deployment instructions:
+
+- [Local Deployment Checklist](deployment_docs/local_deployment_checklist.md)
+- [Production Deployment Checklist (Coolify)](deployment_docs/cloud_deployment_checklist_coolify.md)
