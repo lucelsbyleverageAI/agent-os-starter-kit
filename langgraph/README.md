@@ -24,6 +24,8 @@ This combination of local-first development, powerful debugging, and production-
 
 ## High-Level Architecture
 
+This langgraph template is an adapted version of LangGraph's [pen Agent Platform](https://github.com/langchain-ai/open-agent-platform) - see [Full Documentation Site Here](https://docs.langchain.com/labs/oap)
+
 LangGraph operates as a standalone service, but is tightly integrated with the rest of the platform:
 
 - **Frontend (Web)**: Users interact with agents via our frontend web interface, which communicates with LangGraph’s API to list, configure, and run agents (called "assistants" when instantiated). We also use LangConnect as a middle layer for managing user permissions.
