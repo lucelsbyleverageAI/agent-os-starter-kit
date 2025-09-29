@@ -1,0 +1,23 @@
+[tool.poetry]
+name = "agent-platform"
+version = "0.1.0"
+description = "Agent Platform - Development Scripts"
+authors = ["Agent Platform Team"]
+package-mode = false
+
+[tool.poetry.dependencies]
+python = "^3.11"
+requests = "^2.32.0"
+psycopg2-binary = "^2.9.0"
+# Backup system dependencies
+google-cloud-storage = "^2.10.0"
+schedule = "^1.2.0"
+langgraph = "0.5.3"
+click = "^8.2.1"
+
+[tool.poetry.scripts]
+start-dev = "scripts.start_services_docker_dev:main"
+
+[build-system]
+requires = ["poetry-core"]
+build-backend = "poetry.core.masonry.api" 

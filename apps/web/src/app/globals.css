@@ -1,0 +1,259 @@
+@import "tailwindcss";
+
+@plugin "tailwindcss-animate";
+
+@custom-variant dark (&:is(.dark *));
+
+:root {
+  /* Core colours - ChatGPT Light Theme */
+  --background: oklch(0.99 0 0);
+  --foreground: oklch(0.15 0 0);
+  --card: oklch(0.985 0 0);
+  --card-foreground: oklch(0.15 0 0);
+  --popover: oklch(0.99 0 0);
+  --popover-foreground: oklch(0.15 0 0);
+  --primary: oklch(0.15 0.15 270);
+  --primary-foreground: oklch(0.98 0 0);
+  --secondary: oklch(0.95 0 0);
+  --secondary-foreground: oklch(0.2 0 0);
+  --muted: oklch(0.95 0 0);
+  --muted-foreground: oklch(0.5 0 0);
+  /* Subtle Light Grey Accent */
+  --accent: oklch(0.94 0 0);
+  --accent-foreground: oklch(0.2 0 0);
+  --destructive: oklch(0.577 0.245 27.325);
+  --destructive-foreground: oklch(0.98 0 0);
+  --border: oklch(0.9 0 0);
+  --input: oklch(0.96 0 0);
+  --ring: oklch(0.7 0 0);
+  --chart-1: oklch(0.646 0.222 41.116);
+  --chart-2: oklch(0.6 0.118 184.704);
+  --chart-3: oklch(0.398 0.07 227.392);
+  --chart-4: oklch(0.828 0.189 84.429);
+  --chart-5: oklch(0.769 0.188 70.08);
+  --radius: 1.25rem;
+  /* Sidebar - Very Light Grey */
+  --sidebar: oklch(0.97 0.005 240);
+  --sidebar-foreground: oklch(0.25 0 0);
+  --sidebar-primary: oklch(0.2 0 0);
+  --sidebar-primary-foreground: oklch(0.98 0 0);
+  --sidebar-accent: oklch(0.94 0.005 240);
+  --sidebar-accent-foreground: oklch(0.25 0 0);
+  --sidebar-border: oklch(0.88 0.01 240);
+  --sidebar-ring: oklch(0.7 0 0);
+}
+
+.dark {
+  /* Core colours - ChatGPT Dark Theme */
+  --background: oklch(0.12 0 0);
+  --foreground: oklch(0.9 0 0);
+  --card: oklch(0.15 0 0);
+  --card-foreground: oklch(0.9 0 0);
+  --popover: oklch(0.12 0 0);
+  --popover-foreground: oklch(0.9 0 0);
+  --primary: oklch(0.25 0.15 270);
+  --primary-foreground: oklch(0.98 0 0);
+  --secondary: oklch(0.2 0 0);
+  --secondary-foreground: oklch(0.9 0 0);
+  --muted: oklch(0.2 0 0);
+  --muted-foreground: oklch(0.6 0 0);
+  /* Subtle Dark Grey Accent for dark mode */
+  --accent: oklch(0.25 0 0);
+  --accent-foreground: oklch(0.9 0 0);
+  --destructive: oklch(0.396 0.141 25.723);
+  --destructive-foreground: oklch(0.95 0 0);
+  --border: oklch(0.25 0 0);
+  --input: oklch(0.18 0 0);
+  --ring: oklch(0.4 0 0);
+  --chart-1: oklch(0.488 0.243 264.376);
+  --chart-2: oklch(0.696 0.17 162.48);
+  --chart-3: oklch(0.769 0.188 70.08);
+  --chart-4: oklch(0.627 0.265 303.9);
+  --chart-5: oklch(0.645 0.246 16.439);
+  /* Sidebar - Dark ChatGPT Style */
+  --sidebar: oklch(0.1 0 0);
+  --sidebar-foreground: oklch(0.9 0 0);
+  --sidebar-primary: oklch(0.9 0 0);
+  --sidebar-primary-foreground: oklch(0.15 0 0);
+  --sidebar-accent: oklch(0.2 0 0);
+  --sidebar-accent-foreground: oklch(0.9 0 0);
+  --sidebar-border: oklch(0.25 0 0);
+  --sidebar-ring: oklch(0.4 0 0);
+}
+
+@theme inline {
+  --color-background: var(--background);
+  --color-foreground: var(--foreground);
+  --color-card: var(--card);
+  --color-card-foreground: var(--card-foreground);
+  --color-popover: var(--popover);
+  --color-popover-foreground: var(--popover-foreground);
+  --color-primary: var(--primary);
+  --color-primary-foreground: var(--primary-foreground);
+  --color-secondary: var(--secondary);
+  --color-secondary-foreground: var(--secondary-foreground);
+  --color-muted: var(--muted);
+  --color-muted-foreground: var(--muted-foreground);
+  --color-accent: var(--accent);
+  --color-accent-foreground: var(--accent-foreground);
+  --color-destructive: var(--destructive);
+  --color-destructive-foreground: var(--destructive-foreground);
+  --color-border: var(--border);
+  --color-input: var(--input);
+  --color-ring: var(--ring);
+  --color-chart-1: var(--chart-1);
+  --color-chart-2: var(--chart-2);
+  --color-chart-3: var(--chart-3);
+  --color-chart-4: var(--chart-4);
+  --color-chart-5: var(--chart-5);
+  --radius-sm: calc(var(--radius) - 4px);
+  --radius-md: calc(var(--radius) - 2px);
+  --radius-lg: var(--radius);
+  --radius-xl: calc(var(--radius) + 4px);
+  --color-sidebar: var(--sidebar);
+  --color-sidebar-foreground: var(--sidebar-foreground);
+  --color-sidebar-primary: var(--sidebar-primary);
+  --color-sidebar-primary-foreground: var(--sidebar-primary-foreground);
+  --color-sidebar-accent: var(--sidebar-accent);
+  --color-sidebar-accent-foreground: var(--sidebar-accent-foreground);
+  --color-sidebar-border: var(--sidebar-border);
+  --color-sidebar-ring: var(--sidebar-ring);
+}
+
+@layer base {
+  * {
+    @apply border-border outline-ring/50;
+  }
+
+  body {
+    @apply bg-background text-foreground;
+    font-family: ui-sans-serif, -apple-system, system-ui, "Segoe UI", Helvetica, "Apple Color Emoji", Arial, sans-serif, "Segoe UI Emoji", "Segoe UI Symbol";
+    -webkit-font-smoothing: antialiased;
+    -moz-osx-font-smoothing: grayscale;
+    font-feature-settings: "cv02", "cv03", "cv04", "cv11";
+    font-variant-ligatures: common-ligatures;
+  }
+
+  /* Ensure consistent font rendering across all text elements */
+  h1, h2, h3, h4, h5, h6, p, span, div, button, input, textarea, label {
+    font-family: inherit;
+    -webkit-font-smoothing: antialiased;
+    -moz-osx-font-smoothing: grayscale;
+  }
+
+  :root {
+    --chart-1: 12 76% 61%;
+    --chart-2: 173 58% 39%;
+    --chart-3: 197 37% 24%;
+    --chart-4: 43 74% 66%;
+    --chart-5: 27 87% 67%;
+    --sidebar-background: 240 8% 97%;
+    --sidebar-foreground: 240 5.3% 25%;
+    --sidebar-primary: 240 5.9% 10%;
+    --sidebar-primary-foreground: 0 0% 98%;
+    --sidebar-accent: 240 10% 94%;
+    --sidebar-accent-foreground: 240 5.9% 25%;
+    --sidebar-border: 240 15% 88%;
+    --sidebar-ring: 217.2 91.2% 59.8%;
+  }
+
+  .dark {
+    --chart-1: 220 70% 50%;
+    --chart-2: 160 60% 45%;
+    --chart-3: 30 80% 55%;
+    --chart-4: 280 65% 60%;
+    --chart-5: 340 75% 55%;
+    --sidebar-background: 240 5.9% 10%;
+    --sidebar-foreground: 240 4.8% 95.9%;
+    --sidebar-primary: 224.3 76.3% 48%;
+    --sidebar-primary-foreground: 0 0% 100%;
+    --sidebar-accent: 240 3.7% 15.9%;
+    --sidebar-accent-foreground: 240 4.8% 95.9%;
+    --sidebar-border: 240 3.7% 15.9%;
+    --sidebar-ring: 217.2 91.2% 59.8%;
+  }
+}
+
+@layer utilities {
+  .shadow-inner-right {
+    box-shadow: inset -9px 0 6px -1px rgb(0 0 0 / 0.02);
+  }
+
+  .shadow-inner-left {
+    box-shadow: inset 9px 0 6px -1px rgb(0 0 0 / 0.02);
+  }
+
+  /* Smooth transitions for specific elements only */
+  .transition-colors,
+  [data-slot="popover"],
+  [data-slot="dropdown-menu"],
+  [data-slot="command"],
+  [data-slot="card"] {
+    transition-property: color, background-color, border-color, text-decoration-color, fill, stroke;
+    transition-duration: 0.15s;
+    transition-timing-function: ease-out;
+  }
+
+  /* ChatGPT-style utilities */
+  .chat-container {
+    max-width: 48rem; /* 768px - ChatGPT content width */
+    margin: 0 auto;
+    padding: 0 1rem;
+  }
+  
+  .message-spacing {
+    @apply space-y-4; /* Consistent message spacing */
+  }
+
+  .gradient-bg {
+    background: linear-gradient(
+      to bottom right,
+      hsl(var(--background)),
+      hsl(var(--muted)/0.3)
+    );
+  }
+
+
+
+  /* Ensure sidebar trigger is properly clickable */
+  [data-sidebar="trigger"] {
+    pointer-events: auto !important;
+    user-select: none !important;
+    position: relative !important;
+    z-index: 10 !important;
+  }
+
+  [data-sidebar="trigger"]:hover {
+    cursor: pointer !important;
+  }
+
+  /* Card hover vibration animation */
+  @keyframes vibrate {
+    0%, 100% { transform: translateX(0); }
+    25% { transform: translateX(-1px); }
+    75% { transform: translateX(1px); }
+  }
+
+  .vibrate-on-hover:hover {
+    animation: vibrate 0.2s ease-in-out;
+  }
+
+  /* Custom text overflow utilities for tool calls */
+  .break-anywhere {
+    overflow-wrap: anywhere;
+    word-break: break-word;
+    hyphens: auto;
+  }
+
+  .break-long-words {
+    word-break: break-all;
+    overflow-wrap: break-word;
+  }
+
+  /* Preserve formatting but allow breaking */
+  .break-preserve {
+    white-space: pre-wrap;
+    overflow-wrap: break-word;
+    word-break: break-word;
+  }
+}

@@ -1,0 +1,45 @@
+# ==================================================
+# Database Migration Container
+# ==================================================
+# This container runs database migrations and exits
+# Used as an init container before main services start
+
+FROM python:3.11-slim
+
+# Set environment variables
+ENV PYTHONUNBUFFERED=1 \
+    PYTHONDONTWRITEBYTECODE=1
+
+# Install system dependencies
+RUN apt-get update && \
+    apt-get install -y --no-install-recommends \
+    libpq-dev \
+    postgresql-client \
+    curl \
+    && rm -rf /var/lib/apt/lists/* \
+    && apt-get clean
+
+# Install Python dependencies
+RUN pip install --upgrade pip && \
+    pip install psycopg2-binary
+
+# Set work directory
+WORKDIR /app
+
+# Copy migration system
+COPY migrate.py ./
+COPY migrations/ ./migrations/
+
+# Create non-root user for security
+RUN groupadd -r migrator && useradd -r -g migrator migrator && \
+    chown -R migrator:migrator /app
+
+# Switch to non-root user
+USER migrator
+
+# Health check to verify database connection
+HEALTHCHECK --interval=10s --timeout=5s --start-period=10s --retries=3 \
+    CMD python migrate.py --status || exit 1
+
+# Default command: run migrations
+CMD ["python", "migrate.py"] 

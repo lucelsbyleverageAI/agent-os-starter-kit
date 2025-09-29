@@ -1,0 +1,354 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Confirm Email Change - AgentOS</title>
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+        
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', system-ui, sans-serif;
+            line-height: 1.5;
+            color: #374151;
+            background-color: #f8fafc;
+            -webkit-font-smoothing: antialiased;
+            -moz-osx-font-smoothing: grayscale;
+        }
+        
+        .email-wrapper {
+            width: 100%;
+            max-width: 600px;
+            margin: 0 auto;
+            padding: 20px;
+        }
+        
+        .email-container {
+            background: #ffffff;
+            border-radius: 12px;
+            box-shadow: 0 1px 3px rgba(0, 0, 0, 0.1);
+            overflow: hidden;
+        }
+        
+        .header {
+            padding: 32px 32px 24px;
+            text-align: center;
+            background: linear-gradient(135deg, #040056 0%, #040056 100%);
+            color: white;
+        }
+        
+        .brand-name {
+            font-size: 24px;
+            font-weight: 600;
+            margin-bottom: 8px;
+            letter-spacing: -0.025em;
+        }
+        
+        .header-subtitle {
+            font-size: 16px;
+            opacity: 0.9;
+            font-weight: 400;
+        }
+        
+        .content {
+            padding: 32px;
+        }
+        
+        .greeting {
+            font-size: 18px;
+            font-weight: 500;
+            color: #111827;
+            margin-bottom: 16px;
+        }
+        
+        .message {
+            font-size: 16px;
+            color: #4b5563;
+            margin-bottom: 24px;
+            line-height: 1.6;
+        }
+        
+        .email-change-info {
+            background-color: #eff6ff;
+            border: 1px solid #bfdbfe;
+            border-radius: 8px;
+            padding: 20px;
+            margin: 24px 0;
+        }
+        
+        .email-change-title {
+            font-size: 14px;
+            font-weight: 500;
+            color: #1e40af;
+            margin-bottom: 12px;
+        }
+        
+        .email-address {
+            font-weight: 600;
+            color: #040056;
+        }
+        
+        .cta-section {
+            text-align: center;
+            margin: 32px 0;
+        }
+        
+        .cta-button {
+            display: inline-block;
+            background: #040056 !important;
+            color: white !important;
+            text-decoration: none;
+            padding: 14px 28px;
+            border-radius: 8px;
+            font-weight: 500;
+            font-size: 16px;
+            transition: all 0.2s ease;
+            box-shadow: 0 2px 4px rgba(4, 0, 86, 0.2);
+        }
+        
+        .cta-button:hover {
+            background: #030045 !important;
+            color: white !important;
+            transform: translateY(-1px);
+            box-shadow: 0 4px 8px rgba(4, 0, 86, 0.3);
+        }
+        
+        .alternative-section {
+            margin-top: 24px;
+            padding: 16px;
+            background: #f8fafc;
+            border-radius: 8px;
+            border-left: 3px solid #040056;
+        }
+        
+        .alternative-title {
+            font-size: 14px;
+            font-weight: 500;
+            color: #374151;
+            margin-bottom: 8px;
+        }
+        
+        .alternative-link {
+            font-size: 14px;
+            color: #040056;
+            word-break: break-all;
+            text-decoration: none;
+        }
+        
+        .token-section {
+            margin-top: 24px;
+            padding: 16px;
+            background: #fffbeb;
+            border-radius: 8px;
+            border-left: 3px solid #f59e0b;
+            text-align: center;
+        }
+        
+        .token-title {
+            font-size: 14px;
+            font-weight: 500;
+            color: #92400e;
+            margin-bottom: 8px;
+        }
+        
+        .token-code {
+            font-family: 'Courier New', monospace;
+            background-color: #fef3c7;
+            padding: 12px 16px;
+            border-radius: 6px;
+            font-size: 18px;
+            font-weight: bold;
+            color: #92400e;
+            display: inline-block;
+            margin: 8px 0;
+            letter-spacing: 2px;
+        }
+        
+        .security-notice {
+            margin-top: 24px;
+            padding: 16px;
+            background: #fef3c7;
+            border-radius: 8px;
+            border-left: 3px solid #f59e0b;
+        }
+        
+        .security-title {
+            font-size: 14px;
+            font-weight: 500;
+            color: #92400e;
+            margin-bottom: 8px;
+            display: flex;
+            align-items: center;
+        }
+        
+        .security-list {
+            font-size: 14px;
+            color: #78350f;
+            margin: 0;
+            padding-left: 16px;
+        }
+        
+        .security-list li {
+            margin-bottom: 4px;
+        }
+        
+        .features-list {
+            margin-top: 24px;
+            padding: 16px;
+            background: #f0fdf4;
+            border-radius: 8px;
+            border-left: 3px solid #22c55e;
+        }
+        
+        .features-title {
+            font-size: 14px;
+            font-weight: 500;
+            color: #166534;
+            margin-bottom: 8px;
+        }
+        
+        .features-list ul {
+            font-size: 14px;
+            color: #15803d;
+            margin: 0;
+            padding-left: 16px;
+        }
+        
+        .features-list li {
+            margin-bottom: 4px;
+        }
+        
+        .footer {
+            padding: 24px 32px;
+            background: #f8fafc;
+            border-top: 1px solid #e5e7eb;
+            text-align: center;
+        }
+        
+        .footer-text {
+            font-size: 14px;
+            color: #6b7280;
+            margin-bottom: 8px;
+        }
+        
+        .footer-brand {
+            font-size: 12px;
+            color: #9ca3af;
+        }
+        
+        /* Mobile responsiveness */
+        @media (max-width: 480px) {
+            .email-wrapper {
+                padding: 16px;
+            }
+            
+            .content {
+                padding: 24px 20px;
+            }
+            
+            .header {
+                padding: 24px 20px 20px;
+            }
+            
+            .brand-name {
+                font-size: 20px;
+            }
+            
+            .cta-button {
+                padding: 12px 24px;
+                font-size: 15px;
+            }
+        }
+    </style>
+</head>
+<body>
+    <div class="email-wrapper">
+        <div class="email-container">
+            <div class="header">
+                <div class="brand-name">AgentOS</div>
+                <div class="header-subtitle">Confirm Email Change</div>
+            </div>
+            
+            <div class="content">
+                <div class="greeting">Verify Your New Email Address</div>
+                
+                <div class="message">
+                    You've requested to change the email address associated with your <strong>AgentOS</strong> account.
+                </div>
+                
+                <div class="email-change-info">
+                    <div class="email-change-title">📧 Email Change Request:</div>
+                    <div>From: <span class="email-address">{{ .Email }}</span></div>
+                    <div>To: <span class="email-address">{{ .NewEmail }}</span></div>
+                </div>
+                
+                <div class="message">
+                    To complete this change, please confirm your new email address by clicking the button below:
+                </div>
+                
+                <div class="cta-section">
+                    <a href="{{ .ConfirmationURL }}" class="cta-button">
+                        Confirm Email Change
+                    </a>
+                </div>
+                
+                <div class="alternative-section">
+                    <div class="alternative-title">Having trouble with the button?</div>
+                    <div>Copy and paste this link into your browser:</div>
+                    <div style="margin-top: 8px;">
+                        <a href="{{ .ConfirmationURL }}" class="alternative-link">
+                            {{ .ConfirmationURL }}
+                        </a>
+                    </div>
+                </div>
+                
+                <div class="token-section">
+                    <div class="token-title">Or enter this confirmation code in the app:</div>
+                    <div class="token-code">{{ .Token }}</div>
+                </div>
+                
+                <div class="security-notice">
+                    <div class="security-title">🔒 Security Notice</div>
+                    <ul class="security-list">
+                        <li>This confirmation link will expire in 1 hour</li>
+                        <li>Your email address won't be changed until you confirm it</li>
+                        <li>If you didn't request this change, please contact support immediately</li>
+                        <li>You'll continue to receive emails at your current address until confirmed</li>
+                    </ul>
+                </div>
+                
+                <div class="features-list">
+                    <div class="features-title">✅ After confirming your new email address:</div>
+                    <ul>
+                        <li>All future emails will be sent to your new address</li>
+                        <li>You'll use your new email to sign in</li>
+                        <li>Your account settings will be updated automatically</li>
+                        <li>All your agents and data will remain unchanged</li>
+                    </ul>
+                </div>
+            </div>
+            
+            <div class="footer">
+                <div class="footer-text">
+                    This email change confirmation was sent to <strong>{{ .NewEmail }}</strong>
+                </div>
+                <div class="footer-text">
+                    If you didn't request this change, please ignore this email and contact support.
+                </div>
+                <div class="footer-brand">
+                    © <span id="currentYear">2025</span> AgentOS. All rights reserved.
+                </div>
+            </div>
+        </div>
+    </div>
+    
+    <script>
+        // Set current year dynamically
+        document.getElementById('currentYear').textContent = new Date().getFullYear();
+    </script>
+</body>
+</html> 

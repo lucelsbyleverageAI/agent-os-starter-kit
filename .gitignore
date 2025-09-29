@@ -1,0 +1,89 @@
+.DS_Store
+apps/.DS_Store
+# Python
+__pycache__/
+*.py[cod]
+*.pyo
+*.pyd
+*.pyc
+*.pyd
+*.pyo
+*.pyd
+*.pkl
+*.egg-info/
+dist/
+build/
+.eggs/
+*.log
+*.sqlite3
+*.db
+*.env
+.env.*
+!.env.example
+!*.example
+.venv/
+venv/
+poetry.lock
+# VSCode
+.vscode/
+# macOS
+.DS_Store
+
+# LangGraph Python project (langgraph/)
+langgraph/.mypy_cache/
+langgraph/.pytest_cache/
+langgraph/.ruff_cache/
+langgraph/.coverage
+langgraph/.env
+langgraph/.venv/
+langgraph/venv/
+langgraph/poetry.lock
+langgraph/.langgraph_api
+
+# Node/Yarn/Frontend (apps/web)
+apps/web/node_modules/
+apps/web/.yarn/
+apps/web/.pnp.*
+apps/web/yarn.lock
+apps/web/.env
+apps/web/.next/
+apps/web/dist/
+apps/web/build/
+apps/web/.turbo/
+apps/web/.eslintcache
+
+# General
+*.swp
+*.swo
+*.bak
+*.tmp
+*.orig
+# IDEs
+.idea/
+*.iml
+
+archive/
+
+# Supabase CLI generated files
+supabase-cli/config.toml
+
+# Supabase repository (cloned by init containers in development/production)
+
+# Docling Model Cache
+models/cache/
+*.model
+*.onnx
+*.bin
+# Exclude large ML model files but keep directory structure
+!models/cache/.gitkeep
+apps/langconnect/tests/test_files/
+apps/langconnect/uv.lock
+
+
+temp/
+temp/*
+
+.ssh/
+docs/
+
+.cursor/

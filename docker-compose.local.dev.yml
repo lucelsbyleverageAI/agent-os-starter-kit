@@ -1,0 +1,835 @@
+# ==================================================
+# Local Development Docker Compose with Hot Reloading
+# ==================================================
+# This configuration deploys the complete Agent Platform stack for local development
+# with hot-reloading for LangConnect and MCP Server.
+# 
+# LangGraph and Web Frontend run as local processes (started by script)
+# 
+# Features:
+# - All Supabase services (database, auth, storage, etc.)
+# - Application services with hot-reloading (LangConnect, MCP Server)
+# - Workflow automation (n8n, Windmill)
+# - Automatic database migrations
+
+# Define persistent volumes for data storage across container restarts
+volumes:
+  n8n_storage:              # Stores n8n workflow automation data
+  langconnect_storage:      # Stores LangConnect API data  
+  mcp_server_storage:       # Stores MCP server data
+  windmill_db_data:         # Stores Windmill PostgreSQL data
+  windmill_worker_logs:     # Shared worker logs across all Windmill workers
+  windmill_worker_dependency_cache: # Shared dependency cache for efficiency
+  windmill_lsp_cache:       # LSP service cache for code intelligence
+  supabase-db-data:         # Supabase database data
+  supabase-storage:         # Supabase storage files
+  db-config:                # Database configuration volume
+
+services:
+  # ==========================================
+  # SUPABASE CORE SERVICES
+  # ==========================================
+  
+  # Supabase PostgreSQL Database
+  db:
+    container_name: supabase-db
+    image: supabase/postgres:15.8.1.060
+    restart: unless-stopped
+    volumes:
+      - ./supabase/volumes/db/realtime.sql:/docker-entrypoint-initdb.d/migrations/99-realtime.sql:Z
+      - ./supabase/volumes/db/webhooks.sql:/docker-entrypoint-initdb.d/init-scripts/98-webhooks.sql:Z
+      - ./supabase/volumes/db/roles.sql:/docker-entrypoint-initdb.d/init-scripts/99-roles.sql:Z
+      - ./supabase/volumes/db/jwt.sql:/docker-entrypoint-initdb.d/init-scripts/99-jwt.sql:Z
+      - supabase-db-data:/var/lib/postgresql/data:Z
+      - ./supabase/volumes/db/_supabase.sql:/docker-entrypoint-initdb.d/migrations/97-_supabase.sql:Z
+      - ./supabase/volumes/db/logs.sql:/docker-entrypoint-initdb.d/migrations/99-logs.sql:Z
+      - ./supabase/volumes/db/pooler.sql:/docker-entrypoint-initdb.d/migrations/99-pooler.sql:Z
+      - db-config:/etc/postgresql-custom
+    healthcheck:
+      test:
+        [
+        "CMD-SHELL",
+        "pg_isready -U postgres -h localhost && psql -U postgres -h localhost -c 'SELECT 1' > /dev/null 2>&1"
+        ]
+      interval: 5s
+      timeout: 10s
+      retries: 20
+      start_period: 30s
+    depends_on:
+      vector:
+        condition: service_healthy
+    environment:
+      POSTGRES_HOST: /var/run/postgresql
+      PGPORT: 5432                     # Hard-coded for local dev
+      POSTGRES_PORT: 5432              # Hard-coded for local dev
+      PGPASSWORD: ${POSTGRES_PASSWORD}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
+      PGDATABASE: postgres             # Hard-coded for local dev
+      POSTGRES_DB: postgres            # Hard-coded for local dev
+      JWT_SECRET: ${JWT_SECRET}
+      JWT_EXP: 3600                    # Hard-coded for local dev
+    command:
+      [
+        "postgres",
+        "-c",
+        "config_file=/etc/postgresql/postgresql.conf",
+        "-c",
+        "log_min_messages=fatal"
+      ]
+  
+  # Supabase Auth
+  auth:
+    container_name: supabase-auth
+    image: supabase/gotrue:v2.176.1
+    restart: unless-stopped
+    environment:
+      GOTRUE_API_HOST: 0.0.0.0
+      GOTRUE_API_PORT: 9999
+      API_EXTERNAL_URL: "${PLATFORM_PROTOCOL:-http}://${PLATFORM_DOMAIN:-localhost}:8000"  # Auto-generated Kong URL
+      GOTRUE_DB_DRIVER: postgres
+      GOTRUE_DB_DATABASE_URL: postgres://supabase_auth_admin:${POSTGRES_PASSWORD}@db:5432/postgres  # Hard-coded defaults
+      GOTRUE_SITE_URL: "${PLATFORM_PROTOCOL:-http}://${PLATFORM_DOMAIN:-localhost}:3000"  # Auto-generated frontend URL
+      GOTRUE_URI_ALLOW_LIST: "${PLATFORM_PROTOCOL:-http}://${PLATFORM_DOMAIN:-localhost}:3000/**,${PLATFORM_PROTOCOL:-http}://${PLATFORM_DOMAIN:-localhost}:3000/auth/callback"  # Auto-generated
+      GOTRUE_DISABLE_SIGNUP: ${DISABLE_SIGNUP:-true}
+      GOTRUE_JWT_ADMIN_ROLES: service_role
+      GOTRUE_JWT_AUD: authenticated
+      GOTRUE_JWT_DEFAULT_GROUP_NAME: authenticated
+      GOTRUE_JWT_EXP: 3600  # Hard-coded for local dev
+      GOTRUE_JWT_SECRET: ${JWT_SECRET}
+      GOTRUE_EXTERNAL_EMAIL_ENABLED: ${ENABLE_EMAIL_SIGNUP:-true}
+      GOTRUE_EXTERNAL_ANONYMOUS_USERS_ENABLED: ${ENABLE_ANONYMOUS_USERS:-false}
+      GOTRUE_MAILER_AUTOCONFIRM: ${ENABLE_EMAIL_AUTOCONFIRM:-false}
+      GOTRUE_SMTP_ADMIN_EMAIL: ${SMTP_ADMIN_EMAIL}
+      GOTRUE_SMTP_HOST: ${SMTP_HOST}
+      GOTRUE_SMTP_PORT: 587  # Hard-coded for local dev
+      GOTRUE_SMTP_USER: ${SMTP_USER}
+      GOTRUE_SMTP_PASS: ${SMTP_PASS}
+      GOTRUE_SMTP_SENDER_NAME: ${SMTP_SENDER_NAME}
+      # Email URL paths (hard-coded for local dev)
+      GOTRUE_MAILER_URLPATHS_INVITE: /reset-password?type=invite
+      GOTRUE_MAILER_URLPATHS_CONFIRMATION: /
+      GOTRUE_MAILER_URLPATHS_RECOVERY: /reset-password?type=recovery
+      GOTRUE_MAILER_URLPATHS_EMAIL_CHANGE: /
+      GOTRUE_MAILER_SECURE_EMAIL_CHANGE_ENABLED: true
+      GOTRUE_EXTERNAL_PHONE_ENABLED: ${ENABLE_PHONE_SIGNUP:-false}
+      GOTRUE_SMS_AUTOCONFIRM: false  # Hard-coded for local dev
+      # Email Templates (Docker-accessible URLs)
+      # Use host.docker.internal so containers can reach frontend on host
+      GOTRUE_MAILER_TEMPLATES_INVITE: "http://host.docker.internal:3000/api/email-templates/invite"
+      GOTRUE_MAILER_TEMPLATES_CONFIRMATION: "http://host.docker.internal:3000/api/email-templates/confirmation"
+      GOTRUE_MAILER_TEMPLATES_RECOVERY: "http://host.docker.internal:3000/api/email-templates/recovery"
+      GOTRUE_MAILER_TEMPLATES_MAGIC_LINK: "http://host.docker.internal:3000/api/email-templates/magic-link"
+      GOTRUE_MAILER_TEMPLATES_EMAIL_CHANGE: "http://host.docker.internal:3000/api/email-templates/email-change"
+      # Email Subjects (hard-coded for local dev)
+      GOTRUE_MAILER_SUBJECTS_INVITE: "Welcome to Agent Platform!"
+      GOTRUE_MAILER_SUBJECTS_CONFIRMATION: "Please confirm your email - Agent Platform"
+      GOTRUE_MAILER_SUBJECTS_RECOVERY: "Reset your password - Agent Platform"
+      GOTRUE_MAILER_SUBJECTS_MAGIC_LINK: "Your magic sign-in link - Agent Platform"
+      GOTRUE_MAILER_SUBJECTS_EMAIL_CHANGE: "Confirm your email change - Agent Platform"
+    healthcheck:
+      test:
+        [
+          "CMD",
+          "wget",
+          "--no-verbose",
+          "--tries=1",
+          "--spider",
+          "http://localhost:9999/health"
+        ]
+      timeout: 5s
+      interval: 5s
+      retries: 3
+    depends_on:
+      db:
+        condition: service_healthy
+      # analytics:
+      #   condition: service_healthy
+  
+  # PostgREST API
+  rest:
+    container_name: supabase-rest
+    image: postgrest/postgrest:v12.2.12
+    restart: unless-stopped
+    environment:
+      PGRST_DB_URI: postgres://authenticator:${POSTGRES_PASSWORD}@db:5432/postgres  # Hard-coded defaults
+      PGRST_DB_SCHEMAS: public,storage,graphql_public  # Hard-coded for local dev
+      PGRST_DB_ANON_ROLE: anon
+      PGRST_JWT_SECRET: ${JWT_SECRET}
+      PGRST_DB_USE_LEGACY_GUCS: "false"
+      PGRST_APP_SETTINGS_JWT_SECRET: ${JWT_SECRET}
+      PGRST_APP_SETTINGS_JWT_EXP: 3600  # Hard-coded for local dev
+    depends_on:
+      db:
+        condition: service_healthy
+      # analytics:
+      #   condition: service_healthy
+  
+  # Supabase Realtime
+  realtime:
+    container_name: realtime-dev.supabase-realtime
+    image: supabase/realtime:v2.34.47
+    restart: unless-stopped
+    environment:
+      PORT: 4000
+      DB_HOST: ${POSTGRES_HOST:-db}
+      DB_PORT: ${POSTGRES_PORT:-5432}
+      DB_USER: supabase_admin
+      DB_PASSWORD: ${POSTGRES_PASSWORD}
+      DB_NAME: ${POSTGRES_DB:-postgres}
+      DB_AFTER_CONNECT_QUERY: 'SET search_path TO _realtime'
+      DB_ENC_KEY: supabaserealtime
+      API_JWT_SECRET: ${JWT_SECRET}
+      SECRET_KEY_BASE: ${SECRET_KEY_BASE}
+      ERL_AFLAGS: -proto_dist inet_tcp
+      DNS_NODES: "''"
+      RLIMIT_NOFILE: "10000"
+      APP_NAME: realtime
+      SEED_SELF_HOST: true
+      RUN_JANITOR: true
+    healthcheck:
+      test:
+        [
+          "CMD",
+          "curl",
+          "-sSfL",
+          "--head",
+          "-o",
+          "/dev/null",
+          "-H",
+          "Authorization: Bearer ${SUPABASE_ANON_KEY}",
+          "http://localhost:4000/api/tenants/realtime-dev/health"
+        ]
+      timeout: 5s
+      interval: 5s
+      retries: 3
+    depends_on:
+      db:
+        condition: service_healthy
+      # analytics:
+      #   condition: service_healthy
+  
+  # Supabase Storage
+  storage:
+    container_name: supabase-storage
+    image: supabase/storage-api:v1.24.7
+    restart: unless-stopped
+    environment:
+      ANON_KEY: ${SUPABASE_ANON_KEY}
+      SERVICE_KEY: ${SUPABASE_SERVICE_KEY}
+      POSTGREST_URL: http://rest:3000
+      PGRST_JWT_SECRET: ${JWT_SECRET}
+      DATABASE_URL: postgres://supabase_storage_admin:${POSTGRES_PASSWORD}@db:5432/postgres  # Hard-coded defaults
+      FILE_SIZE_LIMIT: 52428800
+      STORAGE_BACKEND: file
+      FILE_STORAGE_BACKEND_PATH: /var/lib/storage
+      TENANT_ID: stub
+      REGION: stub
+      GLOBAL_S3_BUCKET: stub
+      ENABLE_IMAGE_TRANSFORMATION: "true"
+      IMGPROXY_URL: http://imgproxy:5001
+    volumes:
+      - supabase-storage:/var/lib/storage:z
+    healthcheck:
+      test:
+        [
+          "CMD",
+          "wget",
+          "--no-verbose",
+          "--tries=1",
+          "--spider",
+          "http://localhost:5000/status"
+        ]
+      timeout: 5s
+      interval: 5s
+      retries: 3
+    depends_on:
+      db:
+        condition: service_healthy
+      rest:
+        condition: service_started
+      imgproxy:
+        condition: service_started
+  
+  # Image Proxy for Storage
+  imgproxy:
+    container_name: supabase-imgproxy
+    image: darthsim/imgproxy:v3.8.0
+    restart: unless-stopped
+    environment:
+      IMGPROXY_BIND: ":5001"
+      IMGPROXY_LOCAL_FILESYSTEM_ROOT: /
+      IMGPROXY_USE_ETAG: "true"
+      IMGPROXY_ENABLE_WEBP_DETECTION: ${IMGPROXY_ENABLE_WEBP_DETECTION:-false}
+    volumes:
+      - supabase-storage:/var/lib/storage:z
+    healthcheck:
+      test:
+        [
+          "CMD",
+          "imgproxy",
+          "health"
+        ]
+      timeout: 5s
+      interval: 5s
+      retries: 3
+
+  # Supabase Analytics - DISABLED to save memory (~1.5GB per instance)
+  # analytics:
+  #   container_name: supabase-analytics
+  #   image: supabase/logflare:1.14.2
+  #   restart: unless-stopped
+  #   ports:
+  #     - 4000:4000
+  #   healthcheck:
+  #     test:
+  #       [
+  #         "CMD",
+  #         "curl",
+  #         "http://localhost:4000/health"
+  #       ]
+  #     timeout: 5s
+  #     interval: 5s
+  #     retries: 10
+  #   depends_on:
+  #     db:
+  #       condition: service_healthy
+  #   environment:
+  #     LOGFLARE_NODE_HOST: 127.0.0.1
+  #     DB_USERNAME: supabase_admin
+  #     DB_DATABASE: _supabase
+  #     DB_HOSTNAME: ${POSTGRES_HOST:-db}
+  #     DB_PORT: ${POSTGRES_PORT:-5432}
+  #     DB_PASSWORD: ${POSTGRES_PASSWORD}
+  #     DB_SCHEMA: _analytics
+  #     LOGFLARE_PUBLIC_ACCESS_TOKEN: ${LOGFLARE_PUBLIC_ACCESS_TOKEN:-dummy_public_token_for_local_dev}
+  #     LOGFLARE_PRIVATE_ACCESS_TOKEN: ${LOGFLARE_PRIVATE_ACCESS_TOKEN:-dummy_private_token_for_local_dev}
+  #     LOGFLARE_SINGLE_TENANT: true
+  #     LOGFLARE_SUPABASE_MODE: true
+  #     LOGFLARE_MIN_CLUSTER_SIZE: 1
+  #     POSTGRES_BACKEND_URL: postgresql://supabase_admin:${POSTGRES_PASSWORD}@${POSTGRES_HOST:-db}:${POSTGRES_PORT:-5432}/_supabase
+  #     POSTGRES_BACKEND_SCHEMA: _analytics
+  #     LOGFLARE_FEATURE_FLAG_OVERRIDE: multibackend=true
+
+  # Supabase Meta (required by Studio)
+  meta:
+    container_name: supabase-meta
+    image: supabase/postgres-meta:v0.89.3
+    restart: unless-stopped
+    environment:
+      PG_META_PORT: 8080
+      PG_META_DB_HOST: ${POSTGRES_HOST:-db}
+      PG_META_DB_PORT: ${POSTGRES_PORT:-5432}
+      PG_META_DB_NAME: ${POSTGRES_DB:-postgres}
+      PG_META_DB_USER: supabase_admin
+      PG_META_DB_PASSWORD: ${POSTGRES_PASSWORD}
+    depends_on:
+      db:
+        condition: service_healthy
+      # analytics:
+      #   condition: service_healthy
+  
+  # Kong API Gateway
+  kong:
+    container_name: supabase-kong
+    image: kong:2.8.1
+    restart: unless-stopped
+    ports:
+      - "8000:8000"  # Hard-coded: Single gateway for all Supabase services
+      - "8443:8443"  # Hard-coded: HTTPS (if needed)
+    environment:
+      KONG_DATABASE: "off"
+      KONG_DECLARATIVE_CONFIG: /home/kong/kong.yml
+      KONG_DNS_ORDER: LAST,A,CNAME
+      KONG_PLUGINS: request-transformer,cors,key-auth,acl,basic-auth
+      KONG_NGINX_PROXY_PROXY_BUFFER_SIZE: 160k
+      KONG_NGINX_PROXY_PROXY_BUFFERS: 64 160k
+      SUPABASE_ANON_KEY: ${SUPABASE_ANON_KEY}
+      SUPABASE_SERVICE_KEY: ${SUPABASE_SERVICE_KEY}
+      DASHBOARD_USERNAME: ${DASHBOARD_USERNAME}
+      DASHBOARD_PASSWORD: ${DASHBOARD_PASSWORD}
+    volumes:
+      - ./supabase/volumes/api/kong.yml:/home/kong/temp.yml:ro,z
+    entrypoint: bash -c 'eval "echo \"$$(cat ~/temp.yml)\"" > ~/kong.yml && /docker-entrypoint.sh kong docker-start'
+    depends_on:
+      db:
+        condition: service_healthy
+      # analytics:
+      #   condition: service_healthy
+
+  # Studio (Admin Interface)
+  studio:
+    container_name: supabase-studio
+    image: supabase/studio:2025.06.30-sha-6f5982d
+    restart: unless-stopped
+    # Note: Studio now accessed through Kong gateway (no direct port exposure)
+    environment:
+      STUDIO_PG_META_URL: http://meta:8080
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
+      DEFAULT_ORGANIZATION_NAME: "Agent Platform"  # Hard-coded for local dev
+      DEFAULT_PROJECT_NAME: "Development"         # Hard-coded for local dev
+      SUPABASE_URL: http://kong:8000             # Internal network
+      SUPABASE_PUBLIC_URL: "${PLATFORM_PROTOCOL:-http}://${PLATFORM_DOMAIN:-localhost}:8000"  # Auto-generated external URL
+      SUPABASE_ANON_KEY: ${SUPABASE_ANON_KEY}
+      SUPABASE_SERVICE_KEY: ${SUPABASE_SERVICE_KEY}
+    depends_on:
+      kong:
+        condition: service_started
+  
+  # Vector for log collection
+  vector:
+    container_name: supabase-vector
+    image: timberio/vector:0.28.1-alpine
+    restart: unless-stopped
+    volumes:
+      - ./supabase/volumes/logs/vector.yml:/etc/vector/vector.yml:ro,z
+      - ${DOCKER_SOCKET_LOCATION:-/var/run/docker.sock}:/var/run/docker.sock:ro,z
+    healthcheck:
+      test:
+        [
+          "CMD",
+          "wget",
+          "--no-verbose",
+          "--tries=1",
+          "--spider",
+          "http://vector:9001/health"
+        ]
+      timeout: 5s
+      interval: 5s
+      retries: 3
+    environment:
+      # LOGFLARE_PUBLIC_ACCESS_TOKEN: ${LOGFLARE_PUBLIC_ACCESS_TOKEN:-dummy_token_for_local_dev}  # Disabled with analytics
+      DUMMY_ENV: "true"  # Placeholder since analytics is disabled
+    command:
+      [
+        "--config",
+        "/etc/vector/vector.yml"
+      ]
+
+  # Supavisor (Connection Pooler)
+  supavisor:
+    container_name: supabase-pooler
+    image: supabase/supavisor:2.5.6
+    restart: unless-stopped
+    ports:
+      - ${POSTGRES_PORT:-5432}:5432
+      - ${POOLER_PROXY_PORT_TRANSACTION:-6543}:6543
+    healthcheck:
+      test:
+        [
+          "CMD",
+          "curl",
+          "-sSfL",
+          "--head",
+          "-o",
+          "/dev/null",
+          "http://127.0.0.1:4000/api/health"
+        ]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    depends_on:
+      db:
+        condition: service_healthy
+      # analytics:
+      #   condition: service_healthy
+    environment:
+      PORT: 4000
+      POSTGRES_PORT: ${POSTGRES_PORT:-5432}
+      POSTGRES_DB: ${POSTGRES_DB:-postgres}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
+      DATABASE_URL: ecto://supabase_admin:${POSTGRES_PASSWORD}@${POSTGRES_HOST:-db}:${POSTGRES_PORT:-5432}/_supabase
+      CLUSTER_POSTGRES: true
+      SECRET_KEY_BASE: ${SECRET_KEY_BASE}
+      VAULT_ENC_KEY: ${VAULT_ENC_KEY}
+      API_JWT_SECRET: ${JWT_SECRET}
+      METRICS_JWT_SECRET: ${JWT_SECRET}
+      REGION: local
+      ERL_AFLAGS: -proto_dist inet_tcp
+      POOLER_TENANT_ID: ${POOLER_TENANT_ID:-1000}
+      POOLER_DEFAULT_POOL_SIZE: ${POOLER_DEFAULT_POOL_SIZE:-25}
+      POOLER_MAX_CLIENT_CONN: ${POOLER_MAX_CLIENT_CONN:-200}
+      POOLER_POOL_MODE: transaction
+      DB_POOL_SIZE: ${POOLER_DB_POOL_SIZE:-5}
+    volumes:
+      - ./supabase/volumes/pooler/pooler.exs:/etc/pooler/pooler.exs:ro,z
+    command:
+      [
+        "/bin/sh",
+        "-c",
+        "/app/bin/migrate && /app/bin/supavisor eval \"$$(cat /etc/pooler/pooler.exs)\" && /app/bin/server"
+      ]
+
+  # ==========================================
+  # DATABASE MIGRATION INIT CONTAINER
+  # ==========================================
+
+  # Migration Init: Runs database migrations before application services start
+  migration-init:
+    build:
+      context: ./database
+      dockerfile: Dockerfile.migration
+    container_name: agent-platform-migration-init
+    restart: "no"  # Run once and exit
+    environment:
+      # Database connection (hard-coded for local dev)
+      - POSTGRES_HOST=db
+      - POSTGRES_PORT=5432
+      - POSTGRES_DB=postgres
+      - POSTGRES_USER=postgres
+      - POSTGRES_PASSWORD=${POSTGRES_PASSWORD}
+      # Migration configuration (hard-coded for local dev)
+      - PYTHONUNBUFFERED=1
+      - LOG_LEVEL=${LOG_LEVEL:-INFO}
+      - MIGRATION_RESET_SCHEMA=${MIGRATION_RESET_SCHEMA}
+      # Wait configuration (hard-coded timeouts)
+      - MAX_WAIT_TIME=180
+      - WAIT_RETRY_INTERVAL=5
+    depends_on:
+      db:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "python", "migrate.py", "--status"]
+      interval: 10s
+      timeout: 5s
+      retries: 3
+      start_period: 10s
+
+  # ==========================================
+  # APPLICATION SERVICES (HOT RELOAD)
+  # ==========================================
+
+  # LangConnect: RAG Backend API with hot reloading for development
+  langconnect:
+    build:
+      context: ./apps/langconnect
+      dockerfile: Dockerfile.dev  # Development Dockerfile with hot reload
+    container_name: langconnect-dev
+    restart: unless-stopped
+    ports:
+      - "8080:8080"           # Hard-coded: LangConnect API
+    environment:
+      # Database connection (hard-coded defaults for local dev)
+      - LANGCONNECT_POSTGRES_HOST=db
+      - LANGCONNECT_POSTGRES_PORT=5432
+      - LANGCONNECT_POSTGRES_USER=postgres
+      - LANGCONNECT_POSTGRES_PASSWORD=${POSTGRES_PASSWORD}
+      - LANGCONNECT_POSTGRES_DB=postgres
+      - LANGCONNECT_POSTGRES_SCHEMA=langconnect
+      # LangGraph configuration (configurable external URL)
+      - LANGCONNECT_LANGGRAPH_API_URL=${LANGGRAPH_EXTERNAL_URL}
+      - LANGSMITH_API_KEY=${LANGSMITH_API_KEY}
+      # Authentication (internal Supabase URLs - container network)
+      - SUPABASE_URL=http://kong:8000
+      - SUPABASE_ANON_KEY=${SUPABASE_ANON_KEY}
+      - SUPABASE_SERVICE_KEY=${SUPABASE_SERVICE_KEY}
+      # GCP Image Storage
+      - IMAGE_STORAGE_ENABLED=${IMAGE_STORAGE_ENABLED:-false}
+      - GCP_PROJECT_ID=${GCP_PROJECT_ID}
+      - GCP_STORAGE_BUCKET=${GCP_STORAGE_BUCKET}
+      - GCP_SERVICE_ACCOUNT_KEY=${GCP_SERVICE_ACCOUNT_KEY}
+      - IMAGE_PUBLIC_ACCESS=${IMAGE_PUBLIC_ACCESS:-true}
+      - IMAGE_URL_EXPIRY_HOURS=24
+      - IMAGE_BASE_URL=https://storage.googleapis.com
+      # External API Keys
+      - LANGCONNECT_SERVICE_ACCOUNT_KEY=${LANGCONNECT_SERVICE_ACCOUNT_KEY}
+      - SUPADATA_API_TOKEN=${SUPADATA_API_TOKEN}
+      - OPENAI_API_KEY=${OPENAI_API_KEY}
+      # API configuration (hard-coded for local dev)
+      - API_HOST=0.0.0.0
+      - API_PORT=8080
+      - DEBUG=${DEBUG:-true}
+      # Development settings for hot reload (hard-coded)
+      - UVICORN_RELOAD=true
+      - UVICORN_LOG_LEVEL=debug
+      - PYTHONUNBUFFERED=1
+      - PYTHONDONTWRITEBYTECODE=1
+      # CORS configuration (auto-generated from platform domain)
+      - ALLOW_ORIGINS=["${PLATFORM_PROTOCOL:-http}://${PLATFORM_DOMAIN:-localhost}:3000"]
+      # Sentry (local development)
+      - SENTRY_DSN_LANGCONNECT=${SENTRY_DSN_LANGCONNECT}
+      - SENTRY_ENVIRONMENT=development
+      - SENTRY_TRACES_SAMPLE_RATE=${SENTRY_TRACES_SAMPLE_RATE:-1.0}
+      - SENTRY_PROFILES_SAMPLE_RATE=${SENTRY_PROFILES_SAMPLE_RATE:-0.0}
+    volumes:
+      # Mount only source code directories for hot reloading, preserving .venv
+      - ./apps/langconnect/langconnect:/app/langconnect:rw
+      - ./apps/langconnect/tests:/app/tests:rw
+      - ./apps/langconnect/pyproject.toml:/app/pyproject.toml:ro
+      - ./apps/langconnect/README.md:/app/README.md:ro
+      - langconnect_storage:/app/data  # Persist application data only
+    depends_on:
+      migration-init:
+        condition: service_completed_successfully
+
+  # Custom MCP Server: Model Context Protocol server with hot reloading
+  mcp-server:
+    build:
+      context: ./apps/mcp
+      dockerfile: Dockerfile.dev  # Development Dockerfile with hot reload
+    container_name: mcp-server-dev
+    restart: unless-stopped
+    ports:
+      - "8002:8001"           # Hard-coded: MCP Server API (external:internal)
+    environment: 
+      # Server configuration (hard-coded for local dev)
+      - MCP_SERVER_PORT=8001
+      - MCP_SERVER_HOST=0.0.0.0
+      - MCP_SERVER_LOG_LEVEL=${LOG_LEVEL:-INFO}
+      - MCP_SERVER_LOG_NAME=custom-mcp-server
+      - MCP_SERVICE_ACCOUNT_KEY=${MCP_SERVICE_ACCOUNT_KEY}
+      - MCP_TOKEN_SIGNING_SECRET=${MCP_TOKEN_SIGNING_SECRET}
+      # Authentication (internal Supabase URLs - container network)
+      - AUTH_PROVIDER=supabase
+      - SUPABASE_URL=http://kong:8000
+      - SUPABASE_ANON_KEY=${SUPABASE_ANON_KEY}
+      - SUPABASE_SERVICE_KEY=${SUPABASE_SERVICE_KEY}
+      # External API keys
+      - ARCADE_API_KEY=${ARCADE_API_KEY}
+      - ARCADE_BASE_URL=https://api.arcade.dev
+      - OPENAI_API_KEY=${OPENAI_API_KEY}
+      - TAVILY_API_KEY=${TAVILY_API_KEY}
+      - E2B_API_KEY=${E2B_API_KEY}
+      # MCP configuration (hard-coded defaults for local dev)
+      - ENABLE_OAUTH_DISCOVERY=true
+      - ENABLE_ARCADE=${ENABLE_ARCADE:-true}
+      - FRONTEND_BASE_URL=${FRONTEND_BASE_URL:-http://localhost:3000}
+      - MCP_PUBLIC_BASE_URL=${MCP_PUBLIC_BASE_URL:-http://localhost:8002}
+      - OAUTH_ISSUER=http://kong:8000
+      - LANGCONNECT_BASE_URL=http://langconnect:8080
+      - TOOL_EXECUTION_TIMEOUT=300
+      - IMAGE_STORAGE_ENABLED=${IMAGE_STORAGE_ENABLED:-false}
+      - GCP_PROJECT_ID=${GCP_PROJECT_ID}
+      - GCP_STORAGE_BUCKET=${GCP_STORAGE_BUCKET}
+      - GCP_SERVICE_ACCOUNT_KEY=${GCP_SERVICE_ACCOUNT_KEY}
+      - IMAGE_PUBLIC_ACCESS=${IMAGE_PUBLIC_ACCESS:-true}
+      - IMAGE_URL_EXPIRY_HOURS=24
+      - ENABLE_CUSTOM_TOOLS=true
+      - CUSTOM_TOOLS_CONFIG_PATH=./config/custom_tools.json
+      - ENABLED_ARCADE_SERVICES=${ENABLED_ARCADE_SERVICES}
+      - TOOL_CACHE_TTL=3600
+      - USER_AUTH_CACHE_TTL=1800
+      
+      # Development settings (hard-coded for local dev)
+      - DEBUG=${DEBUG:-true}
+      - ENABLE_CORS=true
+      - CORS_ORIGINS=${PLATFORM_PROTOCOL:-http}://${PLATFORM_DOMAIN:-localhost}:3000,${PLATFORM_PROTOCOL:-http}://${PLATFORM_DOMAIN:-localhost}:2024,${PLATFORM_PROTOCOL:-http}://host.docker.internal:2024
+      - UVICORN_RELOAD=true
+      - UVICORN_LOG_LEVEL=debug
+      - PYTHONUNBUFFERED=1
+      - PYTHONDONTWRITEBYTECODE=1
+      # Sentry (local development)
+      - SENTRY_DSN_MCP=${SENTRY_DSN_MCP}
+      - SENTRY_ENVIRONMENT=development
+      - SENTRY_TRACES_SAMPLE_RATE=${SENTRY_TRACES_SAMPLE_RATE:-1.0}
+      - SENTRY_PROFILES_SAMPLE_RATE=${SENTRY_PROFILES_SAMPLE_RATE:-0.0}
+    volumes:
+      # Mount only source code directories for hot reloading, preserving .venv
+      - ./apps/mcp/src:/app/src:rw
+      - ./apps/mcp/tests:/app/tests:rw
+      - ./apps/mcp/pyproject.toml:/app/pyproject.toml:ro
+      - ./apps/mcp/README.md:/app/README.md:ro
+      - mcp_server_storage:/app/data  # Persist application data only
+    depends_on:
+      migration-init:
+        condition: service_completed_successfully
+
+  # ==========================================
+  # WORKFLOW AUTOMATION SERVICES
+  # ==========================================
+
+  # n8n: Workflow automation service
+  n8n-import:
+    build:
+      context: .
+      dockerfile: n8n/import/Dockerfile
+    pull_policy: always
+    container_name: n8n-import-dev
+    restart: "no"  # Run once and exit - don't restart
+    entrypoint: /bin/sh
+    command:
+      [
+        "-c",
+        "set -e; echo 'Listing /data:'; ls -la /data || true; echo 'Listing /data/credentials:'; ls -la /data/credentials || true; echo 'Listing /data/workflows:'; ls -la /data/workflows || true; \
+        if ls /data/credentials/*.json >/dev/null 2>&1; then echo 'Importing credentials...'; n8n import:credentials --separate --input=/data/credentials --debug || exit 1; else echo 'No credentials to import.'; fi; \
+        if ls /data/workflows/*.json >/dev/null 2>&1; then echo 'Importing workflows...'; n8n import:workflow --separate --input=/data/workflows --debug || exit 1; else echo 'No workflows to import.'; fi"
+      ]
+    environment:  
+      # Database configuration (use shared Supabase PostgreSQL)
+      - DB_TYPE=postgresdb
+      - DB_POSTGRESDB_HOST=db
+      - DB_POSTGRESDB_USER=postgres
+      - DB_POSTGRESDB_PASSWORD=${POSTGRES_PASSWORD}
+      - DB_POSTGRESDB_DATABASE=postgres
+      # Security keys (must match the main n8n service)
+      - N8N_ENCRYPTION_KEY=${N8N_ENCRYPTION_KEY}
+      - N8N_USER_MANAGEMENT_JWT_SECRET=${N8N_USER_MANAGEMENT_JWT_SECRET}
+    # No volumes here on purpose: use baked-in /data from the import image
+    depends_on:
+      db:
+        condition: service_healthy
+
+  n8n:
+    image: docker.n8n.io/n8nio/n8n:latest
+    pull_policy: always
+    container_name: n8n-dev
+    restart: unless-stopped
+    ports:
+      - "5678:5678"           # Hard-coded: n8n web interface
+    environment:
+      # Database configuration (use shared Supabase PostgreSQL)
+      - DB_TYPE=postgresdb
+      - DB_POSTGRESDB_HOST=db
+      - DB_POSTGRESDB_USER=postgres
+      - DB_POSTGRESDB_PASSWORD=${POSTGRES_PASSWORD}
+      - DB_POSTGRESDB_DATABASE=postgres
+      # Privacy settings (hard-coded for local dev)
+      - N8N_DIAGNOSTICS_ENABLED=false
+      - N8N_PERSONALIZATION_ENABLED=false
+      # Security keys
+      - N8N_ENCRYPTION_KEY=${N8N_ENCRYPTION_KEY}
+      - N8N_USER_MANAGEMENT_JWT_SECRET=${N8N_USER_MANAGEMENT_JWT_SECRET}
+      # Auto-generated webhook URL
+      - WEBHOOK_URL=${PLATFORM_PROTOCOL:-http}://${PLATFORM_DOMAIN:-localhost}:5678
+    volumes:
+      - n8n_storage:/home/node/.n8n  # Persist n8n data
+      - ./n8n/data:/data
+      - ./n8n/data/credentials:/data/credentials:ro
+      - ./n8n/data/workflows:/data/workflows:ro
+    depends_on:
+      db:
+        condition: service_healthy
+      n8n-import:
+        condition: service_completed_successfully
+
+  # ==========================================
+  # WINDMILL WORKFLOW AUTOMATION PLATFORM
+  # ==========================================
+
+  # Windmill Database: Dedicated PostgreSQL instance for Windmill
+  windmill-db:
+    image: postgres:16
+    container_name: windmill-db-dev
+    restart: unless-stopped
+    ports:
+      - "5433:5432"           # Hard-coded: Windmill PostgreSQL (avoid conflict with Supabase)
+    environment:
+      - POSTGRES_USER=${SERVICE_USER_POSTGRES}
+      - POSTGRES_PASSWORD=${SERVICE_PASSWORD_POSTGRES}
+      - POSTGRES_DB=windmill-db  # Hard-coded for local dev
+    volumes:
+      - windmill_db_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U $${POSTGRES_USER} -d $${POSTGRES_DB}"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 40s
+
+  # Windmill Server: Web UI and API server
+  windmill-server:
+    image: ghcr.io/windmill-labs/windmill:main
+    container_name: windmill-server-dev
+    restart: unless-stopped
+    ports:
+      - "9000:8000"           # Hard-coded: Windmill web interface
+    environment:
+      - DATABASE_URL=postgres://${SERVICE_USER_POSTGRES}:${SERVICE_PASSWORD_POSTGRES}@windmill-db:5432/windmill-db  # Hard-coded DB name
+      - MODE=server
+      - BASE_URL=${PLATFORM_PROTOCOL:-http}://${PLATFORM_DOMAIN:-localhost}:9000  # Auto-generated URL
+    depends_on:
+      windmill-db:
+        condition: service_healthy
+    volumes:
+      - windmill_worker_logs:/tmp/windmill/logs
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8000/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+
+  # Windmill Worker 1: Default worker for job execution
+  windmill-worker-1:
+    image: ghcr.io/windmill-labs/windmill:main
+    container_name: windmill-worker-1-dev
+    restart: unless-stopped
+    environment:
+      - DATABASE_URL=postgres://${SERVICE_USER_POSTGRES}:${SERVICE_PASSWORD_POSTGRES}@windmill-db:5432/windmill-db  # Hard-coded DB name
+      - MODE=worker
+      - WORKER_GROUP=default
+    depends_on:
+      windmill-db:
+        condition: service_healthy
+    volumes:
+      - /var/run/docker.sock:/var/run/docker.sock  # Enable Docker-in-Docker for script execution
+      - windmill_worker_dependency_cache:/tmp/windmill/cache
+      - windmill_worker_logs:/tmp/windmill/logs
+    healthcheck:
+      test: ["CMD-SHELL", "exit 0"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+
+  # Optional additional workers - remove if not needed to free up resources
+  # # Windmill Worker 2: Additional default worker for scaling
+  # windmill-worker-2:
+  #   image: ghcr.io/windmill-labs/windmill:main
+  #   container_name: windmill-worker-2-dev
+  #   restart: unless-stopped
+  #   environment:
+  #     - DATABASE_URL=postgres://${SERVICE_USER_POSTGRES}:${SERVICE_PASSWORD_POSTGRES}@windmill-db:5432/windmill-db  # Hard-coded DB name
+  #     - MODE=worker
+  #     - WORKER_GROUP=default
+  #   depends_on:
+  #     windmill-db:
+  #       condition: service_healthy
+  #   volumes:
+  #     - /var/run/docker.sock:/var/run/docker.sock
+  #     - windmill_worker_dependency_cache:/tmp/windmill/cache
+  #     - windmill_worker_logs:/tmp/windmill/logs
+  #   healthcheck:
+  #     test: ["CMD-SHELL", "exit 0"]
+  #     interval: 30s
+  #     timeout: 10s
+  #     retries: 3
+
+  # # Windmill Worker Native: Specialized native worker for high-performance execution
+  # windmill-worker-native:
+  #   image: ghcr.io/windmill-labs/windmill:main
+  #   container_name: windmill-worker-native-dev
+  #   restart: unless-stopped
+  #   environment:
+  #     - DATABASE_URL=postgres://${SERVICE_USER_POSTGRES}:${SERVICE_PASSWORD_POSTGRES}@windmill-db:5432/windmill-db  # Hard-coded DB name
+  #     - MODE=worker
+  #     - WORKER_GROUP=native
+  #     - NUM_WORKERS=8   # Hard-coded for local dev
+  #     - SLEEP_QUEUE=200 # Hard-coded for local dev
+  #   depends_on:
+  #     windmill-db:
+  #       condition: service_healthy
+  #   volumes:
+  #     - windmill_worker_logs:/tmp/windmill/logs
+  #   healthcheck:
+  #     test: ["CMD-SHELL", "exit 0"]
+  #     interval: 30s
+  #     timeout: 10s
+  #     retries: 3
+
+  # Windmill LSP: Language Server Protocol for code intelligence
+  windmill-lsp:
+    image: ghcr.io/windmill-labs/windmill-lsp:latest
+    container_name: windmill-lsp-dev
+    restart: unless-stopped
+    volumes:
+      - windmill_lsp_cache:/root/.cache
+    healthcheck:
+      test: ["CMD-SHELL", "exit 0"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 20s
+
+# NOTE: LangGraph and Web Frontend run separately as local development servers
+# Both services use the root .env.local configuration
+# To start them separately:
+# - LangGraph: cd langgraph && poetry run langgraph dev --allow-blocking
+# - Web Frontend: cd apps/web && yarn dev

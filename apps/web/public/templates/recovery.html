@@ -1,0 +1,259 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Reset Your Password - AgentOS</title>
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+        
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', system-ui, sans-serif;
+            line-height: 1.5;
+            color: #374151;
+            background-color: #f8fafc;
+            -webkit-font-smoothing: antialiased;
+            -moz-osx-font-smoothing: grayscale;
+        }
+        
+        .email-wrapper {
+            width: 100%;
+            max-width: 600px;
+            margin: 0 auto;
+            padding: 20px;
+        }
+        
+        .email-container {
+            background: #ffffff;
+            border-radius: 12px;
+            box-shadow: 0 1px 3px rgba(0, 0, 0, 0.1);
+            overflow: hidden;
+        }
+        
+        .header {
+            padding: 32px 32px 24px;
+            text-align: center;
+            background: linear-gradient(135deg, #040056 0%, #040056 100%);
+            color: white;
+        }
+        
+
+        
+        .brand-name {
+            font-size: 24px;
+            font-weight: 600;
+            margin-bottom: 8px;
+            letter-spacing: -0.025em;
+        }
+        
+        .header-subtitle {
+            font-size: 16px;
+            opacity: 0.9;
+            font-weight: 400;
+        }
+        
+        .content {
+            padding: 32px;
+        }
+        
+        .greeting {
+            font-size: 18px;
+            font-weight: 500;
+            color: #111827;
+            margin-bottom: 16px;
+        }
+        
+        .message {
+            font-size: 16px;
+            color: #4b5563;
+            margin-bottom: 24px;
+            line-height: 1.6;
+        }
+        
+        .cta-section {
+            text-align: center;
+            margin: 32px 0;
+        }
+        
+        .cta-button {
+            display: inline-block;
+            background: #040056 !important;
+            color: white !important;
+            text-decoration: none;
+            padding: 14px 28px;
+            border-radius: 8px;
+            font-weight: 500;
+            font-size: 16px;
+            transition: all 0.2s ease;
+            box-shadow: 0 2px 4px rgba(4, 0, 86, 0.2);
+        }
+        
+        .cta-button:hover {
+            background: #030045 !important;
+            color: white !important;
+            transform: translateY(-1px);
+            box-shadow: 0 4px 8px rgba(4, 0, 86, 0.3);
+        }
+        
+        .alternative-section {
+            margin-top: 24px;
+            padding: 16px;
+            background: #f8fafc;
+            border-radius: 8px;
+            border-left: 3px solid #040056;
+        }
+        
+        .alternative-title {
+            font-size: 14px;
+            font-weight: 500;
+            color: #374151;
+            margin-bottom: 8px;
+        }
+        
+        .alternative-link {
+            font-size: 14px;
+            color: #040056;
+            word-break: break-all;
+            text-decoration: none;
+        }
+        
+        .security-notice {
+            margin-top: 24px;
+            padding: 16px;
+            background: #fef3c7;
+            border-radius: 8px;
+            border-left: 3px solid #f59e0b;
+        }
+        
+        .security-title {
+            font-size: 14px;
+            font-weight: 500;
+            color: #92400e;
+            margin-bottom: 8px;
+            display: flex;
+            align-items: center;
+        }
+        
+        .security-list {
+            font-size: 14px;
+            color: #78350f;
+            margin: 0;
+            padding-left: 16px;
+        }
+        
+        .security-list li {
+            margin-bottom: 4px;
+        }
+        
+        .footer {
+            padding: 24px 32px;
+            background: #f8fafc;
+            border-top: 1px solid #e5e7eb;
+            text-align: center;
+        }
+        
+        .footer-text {
+            font-size: 14px;
+            color: #6b7280;
+            margin-bottom: 8px;
+        }
+        
+        .footer-brand {
+            font-size: 12px;
+            color: #9ca3af;
+        }
+        
+        /* Mobile responsiveness */
+        @media (max-width: 480px) {
+            .email-wrapper {
+                padding: 16px;
+            }
+            
+            .content {
+                padding: 24px 20px;
+            }
+            
+            .header {
+                padding: 24px 20px 20px;
+            }
+            
+            .brand-name {
+                font-size: 20px;
+            }
+            
+            .cta-button {
+                padding: 12px 24px;
+                font-size: 15px;
+            }
+        }
+    </style>
+</head>
+<body>
+    <div class="email-wrapper">
+        <div class="email-container">
+            <div class="header">
+                <div class="brand-name">AgentOS</div>
+                <div class="header-subtitle">Password Reset Request</div>
+            </div>
+            
+            <div class="content">
+                <div class="greeting">Reset Your Password</div>
+                
+                <div class="message">
+                    We received a request to reset the password for your AgentOS account associated with <strong>{{ .Email }}</strong>.
+                </div>
+                
+                <div class="message">
+                    Click the button below to create a new password. This link will expire in 1 hour for your security.
+                </div>
+                
+                <div class="cta-section">
+                    <a href="{{ .SiteURL }}/reset-password?token_hash={{ .TokenHash }}&type=recovery" class="cta-button">
+                        Reset Password
+                    </a>
+                </div>
+                
+                <div class="alternative-section">
+                    <div class="alternative-title">Having trouble with the button?</div>
+                    <div>Copy and paste this link into your browser:</div>
+                    <div style="margin-top: 8px;">
+                        <a href="{{ .SiteURL }}/reset-password?token_hash={{ .TokenHash }}&type=recovery" class="alternative-link">
+                            {{ .SiteURL }}/reset-password?token_hash={{ .TokenHash }}&type=recovery
+                        </a>
+                    </div>
+                </div>
+                
+                <div class="security-notice">
+                    <div class="security-title">🔒 Security Notice</div>
+                    <ul class="security-list">
+                        <li>This link expires in 1 hour for your protection</li>
+                        <li>If you didn't request this reset, you can safely ignore this email</li>
+                        <li>Your current password remains unchanged until you create a new one</li>
+                    </ul>
+                </div>
+            </div>
+            
+            <div class="footer">
+                <div class="footer-text">
+                    This password reset was requested for your AgentOS account.
+                </div>
+                <div class="footer-text">
+                    If you didn't make this request, please contact our support team.
+                </div>
+                <div class="footer-brand">
+                    © <span id="currentYear">2025</span> AgentOS. All rights reserved.
+                </div>
+            </div>
+        </div>
+    </div>
+    
+    <script>
+        // Set current year dynamically
+        document.getElementById('currentYear').textContent = new Date().getFullYear();
+    </script>
+</body>
+</html> 

@@ -1,0 +1,9 @@
+{
+  "mcpServers": {
+    "mcp-server": {
+      "type": "sse",
+      "url": "http://localhost:8000/sse",
+      "note": "MCP Server Inspector"
+    }
+  }
+} 

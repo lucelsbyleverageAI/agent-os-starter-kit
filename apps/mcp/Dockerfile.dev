@@ -1,0 +1,50 @@
+# ==================================================
+# MCP Server - Development with Hot Reload
+# ==================================================
+FROM python:3.11-slim
+
+# Set environment variables for development
+ENV PYTHONUNBUFFERED=1 \
+    PYTHONDONTWRITEBYTECODE=1 \
+    POETRY_NO_INTERACTION=1 \
+    POETRY_VENV_IN_PROJECT=1 \
+    POETRY_CACHE_DIR=/root/.cache/poetry \
+    PYTHONPATH=/app/src
+
+# Set work directory
+WORKDIR /app
+
+# Install system dependencies
+RUN apt-get update && \
+    apt-get install -y --no-install-recommends \
+    curl \
+    git \
+    && rm -rf /var/lib/apt/lists/*
+
+# Install Poetry
+RUN pip install --upgrade pip setuptools wheel poetry
+
+# Copy Poetry files
+COPY pyproject.toml poetry.lock* README.md ./
+
+# Install dependencies only (not the package itself)
+# This allows us to mount source code as volume later
+RUN poetry install --no-root
+
+# Copy source code for initial build
+# This will be overridden by volume mount in development
+COPY src/ ./src/
+
+# Create data directory for persistence
+RUN mkdir -p /app/data
+
+# Expose port
+EXPOSE 8001
+
+# Health check
+HEALTHCHECK --interval=30s --timeout=30s --start-period=5s --retries=3 \
+    CMD curl -f http://localhost:8001/health || exit 1
+
+# Development command with hot reload
+# Note: Source code will be mounted as volume for hot reloading
+CMD ["poetry", "run", "python", "-m", "mcp_server.main", "run", "--transport", "http", "--host", "0.0.0.0", "--port", "8001"] 

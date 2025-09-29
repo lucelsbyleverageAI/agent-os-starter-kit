@@ -1,0 +1,46 @@
+[tool.poetry]
+name = "agent-platform"
+version = "0.1.0"
+description = "LangGraph Backend for Agent Platform"
+authors = ["Leverage-AI-UK"]
+packages = [{include = "agent_platform", from = "src"}]
+
+[tool.poetry.dependencies]
+python = ">=3.11.0,<3.13"
+langgraph = "0.6.2"
+langchain-anthropic = "0.3.13"
+langchain-core = ">=0.3.64"
+langchain-openai = "0.3.16"
+pydantic = "2.11.3"
+langchain = ">=0.3.25"
+mcp = "^1.9.2"
+supabase = ">=2.15.1"
+aiohttp = ">=3.8.0"
+langgraph-supervisor = ">=0.0.24"
+langgraph-cli = ">=0.3.3"
+langgraph-api = ">=0.2.76"
+bs4 = "^0.0.2"
+duckduckgo-search = "^8.1.1"
+exa-py = "^1.14.15"
+langchain-community = "^0.3.27"
+linkup = "^0.1.4"
+markdownify = "^1.1.0"
+tavily-python = "^0.7.9"
+psycopg2-binary = "^2.9.10"
+sqlalchemy = "^2.0.41"
+ipython = "^9.4.0"
+tenacity = "^9.1.2"
+e2b-code-interpreter = "^1.5.2"
+google-cloud-storage = "==3.0.0"
+google-crc32c = "==1.6.0"
+langchain-mcp-adapters = "^0.1.9"
+sentry-sdk = "^2.38.0"
+
+[tool.poetry.group.dev.dependencies]
+ruff = ">=0.8.4"
+langgraph-api = ">=0.2.76"
+langgraph-runtime-inmem = ">=0.3.0"
+
+[build-system]
+requires = ["poetry-core"]
+build-backend = "poetry.core.masonry.api"

@@ -1,0 +1,361 @@
+"""Tavily tools mirroring the official Tavily MCP server definitions and behaviour."""
+
+from typing import Any, Dict, List, Optional
+
+from ..base import CustomTool, ToolParameter
+from ...utils.logging import get_logger
+from ...utils.exceptions import ToolExecutionError
+from .client import TavilyClient
+try:
+    from docling.document_converter import DocumentConverter
+    from docling.datamodel.base_models import InputFormat
+    from docling.document_converter import PdfFormatOption
+    from docling.datamodel.pipeline_options import PdfPipelineOptions
+    _DOCLING_AVAILABLE = True
+except Exception:
+    DocumentConverter = None  # type: ignore
+    InputFormat = None  # type: ignore
+    PdfFormatOption = None  # type: ignore
+    PdfPipelineOptions = None  # type: ignore
+    _DOCLING_AVAILABLE = False
+
+
+logger = get_logger(__name__)
+
+
+def _ensure_array(value: Any) -> List[str]:
+    if value is None:
+        return []
+    if isinstance(value, list):
+        return value
+    return [value]
+
+
+def _format_results(response: Dict[str, Any]) -> str:
+    output: List[str] = []
+
+    answer = response.get("answer")
+    if answer:
+        output.append(f"Answer: {answer}")
+
+    output.append("Detailed Results:")
+    for result in response.get("results", []) or []:
+        output.append(f"\nTitle: {result.get('title')}")
+        output.append(f"URL: {result.get('url')}")
+        output.append(f"Content: {result.get('content')}")
+        raw_content = result.get("raw_content")
+        if raw_content:
+            output.append(f"Raw Content: {raw_content}")
+        favicon = result.get("favicon")
+        if favicon:
+            output.append(f"Favicon: {favicon}")
+
+    images = response.get("images") or []
+    if images:
+        output.append("\nImages:")
+        for idx, image in enumerate(images, start=1):
+            if isinstance(image, str):
+                output.append(f"\n[{idx}] URL: {image}")
+            else:
+                url = image.get("url")
+                desc = image.get("description")
+                output.append(f"\n[{idx}] URL: {url}")
+                if desc:
+                    output.append(f"   Description: {desc}")
+
+    return "\n".join(output)
+
+
+def _format_crawl_results(response: Dict[str, Any]) -> str:
+    output: List[str] = []
+    output.append("Crawl Results:")
+    output.append(f"Base URL: {response.get('base_url')}")
+
+    output.append("\nCrawled Pages:")
+    for idx, page in enumerate(response.get("results", []) or [], start=1):
+        output.append(f"\n[{idx}] URL: {page.get('url')}")
+        raw_content = page.get("raw_content")
+        if raw_content:
+            preview = raw_content[:200] + ("..." if len(raw_content) > 200 else "")
+            output.append(f"Content: {preview}")
+        favicon = page.get("favicon")
+        if favicon:
+            output.append(f"Favicon: {favicon}")
+
+    return "\n".join(output)
+
+
+def _format_map_results(response: Dict[str, Any]) -> str:
+    output: List[str] = []
+    output.append("Site Map Results:")
+    output.append(f"Base URL: {response.get('base_url')}")
+
+    output.append("\nMapped Pages:")
+    for idx, page in enumerate(response.get("results", []) or [], start=1):
+        output.append(f"\n[{idx}] URL: {page}")
+
+    return "\n".join(output)
+
+
+class _TavilyBase(CustomTool):
+    toolkit_name = "tavily"
+    toolkit_display_name = "Tavily"
+
+    def __init__(self) -> None:
+        super().__init__()
+        self.client = TavilyClient()
+
+
+class TavilySearchTool(_TavilyBase):
+    @property
+    def name(self) -> str:
+        return "tavily-search"
+
+    @property
+    def description(self) -> str:
+        return (
+            "A powerful web search tool that provides comprehensive, real-time results using "
+            "Tavily's AI search engine. Returns relevant web content with customizable parameters "
+            "for result count, content type, and domain filtering. Ideal for gathering current "
+            "information, news, and detailed web content analysis."
+        )
+
+    def get_parameters(self) -> List[ToolParameter]:
+        return [
+            ToolParameter(name="query", type="string", description="Search query", required=True),
+            ToolParameter(name="search_depth", type="string", description="The depth of the search. It can be 'basic' or 'advanced'", required=False, default="basic", enum=["basic","advanced"]),
+            ToolParameter(name="topic", type="string", description="The category of the search. This will determine which of our agents will be used for the search", required=False, default="general", enum=["general","news"]),
+            ToolParameter(name="days", type="number", description="The number of days back from the current date to include in the search results. This specifies the time frame of data to be retrieved. Please note that this feature is only available when using the 'news' search topic", required=False, default=3),
+            ToolParameter(name="time_range", type="string", description="The time range back from the current date to include in the search results. This feature is available for both 'general' and 'news' search topics", required=False, enum=["day","week","month","year","d","w","m","y"]),
+            ToolParameter(name="start_date", type="string", description="Will return all results after the specified start date. Required to be written in the format YYYY-MM-DD.", required=False, default=""),
+            ToolParameter(name="end_date", type="string", description="Will return all results before the specified end date. Required to be written in the format YYYY-MM-DD", required=False, default=""),
+            ToolParameter(name="max_results", type="number", description="The maximum number of search results to return", required=False, default=10),
+            ToolParameter(name="include_images", type="boolean", description="Include a list of query-related images in the response", required=False, default=False),
+            ToolParameter(name="include_image_descriptions", type="boolean", description="Include a list of query-related images and their descriptions in the response", required=False, default=False),
+            ToolParameter(name="include_raw_content", type="boolean", description="Include the cleaned and parsed HTML content of each search result", required=False, default=False),
+            ToolParameter(name="include_domains", type="array", description="A list of domains to specifically include in the search results, if the user asks to search on specific sites set this to the domain of the site", required=False, default=[], items={"type":"string"}),
+            ToolParameter(name="exclude_domains", type="array", description="List of domains to specifically exclude, if the user asks to exclude a domain set this to the domain of the site", required=False, default=[], items={"type":"string"}),
+            ToolParameter(name="country", type="string", description="Boost search results from a specific country. This will prioritize content from the selected country in the search results. Available only if topic is general. Country names MUST be written in lowercase, plain English, with spaces and no underscores.", required=False, default="united kingdom", enum=[
+                'afghanistan','albania','algeria','andorra','angola','argentina','armenia','australia','austria','azerbaijan','bahamas','bahrain','bangladesh','barbados','belarus','belgium','belize','benin','bhutan','bolivia','bosnia and herzegovina','botswana','brazil','brunei','bulgaria','burkina faso','burundi','cambodia','cameroon','canada','cape verde','central african republic','chad','chile','china','colombia','comoros','congo','costa rica','croatia','cuba','cyprus','czech republic','denmark','djibouti','dominican republic','ecuador','egypt','el salvador','equatorial guinea','eritrea','estonia','ethiopia','fiji','finland','france','gabon','gambia','georgia','germany','ghana','greece','guatemala','guinea','haiti','honduras','hungary','iceland','india','indonesia','iran','iraq','ireland','israel','italy','jamaica','japan','jordan','kazakhstan','kenya','kuwait','kyrgyzstan','latvia','lebanon','lesotho','liberia','libya','liechtenstein','lithuania','luxembourg','madagascar','malawi','malaysia','maldives','mali','malta','mauritania','mauritius','mexico','moldova','monaco','mongolia','montenegro','morocco','mozambique','myanmar','namibia','nepal','netherlands','new zealand','nicaragua','niger','nigeria','north korea','north macedonia','norway','oman','pakistan','panama','papua new guinea','paraguay','peru','philippines','poland','portugal','qatar','romania','russia','rwanda','saudi arabia','senegal','serbia','singapore','slovakia','slovenia','somalia','south africa','south korea','south sudan','spain','sri lanka','sudan','sweden','switzerland','syria','taiwan','tajikistan','tanzania','thailand','togo','trinidad and tobago','tunisia','turkey','turkmenistan','uganda','ukraine','united arab emirates','united kingdom','united states','uruguay','uzbekistan','venezuela','vietnam','yemen','zambia','zimbabwe'
+            ]),
+            ToolParameter(name="include_favicon", type="boolean", description="Whether to include the favicon URL for each result", required=False, default=False),
+        ]
+
+    async def _execute_impl(self, user_id: str, **kwargs: Any) -> str:
+        try:
+            args = dict(kwargs)
+            if args.get("country"):
+                args["topic"] = "general"
+
+            args["include_domains"] = _ensure_array(args.get("include_domains"))
+            args["exclude_domains"] = _ensure_array(args.get("exclude_domains"))
+
+            response = await self.client.search({
+                "query": args.get("query"),
+                "search_depth": args.get("search_depth"),
+                "topic": args.get("topic"),
+                "days": args.get("days"),
+                "time_range": args.get("time_range"),
+                "max_results": args.get("max_results"),
+                "include_images": args.get("include_images"),
+                "include_image_descriptions": args.get("include_image_descriptions"),
+                "include_raw_content": args.get("include_raw_content"),
+                "include_domains": args.get("include_domains"),
+                "exclude_domains": args.get("exclude_domains"),
+                "country": args.get("country"),
+                "include_favicon": args.get("include_favicon"),
+                "start_date": args.get("start_date"),
+                "end_date": args.get("end_date"),
+            })
+            return _format_results(response)
+        except Exception as e:
+            if isinstance(e, ToolExecutionError):
+                raise
+            raise ToolExecutionError("tavily-search", str(e))
+
+
+class TavilyExtractTool(_TavilyBase):
+    @property
+    def name(self) -> str:
+        return "tavily-extract"
+
+    @property
+    def description(self) -> str:
+        return (
+            "A powerful web content extraction tool that retrieves and processes raw content from "
+            "specified URLs, ideal for data collection, content analysis, and research tasks."
+        )
+
+    def get_parameters(self) -> List[ToolParameter]:
+        return [
+            ToolParameter(name="urls", type="array", description="List of URLs to extract content from", required=True, items={"type":"string"}),
+            ToolParameter(name="extract_depth", type="string", description="Depth of extraction - 'basic' or 'advanced', if usrls are linkedin use 'advanced' or if explicitly told to use advanced", required=False, default="basic", enum=["basic","advanced"]),
+            ToolParameter(name="include_images", type="boolean", description="Include a list of images extracted from the urls in the response", required=False, default=False),
+            ToolParameter(name="format", type="string", description="The format of the extracted web page content. markdown returns content in markdown format. text returns plain text and may increase latency.", required=False, default="markdown", enum=["markdown","text"]),
+            ToolParameter(name="include_favicon", type="boolean", description="Whether to include the favicon URL for each result", required=False, default=False),
+        ]
+
+    async def _execute_impl(self, user_id: str, **kwargs: Any) -> str:
+        try:
+            args = dict(kwargs)
+            args["urls"] = _ensure_array(args.get("urls"))
+            response = await self.client.extract({
+                "urls": args.get("urls"),
+                "extract_depth": args.get("extract_depth"),
+                "include_images": args.get("include_images"),
+                "format": args.get("format"),
+                "include_favicon": args.get("include_favicon"),
+            })
+            # Check each requested URL; if Tavily has no meaningful content for it, fallback to Docling when available
+            results = response.get("results") if isinstance(response, dict) else None
+            urls: List[str] = list(args.get("urls") or [])
+            def _is_meaningful(rec: Dict[str, Any]) -> bool:
+                if not isinstance(rec, dict):
+                    return False
+                a = (rec.get("raw_content") or "").strip()
+                b = (rec.get("content") or "").strip()
+                return bool(a or b)
+
+            fallback_sections: List[str] = []
+            for url in urls:
+                has_for_url = False
+                if results:
+                    for r in results:
+                        if isinstance(r, dict) and r.get("url") == url and _is_meaningful(r):
+                            has_for_url = True
+                            break
+                if not has_for_url and _DOCLING_AVAILABLE:
+                    try:
+                        pipeline_options = PdfPipelineOptions(
+                            do_ocr=True,
+                            do_table_structure=True,
+                            do_picture_analysis=False,
+                        )
+                        converter = DocumentConverter(
+                            format_options={InputFormat.PDF: PdfFormatOption(pipeline_options=pipeline_options)}
+                        )
+                        conversion_result = converter.convert(url)
+                        if hasattr(conversion_result, "document") and conversion_result.document:
+                            content = conversion_result.document.export_to_markdown()
+                            if content.strip():
+                                fallback_sections.append(f"Fallback (Docling) Extracted Content for {url}:\n\n" + content)
+                    except Exception as _docling_err:
+                        logger.warning(f"Docling fallback failed for {url}: {_docling_err}")
+
+            base_text = _format_results(response)
+            if fallback_sections:
+                return base_text + "\n\n" + "\n\n".join(fallback_sections)
+            return base_text
+        except Exception as e:
+            if isinstance(e, ToolExecutionError):
+                raise
+            raise ToolExecutionError("tavily-extract", str(e))
+
+
+class TavilyCrawlTool(_TavilyBase):
+    @property
+    def name(self) -> str:
+        return "tavily-crawl"
+
+    @property
+    def description(self) -> str:
+        return (
+            "A powerful web crawler that initiates a structured web crawl starting from a specified "
+            "base URL. The crawler expands from that point like a tree, following internal links "
+            "across pages. You can control how deep and wide it goes, and guide it to focus on "
+            "specific sections of the site."
+        )
+
+    def get_parameters(self) -> List[ToolParameter]:
+        return [
+            ToolParameter(name="url", type="string", description="The root URL to begin the crawl", required=True),
+            ToolParameter(name="max_depth", type="integer", description="Max depth of the crawl. Defines how far from the base URL the crawler can explore.", required=False, default=1),
+            ToolParameter(name="max_breadth", type="integer", description="Max number of links to follow per level of the tree (i.e., per page)", required=False, default=20),
+            ToolParameter(name="limit", type="integer", description="Total number of links the crawler will process before stopping", required=False, default=50),
+            ToolParameter(name="instructions", type="string", description="Natural language instructions for the crawler", required=False),
+            ToolParameter(name="select_paths", type="array", description="Regex patterns to select only URLs with specific path patterns (e.g., /docs/.*, /api/v1.*)", required=False, default=[], items={"type":"string"}),
+            ToolParameter(name="select_domains", type="array", description="Regex patterns to select crawling to specific domains or subdomains (e.g., ^docs\\.example\\.com$)", required=False, default=[], items={"type":"string"}),
+            ToolParameter(name="allow_external", type="boolean", description="Whether to allow following links that go to external domains", required=False, default=False),
+            ToolParameter(name="categories", type="array", description="Filter URLs using predefined categories like documentation, blog, api, etc", required=False, default=[], items={"type":"string", "enum": ["Careers","Blog","Documentation","About","Pricing","Community","Developers","Contact","Media"]}),
+            ToolParameter(name="extract_depth", type="string", description="Advanced extraction retrieves more data, including tables and embedded content, with higher success but may increase latency", required=False, default="basic", enum=["basic","advanced"]),
+            ToolParameter(name="format", type="string", description="The format of the extracted web page content. markdown returns content in markdown format. text returns plain text and may increase latency.", required=False, default="markdown", enum=["markdown","text"]),
+            ToolParameter(name="include_favicon", type="boolean", description="Whether to include the favicon URL for each result", required=False, default=False),
+        ]
+
+    async def _execute_impl(self, user_id: str, **kwargs: Any) -> str:
+        try:
+            args = dict(kwargs)
+            args["select_paths"] = _ensure_array(args.get("select_paths"))
+            args["select_domains"] = _ensure_array(args.get("select_domains"))
+            args["categories"] = _ensure_array(args.get("categories"))
+            response = await self.client.crawl({
+                "url": args.get("url"),
+                "max_depth": args.get("max_depth"),
+                "max_breadth": args.get("max_breadth"),
+                "limit": args.get("limit"),
+                "instructions": args.get("instructions"),
+                "select_paths": args.get("select_paths"),
+                "select_domains": args.get("select_domains"),
+                "allow_external": args.get("allow_external"),
+                "categories": args.get("categories"),
+                "extract_depth": args.get("extract_depth"),
+                "format": args.get("format"),
+                "include_favicon": args.get("include_favicon"),
+            })
+            return _format_crawl_results(response)
+        except Exception as e:
+            if isinstance(e, ToolExecutionError):
+                raise
+            raise ToolExecutionError("tavily-crawl", str(e))
+
+
+class TavilyMapTool(_TavilyBase):
+    @property
+    def name(self) -> str:
+        return "tavily-map"
+
+    @property
+    def description(self) -> str:
+        return (
+            "A powerful web mapping tool that creates a structured map of website URLs, allowing you "
+            "to discover and analyze site structure, content organization, and navigation paths. "
+            "Perfect for site audits, content discovery, and understanding website architecture."
+        )
+
+    def get_parameters(self) -> List[ToolParameter]:
+        return [
+            ToolParameter(name="url", type="string", description="The root URL to begin the mapping", required=True),
+            ToolParameter(name="max_depth", type="integer", description="Max depth of the mapping. Defines how far from the base URL the crawler can explore", required=False, default=1),
+            ToolParameter(name="max_breadth", type="integer", description="Max number of links to follow per level of the tree (i.e., per page)", required=False, default=20),
+            ToolParameter(name="limit", type="integer", description="Total number of links the crawler will process before stopping", required=False, default=50),
+            ToolParameter(name="instructions", type="string", description="Natural language instructions for the crawler", required=False),
+            ToolParameter(name="select_paths", type="array", description="Regex patterns to select only URLs with specific path patterns (e.g., /docs/.*, /api/v1.*)", required=False, default=[], items={"type":"string"}),
+            ToolParameter(name="select_domains", type="array", description="Regex patterns to select crawling to specific domains or subdomains (e.g., ^docs\\.example\\.com$)", required=False, default=[], items={"type":"string"}),
+            ToolParameter(name="allow_external", type="boolean", description="Whether to allow following links that go to external domains", required=False, default=False),
+            ToolParameter(name="categories", type="array", description="Filter URLs using predefined categories like documentation, blog, api, etc", required=False, default=[], items={"type":"string", "enum": ["Careers","Blog","Documentation","About","Pricing","Community","Developers","Contact","Media"]}),
+        ]
+
+    async def _execute_impl(self, user_id: str, **kwargs: Any) -> str:
+        try:
+            args = dict(kwargs)
+            args["select_paths"] = _ensure_array(args.get("select_paths"))
+            args["select_domains"] = _ensure_array(args.get("select_domains"))
+            args["categories"] = _ensure_array(args.get("categories"))
+            response = await self.client.map({
+                "url": args.get("url"),
+                "max_depth": args.get("max_depth"),
+                "max_breadth": args.get("max_breadth"),
+                "limit": args.get("limit"),
+                "instructions": args.get("instructions"),
+                "select_paths": args.get("select_paths"),
+                "select_domains": args.get("select_domains"),
+                "allow_external": args.get("allow_external"),
+                "categories": args.get("categories"),
+            })
+            return _format_map_results(response)
+        except Exception as e:
+            if isinstance(e, ToolExecutionError):
+                raise
+            raise ToolExecutionError("tavily-map", str(e))
+
+

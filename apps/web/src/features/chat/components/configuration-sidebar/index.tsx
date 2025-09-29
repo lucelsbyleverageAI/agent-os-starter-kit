@@ -1,0 +1,573 @@
+"use client";
+
+import { useEffect, forwardRef, ForwardedRef, useState } from "react";
+import { Save, Trash2 } from "lucide-react";
+import { Button } from "@/components/ui/button";
+import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
+import {
+  ConfigField,
+  ConfigFieldAgents,
+  ConfigFieldRAG,
+  ConfigFieldTool,
+} from "@/features/chat/components/configuration-sidebar/config-field";
+import { ConfigSection } from "@/features/chat/components/configuration-sidebar/config-section";
+import { useConfigStore } from "@/features/chat/hooks/use-config-store";
+import { ScrollArea } from "@/components/ui/scroll-area";
+import { cn } from "@/lib/utils";
+import { useQueryState } from "nuqs";
+import { Skeleton } from "@/components/ui/skeleton";
+import { useAgents } from "@/hooks/use-agents";
+import {
+  Tooltip,
+  TooltipContent,
+  TooltipProvider,
+  TooltipTrigger,
+} from "@/components/ui/tooltip";
+import { notify } from "@/utils/toast";
+import { agentMessages } from "@/utils/toast-messages";
+import _ from "lodash";
+import { toast } from "sonner";
+import { useMCPContext } from "@/providers/MCP";
+import { Search } from "@/components/ui/tool-search";
+import { useSearchTools } from "@/hooks/use-search-tools";
+import { useFetchPreselectedTools } from "@/hooks/use-fetch-preselected-tools";
+import { ConfigToolkitSelector } from "./config-toolkit-selector";
+import { useAgentConfig } from "@/hooks/use-agent-config";
+import { useAgentsContext } from "@/providers/Agents";
+import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+} from "@/components/ui/alert-dialog";
+import { Input } from "@/components/ui/input";
+import { Label } from "@/components/ui/label";
+import { canUserEditAssistant } from "@/lib/agent-utils";
+import { useAuthContext } from "@/providers/Auth";
+import { getScrollbarClasses } from "@/lib/scrollbar-styles";
+
+
+function NameAndDescriptionAlertDialog({
+  name,
+  setName,
+  description,
+  setDescription,
+  open,
+  setOpen,
+  handleSave,
+}: {
+  name: string;
+  setName: (name: string) => void;
+  description: string;
+  setDescription: (description: string) => void;
+  open: boolean;
+  setOpen: (open: boolean) => void;
+  handleSave: () => void;
+}) {
+  const handleSaveAgent = () => {
+    setOpen(false);
+    handleSave();
+  };
+  return (
+    <AlertDialog
+      open={open}
+      onOpenChange={setOpen}
+    >
+      <AlertDialogContent>
+        <AlertDialogHeader>
+          <AlertDialogTitle>Agent Name and Description</AlertDialogTitle>
+          <AlertDialogDescription>
+            Please give your new agent a name and optional description.
+          </AlertDialogDescription>
+        </AlertDialogHeader>
+        <div className="flex flex-col gap-4 p-4">
+          <div className="flex flex-col gap-2">
+            <Label htmlFor="name">Name</Label>
+            <Input
+              placeholder="Agent Name"
+              id="name"
+              value={name}
+              onChange={(e) => setName(e.target.value)}
+              autoFocus
+            />
+          </div>
+          <div className="flex flex-col gap-2">
+            <Label htmlFor="description">Description</Label>
+            <Input
+              placeholder="Agent Description"
+              id="description"
+              value={description}
+              onChange={(e) => setDescription(e.target.value)}
+            />
+          </div>
+        </div>
+        <AlertDialogFooter>
+          <AlertDialogCancel>Cancel</AlertDialogCancel>
+          <AlertDialogAction onClick={handleSaveAgent}>
+            Submit
+          </AlertDialogAction>
+        </AlertDialogFooter>
+      </AlertDialogContent>
+    </AlertDialog>
+  );
+}
+
+export interface AIConfigPanelProps {
+  className?: string;
+  open: boolean;
+}
+
+export const ConfigurationSidebar = forwardRef<
+  HTMLDivElement,
+  AIConfigPanelProps
+>(({ className, open }, ref: ForwardedRef<HTMLDivElement>) => {
+  const { configsByAgentId: _configsByAgentId, resetConfig } = useConfigStore();
+  const store = useConfigStore();
+  const { tools, setTools, getTools, cursor } = useMCPContext();
+  const [agentId] = useQueryState("agentId");
+  const [deploymentId] = useQueryState("deploymentId");
+  const [threadId] = useQueryState("threadId");
+  const { agents, refreshAgentsLoading, refreshAgents, invalidateAssistantListCache } = useAgentsContext();
+  const { session, isLoading: authLoading } = useAuthContext();
+  const {
+    getSchemaAndUpdateConfig,
+    configurations,
+    toolConfigurations,
+    ragConfigurations,
+    agentsConfigurations,
+    loading,
+    supportedConfigs,
+  } = useAgentConfig();
+  const { updateAgent, createAgent } = useAgents();
+
+  const [newName, setNewName] = useState("");
+  const [newDescription, setNewDescription] = useState("");
+  const [
+    openNameAndDescriptionAlertDialog,
+    setOpenNameAndDescriptionAlertDialog,
+  ] = useState(false);
+
+  const { toolSearchTerm, debouncedSetSearchTerm } =
+    useSearchTools(tools, {
+      preSelectedTools: toolConfigurations[0]?.default?.tools,
+    });
+  const { loadingMore, setLoadingMore } = useFetchPreselectedTools({
+    tools,
+    setTools,
+    getTools,
+    cursor,
+    toolConfigurations,
+    searchTerm: toolSearchTerm,
+  });
+
+  useEffect(() => {
+    if (
+      !agentId ||
+      !deploymentId ||
+      loading ||
+      !agents?.length ||
+      refreshAgentsLoading ||
+      authLoading ||
+      !session?.accessToken
+    )
+      return;
+
+    const selectedAgent = agents.find(
+      (a) => a.assistant_id === agentId && a.deploymentId === deploymentId,
+    );
+    if (!selectedAgent) {
+      const message = agentMessages.config.fetchError();
+      notify.error(message.title, {
+        description: message.description,
+        key: message.key,
+      });
+      return;
+    }
+
+    // Load schema + defaults
+    getSchemaAndUpdateConfig(selectedAgent).catch(() => {});
+  }, [open, agentId, deploymentId, agents, refreshAgentsLoading, authLoading, session?.accessToken]);
+
+  const handleSave = async () => {
+    
+    if (!agentId || !deploymentId || !agents?.length) {
+      console.warn(`❌ [ConfigSidebar] Early return - missing data:`, {
+        agentId,
+        deploymentId,
+        agentsLength: agents?.length
+      });
+      return;
+    }
+    
+    const selectedAgent = agents.find(
+      (a) => a.assistant_id === agentId && a.deploymentId === deploymentId,
+    );
+  
+    
+    if (!selectedAgent) {
+      console.error(`❌ [ConfigSidebar] Agent not found in agents list`);
+      toast.error("Failed to save config.", {
+        richColors: true,
+        description: "Unable to find selected agent.",
+      });
+      return;
+    }
+    // If user cannot edit this assistant (default or insufficient permission), branch to create flow
+    if (!canUserEditAssistant(selectedAgent) && !newName) {
+      setOpenNameAndDescriptionAlertDialog(true);
+      return;
+    } else if (!canUserEditAssistant(selectedAgent) && newName) {
+      const completeConfig = store.getAgentConfig(agentId);
+      const result = await createAgent(deploymentId, selectedAgent.graph_id, {
+        name: newName,
+        description: newDescription,
+        config: completeConfig,
+      });
+      const newAgent = result.ok ? result.data : null;
+      if (!newAgent) {
+        toast.error("Failed to create agent", { richColors: true });
+        return;
+      }
+
+      toast.success("Agent created successfully!");
+
+      // Invalidate caches to ensure fresh data on next access
+      try {
+        
+        // Invalidate assistant list cache (Layer 2) to refresh the agents list
+        invalidateAssistantListCache();
+        
+        // Wait a moment for the initial sync, then refresh
+        await new Promise(resolve => setTimeout(resolve, 1000));
+        
+        // Trigger refresh of agents list to get updated data from mirror
+        await refreshAgents(true);
+        
+      } catch (cacheError) {
+        console.warn("Cache invalidation failed:", cacheError);
+        // Don't block the user flow if cache invalidation fails
+      }
+
+      const newQueryParams = new URLSearchParams({
+        agentId: newAgent.assistant_id,
+        deploymentId,
+        ...(threadId ? { threadId } : {}),
+      });
+      window.location.href = `/?${newQueryParams.toString()}`;
+      return;
+    }
+
+    const completeConfig = store.getAgentConfig(agentId);
+
+    
+    const result = await updateAgent(agentId, deploymentId, {
+      name: selectedAgent.name,
+      description: selectedAgent.description,
+      config: completeConfig,
+    });
+    
+
+    
+    if (!result.ok) {
+      console.error(`❌ [ConfigSidebar] Update agent failed:`, result);
+      const message = agentMessages.config.saveError();
+      notify.error(message.title, {
+        description: message.description,
+        key: message.key,
+      });
+      return;
+    }
+
+    const message = agentMessages.config.saveSuccess();
+    notify.success(message.title, {
+      description: message.description,
+      key: message.key,
+    });
+
+    // Invalidate caches and refresh immediately (no polling)
+    try {
+      invalidateAssistantListCache();
+      await refreshAgents(true);
+    } catch (cacheError) {
+      console.warn("Cache invalidation failed:", cacheError);
+    }
+  };
+
+  return (
+    <div
+      ref={ref}
+      className={cn(
+        "fixed top-0 right-0 z-10 h-screen border-l border-gray-200 bg-white shadow-lg transition-all duration-300",
+        open ? "w-80 md:w-xl" : "w-0 overflow-hidden border-l-0",
+        className,
+      )}
+    >
+      {open && (
+        <div className="flex h-full flex-col">
+          <div className="flex flex-shrink-0 items-center justify-between border-b border-gray-200 p-4">
+            <h2 className="text-lg font-semibold tracking-tight">Agent Configuration</h2>
+            <div className="flex gap-2">
+              <TooltipProvider>
+                <Tooltip delayDuration={200}>
+                  <TooltipTrigger asChild>
+                    <Button
+                      variant="outline"
+                      size="sm"
+                      onClick={() => {
+                        if (!agentId) return;
+                        resetConfig(agentId);
+                      }}
+                    >
+                      <Trash2 className="mr-1 h-4 w-4" />
+                      Reset
+                    </Button>
+                  </TooltipTrigger>
+                  <TooltipContent>
+                    <p>Reset the configuration to the last saved state</p>
+                  </TooltipContent>
+                </Tooltip>
+
+                <Tooltip delayDuration={200}>
+                  <TooltipTrigger asChild>
+                    <Button
+                      size="sm"
+                      onClick={handleSave}
+                    >
+                      <Save className="mr-1 h-4 w-4" />
+                      Save
+                    </Button>
+                  </TooltipTrigger>
+                  <TooltipContent>
+                    <p>Save your changes to the agent</p>
+                  </TooltipContent>
+                </Tooltip>
+              </TooltipProvider>
+            </div>
+          </div>
+          <Tabs
+            defaultValue="general"
+            className={cn("flex flex-1 flex-col", ...getScrollbarClasses('y'))}
+          >
+            <TabsList className="flex-shrink-0 justify-start bg-transparent px-4 pt-2">
+              <TabsTrigger value="general">General</TabsTrigger>
+              {supportedConfigs.includes("tools") && (
+                <TabsTrigger value="tools">Tools</TabsTrigger>
+              )}
+              {supportedConfigs.includes("rag") && (
+                <TabsTrigger value="rag">Knowledge</TabsTrigger>
+              )}
+              {supportedConfigs.includes("supervisor") && (
+                <TabsTrigger value="supervisor">Sub-Agents</TabsTrigger>
+              )}
+            </TabsList>
+
+            <ScrollArea className="flex-1">
+
+              
+              <TabsContent
+                value="general"
+                className="m-0 p-4"
+              >
+                <ConfigSection title="Configuration">
+                  {loading || !agentId ? (
+                    <div className="space-y-4">
+                      <Skeleton className="h-8 w-full" />
+                      <Skeleton className="h-8 w-full" />
+                      <Skeleton className="h-8 w-full" />
+                    </div>
+                  ) : (() => {
+                    if (configurations.length > 0) {
+                      return configurations.map((c, index) => (
+                        <ConfigField
+                          key={`${c.label}-${index}`}
+                          id={c.label}
+                          label={c.label}
+                          type={
+                            c.type === "boolean" ? "switch" : (c.type ?? "text")
+                          }
+                          description={c.description}
+                          placeholder={c.placeholder}
+                          options={c.options}
+                          min={c.min}
+                          max={c.max}
+                          step={c.step}
+                          agentId={agentId}
+                        />
+                      ));
+                    }
+
+                    // Fallback: derive fields from store when config schema UI is empty but store has defaults
+                    const storeDefaults = (_configsByAgentId?.[agentId] || {}) as Record<string, any>;
+                    const keys = Object.keys(storeDefaults).filter((k) => k !== "__defaultValues");
+                    if (keys.length === 0) {
+                      return (
+                        <p className="text-sm text-muted-foreground">No configuration available for this agent.</p>
+                      );
+                    }
+                    return keys.map((key, index) => {
+                      const val = storeDefaults[key];
+                      let type: "text" | "textarea" | "number" | "switch" | "slider" | "select" | "json" = "text";
+                      if (typeof val === "boolean") type = "switch";
+                      else if (typeof val === "number") type = "number";
+                      else if (val && typeof val === "object") type = "json";
+                      return (
+                        <ConfigField
+                          key={`${key}-fallback-${index}`}
+                          id={key}
+                          label={key}
+                          type={type}
+                          agentId={agentId}
+                        />
+                      );
+                    });
+                  })()}
+                </ConfigSection>
+              </TabsContent>
+
+              {supportedConfigs.includes("tools") && (
+                <TabsContent
+                  value="tools"
+                  className="m-0 p-4"
+                >
+                  <ConfigSection title="Available Tools">
+                    <Search
+                      onSearchChange={debouncedSetSearchTerm}
+                      placeholder="Search toolkits and tools..."
+                    />
+                    <div className={cn("flex-1 rounded-md", ...getScrollbarClasses('y'))}>
+                      {agentId && toolConfigurations[0]?.label ? (
+                        <ConfigFieldTool
+                          key={`toolkit-selector-${toolConfigurations[0].label}`}
+                          id="toolkit-selector"
+                          label="toolkit-selector"
+                          description=""
+                          agentId={agentId}
+                          toolId={toolConfigurations[0].label}
+                          renderCustom={(value, onChange) => (
+                            <ConfigToolkitSelector
+                              toolkits={tools.length > 0 ? 
+                                // Group tools by toolkit for the selector
+                                Object.values(
+                                  tools.reduce((acc, tool) => {
+                                    const toolkitName = tool.toolkit || 'Other';
+                                    const toolkitDisplayName = tool.toolkit_display_name || toolkitName;
+                                    
+                                    if (!acc[toolkitName]) {
+                                      acc[toolkitName] = {
+                                        name: toolkitName,
+                                        display_name: toolkitDisplayName,
+                                        count: 0,
+                                        tools: [],
+                                      };
+                                    }
+                                    
+                                    acc[toolkitName].tools.push(tool);
+                                    acc[toolkitName].count = acc[toolkitName].tools.length;
+                                    
+                                    return acc;
+                                  }, {} as Record<string, any>)
+                                ) : []
+                              }
+                              value={value}
+                              onChange={onChange}
+                              searchTerm={toolSearchTerm}
+                            />
+                          )}
+                        />
+                      ) : !agentId ? (
+                        <p className="mt-4 text-center text-sm text-muted-foreground">
+                          Select an agent to see tools.
+                        </p>
+                      ) : (
+                        <p className="mt-4 text-center text-sm text-muted-foreground">
+                          No tools available for this agent.
+                        </p>
+                      )}
+                      {cursor && !toolSearchTerm && (
+                        <div className="flex justify-center py-4">
+                          <Button
+                            variant="outline"
+                            size="sm"
+                            onClick={async () => {
+                              try {
+                                setLoadingMore(true);
+                                const moreTool = await getTools(cursor);
+                                setTools((prevTools) => [
+                                  ...prevTools,
+                                  ...moreTool,
+                                ]);
+                              } catch (error) {
+                                console.error(
+                                  "Failed to load more tools:",
+                                  error,
+                                );
+                              } finally {
+                                setLoadingMore(false);
+                              }
+                            }}
+                            disabled={loadingMore || loading}
+                          >
+                            {loadingMore ? "Loading..." : "Load More Tools"}
+                          </Button>
+                        </div>
+                      )}
+                    </div>
+                  </ConfigSection>
+                </TabsContent>
+              )}
+
+              {supportedConfigs.includes("rag") && (
+                <TabsContent
+                  value="rag"
+                  className="m-0 p-4"
+                >
+                  <ConfigSection title="Agent Knowledge">
+                    {agentId && ragConfigurations[0]?.label && (
+                      <ConfigFieldRAG
+                        id={ragConfigurations[0].label}
+                        label={ragConfigurations[0].label}
+                        agentId={agentId}
+                      />
+                    )}
+                  </ConfigSection>
+                </TabsContent>
+              )}
+
+              {supportedConfigs.includes("supervisor") && (
+                <TabsContent
+                  value="supervisor"
+                  className="m-0 p-4"
+                >
+                  <ConfigSection title="Sub-Agents">
+                    {agentId && agentsConfigurations[0]?.label && (
+                      <ConfigFieldAgents
+                        id="sub_agents"
+                        label="sub_agents"
+                        agentId={agentId}
+                      />
+                    )}
+                  </ConfigSection>
+                </TabsContent>
+              )}
+            </ScrollArea>
+          </Tabs>
+        </div>
+      )}
+      <NameAndDescriptionAlertDialog
+        name={newName}
+        setName={setNewName}
+        description={newDescription}
+        setDescription={setNewDescription}
+        open={openNameAndDescriptionAlertDialog}
+        setOpen={setOpenNameAndDescriptionAlertDialog}
+        handleSave={handleSave}
+      />
+    </div>
+  );
+});
+
+ConfigurationSidebar.displayName = "ConfigurationSidebar";
