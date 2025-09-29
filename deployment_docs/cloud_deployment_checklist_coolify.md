@@ -307,7 +307,7 @@ In Coolify dashboard:
 4. **Add Resource** → **Private Repository (GitHub App)**
 5. **Select**: The repository you just pushed
 6. **Build Pack**: Docker Compose
-7. **Docker Compose Location**: `docker-compose.production.yaml`
+7. **Docker Compose Location**: `docker-compose.production.yml`
 8. **Click**: Load Repository
 
 ### Step 4: Configure Environment Variables
