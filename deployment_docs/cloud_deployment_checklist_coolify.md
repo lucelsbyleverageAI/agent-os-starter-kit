@@ -380,13 +380,6 @@ MCP_TOKEN_SIGNING_SECRET=your-mcp-token-secret
 ENABLE_ARCADE=false
 ENABLED_ARCADE_SERVICES=microsoft,gmail,google,slack
 
-# Image Storage (Optional)
-IMAGE_STORAGE_ENABLED=false
-GCP_PROJECT_ID=your-gcp-project-id
-GCP_STORAGE_BUCKET=your-bucket-name
-GCP_SERVICE_ACCOUNT_KEY=your-base64-key
-IMAGE_PUBLIC_ACCESS=true
-
 # Monitoring
 SENTRY_DSN_LANGGRAPH=
 SENTRY_ENVIRONMENT=development

@@ -84,18 +84,7 @@
 
 ## Optional Configuration
 
-### 7. GCP Image Storage (Optional)
-- Using an external image store (e.g. GCP Cloud Storage) helps avoid sending large base64-encoded images between services. If your agents generate images, or you plan to upload images to an agents' image store (in GCP or elsewhere), offloading binary assets to object storage prevents oversized payloads — particularly with LangGraph where thread data can otherwise bloat and slow everything down.
-- [ ] If handling image data, configure GCP:
-  ```bash
-  IMAGE_STORAGE_ENABLED=true
-  GCP_PROJECT_ID=your-gcp-project-id
-  GCP_STORAGE_BUCKET=your-bucket-name
-  GCP_SERVICE_ACCOUNT_KEY=your-base64-encoded-key
-  IMAGE_PUBLIC_ACCESS=true
-  ```
-
-### 8. Arcade Tool Authentication (Optional)
+### 7. Arcade Tool Authentication (Optional)
 - [Arcade](https://docs.arcade.dev) is an AI tool-calling platform that enables AI to act securely on behalf of users with authenticated integrations. It provides pre-built connectors for common tools (e.g. Gmail, Microsoft, Asana, GitHub) and handles authentication for you, which makes enabling these tools by default much easier. It works locally for free with an `ARCADE_API_KEY`. For production you will need extra configuration, and there may be costs once you exceed free usage levels. See the Arcade docs for details.
 - [ ] Create API key at [Arcade](https://docs.arcade.dev)
 - [ ] Configure services:
@@ -105,7 +94,7 @@
   ARCADE_API_KEY=your-arcade-api-key
   ```
 
-### 9. Third-Party APIs (Optional)
+### 8. Third-Party APIs (Optional)
 - You can configure whichever model or provider keys you have; common, useful options include:
   - OpenAI (LLMs)
   - Anthropic (LLMs)
@@ -126,7 +115,7 @@
   SUPADATA_API_TOKEN=your-token   # For YouTube content extraction
   ```
 
-### 10. Sentry Monitoring (Optional)
+### 9. Sentry Monitoring (Optional)
 - [ ] Configure error tracking:
   ```bash
   SENTRY_DSN_LANGCONNECT=your-dsn
@@ -138,7 +127,7 @@
 
 ## Deployment
 
-### 11. Start Services
+### 10. Start Services
 - [ ] Save `.env.local` file
 - [ ] Start the platform:
   ```bash
@@ -148,19 +137,19 @@
 
 ## Initial Platform Setup
 
-### 12. Database Validation
+### 11. Database Validation
 - [ ] Visit Supabase Dashboard: `http://localhost:8000`
 - [ ] Log in with dashboard credentials from `.env.local`
 - [ ] Check Table Editor for `langconnect` schema
 - [ ] Verify migration tables are present
 
-### 13. Create Admin User
+### 12. Create Admin User
 - [ ] In Supabase Dashboard → Authentication
 - [ ] Create your user account (invite via email or create directly)
 - [ ] Sign up/in to the web app: `http://localhost:3000`
 - [ ] Verify user appears in `langconnect.user_roles` with `dev_admin` role
 
-### 14. Initialize Agents
+### 13. Initialize Agents
 - [ ] Go to Agents page in web app
 - [ ] Click "Initialize Platform"
 - [ ] Verify default agents appear:
@@ -172,7 +161,7 @@
 
 ## Service Configuration & Testing
 
-### 15. n8n Setup
+### 14. n8n Setup
 - [ ] Visit n8n: `http://localhost:5678`
 - [ ] Create n8n account
 - [ ] Duplicate pre-loaded agent template
@@ -181,12 +170,12 @@
 - [ ] Create N8N Agent in frontend with webhook URL
 - [ ] Test streaming responses
 
-### 16. Windmill Setup
+### 15. Windmill Setup
 - [ ] Visit Windmill: `http://localhost:9000`
 - [ ] Create Windmill account
 - [ ] Explore workflow capabilities
 
-### 17. MCP Server Testing
+### 16. MCP Server Testing
 - [ ] Check MCP health: `http://localhost:8002/mcp`
 - [ ] In separate terminal, run MCP inspector:
   ```bash
@@ -199,7 +188,7 @@
 - [ ] Complete OAuth flow when prompted
 - [ ] Test available tools in inspector
 
-### 18. Agent Configuration
+### 17. Agent Configuration
 - [ ] Configure each agent with available tools from MCP server
 - [ ] Test agent functionality with different tool combinations
 - [ ] Verify knowledge base integration works
