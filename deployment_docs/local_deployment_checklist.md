@@ -18,7 +18,7 @@
 ### 2. Environment Configuration
 - [ ] Copy environment template:
   ```bash
-  cp .env.example .env.local
+  cp .env.local.example .env.local
   ```
 
 ## Required Configuration
