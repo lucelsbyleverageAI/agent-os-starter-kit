@@ -47,7 +47,7 @@ Before you begin, ensure you have the following installed on your system:
     ```
 3.  Create your local environment file from the example and configure it with your secrets (e.g., API keys for LLM providers).
     ```bash
-    cp .env.example .env.local
+    cp .env.local.example .env.local
     ```
 4.  Start the entire application stack with a single command:
     ```bash
