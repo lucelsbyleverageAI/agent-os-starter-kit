@@ -89,7 +89,7 @@
 - [ ] Create API key at [Arcade](https://docs.arcade.dev)
 - [ ] Configure services:
   ```bash
-  ENABLE_ARCADE=true
+  ENABLE_ARCADE=false
   ENABLED_ARCADE_SERVICES=microsoft,gmail,google,slack
   ARCADE_API_KEY=your-arcade-api-key
   ```

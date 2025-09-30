@@ -583,7 +583,7 @@ services:
       - E2B_API_KEY=${E2B_API_KEY}
       # MCP configuration (hard-coded defaults for local dev)
       - ENABLE_OAUTH_DISCOVERY=true
-      - ENABLE_ARCADE=${ENABLE_ARCADE:-true}
+      - ENABLE_ARCADE=${ENABLE_ARCADE:-false}
       - FRONTEND_BASE_URL=${FRONTEND_BASE_URL:-http://localhost:3000}
       - MCP_PUBLIC_BASE_URL=${MCP_PUBLIC_BASE_URL:-http://localhost:8002}
       - OAUTH_ISSUER=http://kong:8000
