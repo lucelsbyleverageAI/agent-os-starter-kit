@@ -10,7 +10,7 @@ This starter kit is more than just a template; it's a fully-featured, production
 
 ✅ **React Frontend**: A comprehensive interface to interact with your LangGraph and n8n agents, manage knowledge bases, test tools in a playground, and configure permissions across the stack.
 
-✅ **LangGraph**: A powerful agent orchestration framework to define customisable agents and workflows—build single-agent, multi-agent, or hierarchical systems with a huge library of pre-built integrations.
+✅ **LangGraph**: A powerful agent orchestration framework to define customisable agents and workflows—build single-agent, multi-agent, or hierarchical systems with a huge library of pre-built integrations. This is an adapted version of LangGraph's own [Open Agent Platform](https://docs.langchain.com/labs/oap) which allows developers to define configurable agent templates, or graphs, that citizen developers can then configure for their own use cases.
 
 ✅ **N8N**: A low-code platform with over 400 integrations and advanced AI components. Build agents you can interact with directly in the frontend—perfect if no-code is your style, or for quickly prototyping workflows before productionising them in LangGraph.
 
