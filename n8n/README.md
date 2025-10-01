@@ -24,16 +24,19 @@ If these folders are empty, nothing is imported (the import service will simply 
 
 ## Export with Make (recommended)
 
-If you’ve saved workflows/credentials in your local n8n instance, run:
+If you've saved workflows/credentials in your local n8n instance, run:
 ```bash
 make export-n8n
 ```
 
 This will:
-- Export all current workflows and credentials from the running `n8n` container into `n8n/data/workflows/` and `n8n/data/credentials/`.
-- Automatically sanitise the JSON to remove personal/project metadata.
+- Export all current workflows and credentials from the running `n8n` container to a temporary location inside the container
+- Copy the exported files to `n8n/data/workflows/` and `n8n/data/credentials/` on your host
+- Automatically sanitise the JSON to remove personal/project metadata
 
-Then remove any files you don’t want to keep and commit the rest. On next startup, the import service will auto‑apply whatever is in `n8n/data/...`.
+**Note:** The `/data/workflows` and `/data/credentials` directories are mounted as read-only inside the container to prevent accidental modifications during normal operation. The export script works around this by exporting to `/tmp` inside the container first, then copying the files out to your host machine.
+
+Then remove any files you don't want to keep and commit the rest. On next startup, the import service will auto‑apply whatever is in `n8n/data/...`.
 
 Typical usage (local dev):
 ```bash
@@ -44,6 +47,5 @@ make start-dev
 make export-n8n                    # or ./scripts/export-n8n.sh workflows|credentials
 ```
 
-That’s it: keep templates in this folder, and the platform will auto‑apply them on startup.
 
 

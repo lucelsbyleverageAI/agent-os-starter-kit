@@ -7,6 +7,7 @@ set -e
 
 CONTAINER_NAME="n8n-dev"
 EXPORT_TYPE="${1:-all}"
+TEMP_EXPORT_DIR="/tmp/n8n-export"
 
 # Check if n8n container is running
 if ! docker ps | grep -q $CONTAINER_NAME; then
@@ -17,7 +18,18 @@ fi
 
 export_workflows() {
     echo "Exporting workflows..."
-    docker exec $CONTAINER_NAME n8n export:workflow --all --separate --output=/data/workflows
+    # Create temp directory inside container (writable location)
+    docker exec $CONTAINER_NAME mkdir -p $TEMP_EXPORT_DIR/workflows
+    
+    # Export to temp directory (not the read-only /data mount)
+    docker exec $CONTAINER_NAME n8n export:workflow --all --separate --output=$TEMP_EXPORT_DIR/workflows
+    
+    # Copy exported files from container to host
+    docker cp $CONTAINER_NAME:$TEMP_EXPORT_DIR/workflows/. ./n8n/data/workflows/
+    
+    # Clean up temp directory in container
+    docker exec $CONTAINER_NAME rm -rf $TEMP_EXPORT_DIR/workflows
+    
     # Sanitise exported workflows (remove personal/project metadata)
     node ./scripts/sanitise-n8n.js || true
     echo "✅ Workflows exported to n8n/data/workflows/"
@@ -25,7 +37,18 @@ export_workflows() {
 
 export_credentials() {
     echo "Exporting credentials..."
-    docker exec $CONTAINER_NAME n8n export:credentials --all --separate --output=/data/credentials
+    # Create temp directory inside container (writable location)
+    docker exec $CONTAINER_NAME mkdir -p $TEMP_EXPORT_DIR/credentials
+    
+    # Export to temp directory (not the read-only /data mount)
+    docker exec $CONTAINER_NAME n8n export:credentials --all --separate --output=$TEMP_EXPORT_DIR/credentials
+    
+    # Copy exported files from container to host
+    docker cp $CONTAINER_NAME:$TEMP_EXPORT_DIR/credentials/. ./n8n/data/credentials/
+    
+    # Clean up temp directory in container
+    docker exec $CONTAINER_NAME rm -rf $TEMP_EXPORT_DIR/credentials
+    
     # Sanitise exported credentials (remove personal/project metadata)
     node ./scripts/sanitise-n8n.js || true
     echo "✅ Credentials exported to n8n/data/credentials/"
