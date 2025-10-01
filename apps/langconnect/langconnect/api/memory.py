@@ -63,6 +63,10 @@ class MemoryAddRequest(BaseModel):
         ..., 
         description="Memory content - either a string or list of message dicts"
     )
+    user_id: Optional[str] = Field(
+        None,
+        description="User ID (required when using service account authentication)"
+    )
     agent_id: Optional[str] = Field(
         None, 
         description="Optional agent/assistant ID this memory relates to"
@@ -80,6 +84,10 @@ class MemoryAddRequest(BaseModel):
 class MemorySearchRequest(BaseModel):
     """Request model for searching memories."""
     query: str = Field(..., description="Search query for finding relevant memories")
+    user_id: Optional[str] = Field(
+        None,
+        description="User ID (required when using service account authentication)"
+    )
     agent_id: Optional[str] = Field(
         None, 
         description="Optional agent ID to filter results"
@@ -103,6 +111,10 @@ class MemorySearchRequest(BaseModel):
 
 class MemoryGetAllRequest(BaseModel):
     """Request model for getting all memories."""
+    user_id: Optional[str] = Field(
+        None,
+        description="User ID (required when using service account authentication)"
+    )
     agent_id: Optional[str] = Field(
         None, 
         description="Optional agent ID to filter results"
@@ -129,6 +141,10 @@ class MemoryUpdateRequest(BaseModel):
 
 class MemoryDeleteAllRequest(BaseModel):
     """Request model for deleting all memories with optional filtering."""
+    user_id: Optional[str] = Field(
+        None,
+        description="User ID (required when using service account authentication)"
+    )
     agent_id: Optional[str] = Field(
         None, 
         description="Optional agent ID to filter deletions"
@@ -154,13 +170,30 @@ class MemoryResponse(BaseModel):
 # HELPER FUNCTIONS
 # ============================================================================
 
-def get_user_id_from_actor(actor: AuthenticatedActor) -> str:
-    """Extract user ID from authenticated actor."""
+def get_user_id_from_actor(actor: AuthenticatedActor, request_user_id: Optional[str] = None) -> str:
+    """Extract user ID from authenticated actor.
+    
+    Args:
+        actor: The authenticated actor (User or ServiceAccount)
+        request_user_id: Optional user_id from request body (for service account impersonation)
+        
+    Returns:
+        str: The user ID to use for the operation
+        
+    Raises:
+        HTTPException: If service account tries to operate without specifying a user_id
+    """
     if isinstance(actor, ServiceAccount):
-        # For service accounts, we might need to handle differently
-        # For now, we'll use the service account identity
-        return actor.identity
+        # Service accounts must specify which user they're acting on behalf of
+        if not request_user_id:
+            raise HTTPException(
+                status_code=400,
+                detail="user_id is required in request body when using service account authentication"
+            )
+        logger.info(f"Service account acting on behalf of user: {request_user_id}")
+        return request_user_id
     else:
+        # Regular users - use their authenticated identity, ignore any request_user_id
         return actor.identity
 
 
@@ -181,7 +214,7 @@ async def add_memory(
     agents or conversation runs for better organization.
     """
     try:
-        user_id = get_user_id_from_actor(actor)
+        user_id = get_user_id_from_actor(actor, request.user_id)
         
         result = await memory_service.add_memory(
             user_id=user_id,
@@ -225,7 +258,7 @@ async def search_memories(
     can be filtered by agent or run context.
     """
     try:
-        user_id = get_user_id_from_actor(actor)
+        user_id = get_user_id_from_actor(actor, request.user_id)
         
         results = await memory_service.search_memories(
             user_id=user_id,
@@ -261,6 +294,7 @@ async def search_memories(
 @router.get("/all", response_model=MemoryResponse)
 async def get_all_memories(
     actor: Annotated[AuthenticatedActor, Depends(resolve_user_or_service)],
+    user_id: Optional[str] = None,
     agent_id: Optional[str] = None,
     run_id: Optional[str] = None,
     limit: int = 50,
@@ -271,9 +305,11 @@ async def get_all_memories(
     
     This endpoint retrieves all memories belonging to the user, with optional
     filtering by agent or run context. For complex filtering, use the POST version.
+    
+    Note: user_id parameter is required when using service account authentication.
     """
     try:
-        user_id = get_user_id_from_actor(actor)
+        resolved_user_id = get_user_id_from_actor(actor, user_id)
         
         # Check if memory service is available
         if not hasattr(memory_service, '_memory_client') or memory_service._memory_client is None:
@@ -287,7 +323,7 @@ async def get_all_memories(
         actual_limit = limit + offset
         
         results = await memory_service.get_all_memories(
-            user_id=user_id,
+            user_id=resolved_user_id,
             agent_id=agent_id,
             run_id=run_id,
             filters=None,  # No complex filtering in GET version
@@ -305,7 +341,7 @@ async def get_all_memories(
         paginated_response['offset'] = offset
         paginated_response['limit'] = limit
         
-        logger.info(f"Retrieved {len(paginated_results)} memories for user {user_id} (offset: {offset}, limit: {limit})")
+        logger.info(f"Retrieved {len(paginated_results)} memories for user {resolved_user_id} (offset: {offset}, limit: {limit})")
         return MemoryResponse(
             success=True,
             data=paginated_response,
@@ -338,7 +374,7 @@ async def get_all_memories_with_filters(
     type, and other custom fields using AND/OR logic and nested conditions.
     """
     try:
-        user_id = get_user_id_from_actor(actor)
+        user_id = get_user_id_from_actor(actor, request.user_id)
         
         # Check if memory service is available
         if not hasattr(memory_service, '_memory_client') or memory_service._memory_client is None:
@@ -380,23 +416,26 @@ async def get_all_memories_with_filters(
 @router.get("/{memory_id}", response_model=MemoryResponse)
 async def get_memory(
     memory_id: str,
-    actor: Annotated[AuthenticatedActor, Depends(resolve_user_or_service)]
+    actor: Annotated[AuthenticatedActor, Depends(resolve_user_or_service)],
+    user_id: Optional[str] = None
 ):
     """
     Get a specific memory by its ID.
     
     This endpoint retrieves a single memory by its unique identifier.
     Users can only access their own memories.
+    
+    Note: user_id parameter is required when using service account authentication.
     """
     try:
-        user_id = get_user_id_from_actor(actor)
+        resolved_user_id = get_user_id_from_actor(actor, user_id)
         
         memory = await memory_service.get_memory(
-            user_id=user_id,
+            user_id=resolved_user_id,
             memory_id=memory_id
         )
         
-        logger.info(f"Retrieved memory {memory_id} for user {user_id}")
+        logger.info(f"Retrieved memory {memory_id} for user {resolved_user_id}")
         return MemoryResponse(
             success=True,
             data=memory,
@@ -433,25 +472,28 @@ async def get_memory(
 async def update_memory(
     memory_id: str,
     request: MemoryUpdateRequest,
-    actor: Annotated[AuthenticatedActor, Depends(resolve_user_or_service)]
+    actor: Annotated[AuthenticatedActor, Depends(resolve_user_or_service)],
+    user_id: Optional[str] = None
 ):
     """
     Update an existing memory.
     
     This endpoint allows users to modify the content or metadata of an existing
     memory. Users can only update their own memories.
+    
+    Note: user_id parameter is required when using service account authentication.
     """
     try:
-        user_id = get_user_id_from_actor(actor)
+        resolved_user_id = get_user_id_from_actor(actor, user_id)
         
         result = await memory_service.update_memory(
-            user_id=user_id,
+            user_id=resolved_user_id,
             memory_id=memory_id,
             content=request.content,
             metadata=request.metadata
         )
         
-        logger.info(f"Updated memory {memory_id} for user {user_id}")
+        logger.info(f"Updated memory {memory_id} for user {resolved_user_id}")
         return MemoryResponse(
             success=True,
             data=result,
@@ -485,23 +527,26 @@ async def update_memory(
 @router.delete("/{memory_id}", response_model=MemoryResponse)
 async def delete_memory(
     memory_id: str,
-    actor: Annotated[AuthenticatedActor, Depends(resolve_user_or_service)]
+    actor: Annotated[AuthenticatedActor, Depends(resolve_user_or_service)],
+    user_id: Optional[str] = None
 ):
     """
     Delete a specific memory by its ID.
     
     This endpoint permanently deletes a memory. Users can only delete their
     own memories. This operation cannot be undone.
+    
+    Note: user_id parameter is required when using service account authentication.
     """
     try:
-        user_id = get_user_id_from_actor(actor)
+        resolved_user_id = get_user_id_from_actor(actor, user_id)
         
         result = await memory_service.delete_memory(
-            user_id=user_id,
+            user_id=resolved_user_id,
             memory_id=memory_id
         )
         
-        logger.info(f"Deleted memory {memory_id} for user {user_id}")
+        logger.info(f"Deleted memory {memory_id} for user {resolved_user_id}")
         return MemoryResponse(
             success=True,
             data=result,
@@ -544,7 +589,7 @@ async def delete_all_memories(
     by agent or run context. This operation cannot be undone.
     """
     try:
-        user_id = get_user_id_from_actor(actor)
+        user_id = get_user_id_from_actor(actor, request.user_id)
         
         result = await memory_service.delete_all_memories(
             user_id=user_id,
@@ -576,23 +621,26 @@ async def delete_all_memories(
 @router.get("/{memory_id}/history", response_model=MemoryResponse)
 async def get_memory_history(
     memory_id: str,
-    actor: Annotated[AuthenticatedActor, Depends(resolve_user_or_service)]
+    actor: Annotated[AuthenticatedActor, Depends(resolve_user_or_service)],
+    user_id: Optional[str] = None
 ):
     """
     Get the change history for a specific memory.
     
     This endpoint retrieves the history of changes made to a memory over time.
     Useful for understanding how memories have evolved and for debugging.
+    
+    Note: user_id parameter is required when using service account authentication.
     """
     try:
-        user_id = get_user_id_from_actor(actor)
+        resolved_user_id = get_user_id_from_actor(actor, user_id)
         
         history = await memory_service.get_memory_history(
-            user_id=user_id,
+            user_id=resolved_user_id,
             memory_id=memory_id
         )
         
-        logger.info(f"Retrieved history for memory {memory_id} for user {user_id}")
+        logger.info(f"Retrieved history for memory {memory_id} for user {resolved_user_id}")
         return MemoryResponse(
             success=True,
             data={"history": history},

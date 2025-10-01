@@ -75,8 +75,8 @@ Related endpoints exist for chunks/semantic search, collections management, jobs
 
 LangConnect supports two credential types via `Authorization: Bearer <token>`:
 
-- **User (Supabase JWT)**: Standard end-user identity. Used by the web app and by agents acting on behalf of a user. Grants access to the user’s collections and data based on permissions.
-- **Service Account (`LANGCONNECT_SERVICE_ACCOUNT_KEY`)**: For automated back-end flows (e.g. ETL, synchronisers). Service accounts are privileged but must attribute ownership appropriately when creating content. Some user-scoped tools (e.g. personal memory) remain user-only.
+- **User (Supabase JWT)**: Standard end-user identity. Used by the web app and by agents acting on behalf of a user. Grants access to the user's collections and data based on permissions.
+- **Service Account (`LANGCONNECT_SERVICE_ACCOUNT_KEY`)**: For automated back-end flows (e.g. ETL, synchronisers, n8n workflows). Service accounts are privileged but must attribute ownership appropriately when creating content. For user-scoped endpoints (like memory operations), service accounts **must provide a `user_id` in the request body** to specify which user they're acting on behalf of. This enables service account "impersonation" for user-specific operations whilst maintaining audit trails.
 
 How agents get access via MCP:
 
@@ -119,7 +119,7 @@ Routers included in the app:
 - `jobs` — submit and track processing jobs
 - `notifications` — in-app notifications
 - `public_permissions` — public link sharing & access checks
-- `memory` — memory-context related routes used by MCP/agents
+- `memory` — user memory management routes (supports service account user impersonation via `user_id` parameter)
 - `gcp_images` — optional GCP object storage helpers (behind `IMAGE_STORAGE_ENABLED`)
 
 Explore the FastAPI docs at `/docs` or `/redoc` when the server is running.

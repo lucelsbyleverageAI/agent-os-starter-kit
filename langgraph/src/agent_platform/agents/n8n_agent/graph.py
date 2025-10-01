@@ -125,10 +125,25 @@ async def n8n_bridge_node(state: MessagesState, config: RunnableConfig) -> Dict[
     # Generate thread_id from config thread_id or create a new one
     thread_id = config.get("configurable", {}).get("thread_id", str(uuid.uuid4()))
     
-    # Prepare n8n payload
+    # Get the full configurable metadata object and filter to JSON-serializable values
+    configurable = config.get("configurable", {})
+    
+    # Filter out non-JSON-serializable objects (like ProxyUser, functions, etc.)
+    serializable_config = {}
+    for key, value in configurable.items():
+        try:
+            # Test if the value is JSON serializable
+            json.dumps(value)
+            serializable_config[key] = value
+        except (TypeError, ValueError):
+            # Skip non-serializable values (e.g., user objects, functions)
+            pass
+    
+    # Prepare n8n payload with both simplified fields and filtered config
     payload = {
         "thread_id": thread_id,
-        "user_message": user_message
+        "user_message": user_message,
+        "config": serializable_config  # Include only JSON-serializable config data
     }
     
     # Get stream writer for custom streaming

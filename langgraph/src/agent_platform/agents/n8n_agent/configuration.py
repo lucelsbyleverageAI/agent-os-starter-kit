@@ -9,6 +9,17 @@ class GraphConfigPydantic(BaseModel):
     This agent acts as a bridge to n8n workflows, forwarding messages
     to a configured n8n webhook and streaming back the responses.
     
+    The agent sends a JSON payload to the webhook containing:
+    - thread_id: Unique identifier for the conversation thread
+    - user_message: The user's input message as plain text
+    - config: JSON-serializable LangGraph configuration metadata, which may include:
+      * thread_id: Same as top-level thread_id
+      * webhook_url: The configured webhook URL
+      * Any custom JSON-serializable configuration passed from the calling application
+      
+    Note: Non-serializable objects (like user objects, functions) are automatically
+    filtered out to ensure the payload can be sent as JSON.
+    
     Attributes:
         webhook_url: The n8n webhook URL to send requests to
     """

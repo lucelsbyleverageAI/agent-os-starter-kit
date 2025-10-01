@@ -69,27 +69,28 @@ This is the most common and powerful flow for agentic actions.
     5.  The MCP server validates the token and sees that the agent is acting on behalf of a specific user. This ensures the agent only accesses data and tools permitted for that user.
 -   **Unauthorised Scenario:** If LangGraph's token exchange fails or it presents an invalid token, the MCP server will reject the request with a `401 Unauthorized`.
 
-### 3. Service Account → MCP Server
+### 3. Service Account → MCP Server (User Impersonation)
 
-This flow is for automated, non-user-driven processes.
+This flow is for automated processes that need to act on behalf of specific users (e.g., n8n workflows, Zapier automations).
 
 -   **Flow:**
-    1.  A system (e.g., a CI/CD script, a data ingestion pipeline) has the `MCP_SERVICE_ACCOUNT_KEY`.
+    1.  A system (e.g., n8n workflow) has the `MCP_SERVICE_ACCOUNT_KEY`.
     2.  It makes a direct API call to the MCP server with `Authorization: Bearer <mcp_service_account_key>`.
     3.  The MCP server identifies the key as a service account key and establishes a service account context.
-    4.  The tool is executed. However, access to user-specific tools (like memory) is explicitly blocked, returning a `403 Forbidden` error to prevent automated systems from accessing user data.
--   **Unauthorised Scenario:** If the service account key is incorrect, the server returns a `401 Unauthorized`.
+    4.  For user-scoped operations (like memory tools), the system **must include a `user_id` in the request body** to specify which user the operation is for.
+    5.  The tool is executed on behalf of the specified user. The service account essentially "impersonates" the user for that specific operation.
+-   **Unauthorised Scenario:** If the service account key is incorrect, the server returns a `401 Unauthorized`. If a user-scoped tool is called without a `user_id`, it returns a `400 Bad Request`.
 
-### 4. Service Account → LangGraph Agent → MCP Server
+### 4. Service Account → LangGraph Agent → MCP Server (User Impersonation)
 
-This is for triggering agents via an API rather than a user.
+This is for triggering agents via an API on behalf of specific users (e.g., n8n workflows triggering LangGraph agents).
 
 -   **Flow:**
-    1.  An external system calls a LangGraph agent webhook, authenticating with a LangGraph-level API key.
-    2.  LangGraph identifies this as a service account request (as there is no user JWT).
-    3.  When the agent needs to use a tool, it falls back to using the `MCP_SERVICE_ACCOUNT_KEY` configured within the LangGraph environment.
-    4.  It calls the MCP server with the service account key, following the same logic as the direct service account flow.
--   **Unauthorised Scenario:** An invalid service account key results in a `401 Unauthorized`.
+    1.  An external system (e.g., n8n) calls a LangGraph agent webhook, authenticating with a LangGraph-level API key and providing a `user_id` in the configuration.
+    2.  LangGraph identifies this as a service account request but knows which user it's acting for.
+    3.  When the agent needs to use a user-scoped tool (like memory), it passes the `user_id` along with the tool call.
+    4.  It calls the MCP server with the service account key and the `user_id` parameter, following the user impersonation flow.
+-   **Unauthorised Scenario:** An invalid service account key results in a `401 Unauthorized`. Missing `user_id` for user-scoped tools results in a `400 Bad Request`.
 
 ### 5. Third-Party Client → MCP Server
 
