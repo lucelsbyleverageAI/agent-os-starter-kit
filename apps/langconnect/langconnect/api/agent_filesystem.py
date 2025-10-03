@@ -17,6 +17,7 @@ from langconnect.database.permissions import (
     verify_collection_permission,
     get_user_collection_permission
 )
+from langconnect.services.job_service import job_service
 
 logger = logging.getLogger(__name__)
 router = APIRouter(prefix="/agent-filesystem", tags=["Agent File System"])
@@ -838,8 +839,17 @@ async def create_file(
         size_bytes = len(request.content)
         size_lines = request.content.count("\n") + 1
         
-        # TODO: Queue for processing (chunking and embedding)
-        # This would integrate with the existing job service
+        # Queue document for processing (chunking and embedding)
+        try:
+            job_id = await job_service.queue_document_reprocessing(
+                document_id=document_id,
+                collection_id=collection_id,
+                user_id=user_id
+            )
+            logger.info(f"[FS_CREATE_FILE] Queued processing job {job_id} for new document {document_id}")
+        except Exception as e:
+            logger.error(f"[FS_CREATE_FILE] Failed to queue processing job: {e}")
+            # Don't fail the request if job queuing fails - document is still created
         
         logger.info(f"[FS_CREATE_FILE] Created document {document_id}")
         return CreateFileResponse(
@@ -849,7 +859,7 @@ async def create_file(
             size_bytes=size_bytes,
             size_lines=size_lines,
             processing_status="processing",
-            message="Document created successfully. Chunking and embedding in progress."
+            message="Document created successfully."
         )
         
     except HTTPException:
@@ -980,8 +990,17 @@ async def edit_file(
                 detail="Failed to update document"
             )
         
-        # TODO: Queue re-processing job
-        # This would delete old embeddings and re-chunk the document
+        # Queue re-processing job to update embeddings
+        try:
+            job_id = await job_service.queue_document_reprocessing(
+                document_id=document_id,
+                collection_id=actual_collection_id,
+                user_id=user_id
+            )
+            logger.info(f"[FS_EDIT_FILE] Queued reprocessing job {job_id} for updated document {document_id}")
+        except Exception as e:
+            logger.error(f"[FS_EDIT_FILE] Failed to queue reprocessing job: {e}")
+            # Don't fail the request if job queuing fails - document is still updated
         
         logger.info(f"[FS_EDIT_FILE] Updated document {document_id} with {changes} changes")
         return EditFileResponse(
@@ -991,7 +1010,7 @@ async def edit_file(
             collection_id=actual_collection_id,
             preview=preview,
             processing_status="processing",
-            message="Document updated. Re-chunking and re-embedding in progress."
+            message="Document updated."
         )
         
     except HTTPException:

@@ -1362,13 +1362,11 @@ async def create_fs_write_file_tool(
     async def fs_write_file(
         collection_id: Annotated[str, "Target collection UUID"],
         name: Annotated[str, "Document name/title"],
-        content: Annotated[str, "Document content"],
+        content: Annotated[str, "Document content (markdown format unless otherwise specified)"],
         metadata: Annotated[Optional[dict], "Optional extra metadata"] = None
     ) -> str:
-        """Create a new document in a collection (editor/owner only).
-
-        Content is chunked and embedded server‑side for search. Provide a clear
-        title and well‑formatted content for best retrieval quality.
+        """Create a new document in a collection using markdown format unless otherwise specified.
+        Provide a clear title and well‑formatted content for best retrieval quality.
         """
         import json
         import httpx
@@ -1413,7 +1411,7 @@ async def create_fs_edit_file_tool(
         new_string: Annotated[str, "Replacement text (empty to delete)"],
         replace_all: Annotated[bool, "Replace all occurrences instead of a single unique match"] = False
     ) -> str:
-        """Replace exact text in a document (editor/owner).
+        """Replace exact text in a document using markdown format unless otherwise specified.
 
         Read the file first and include unique surrounding context in `old_string`
         to avoid ambiguous matches. Returns a diff preview and change counts.
@@ -1451,7 +1449,7 @@ async def create_fs_delete_file_tool(
     async def fs_delete_file(
         document_id: Annotated[str, "Document UUID"]
     ) -> str:
-        """Permanently delete a document and its chunks (irreversible, owner only).
+        """Permanently delete a document and its chunks (irreversible).
 
         Confirm the target before use; consider archiving when deletion isn't required.
         """

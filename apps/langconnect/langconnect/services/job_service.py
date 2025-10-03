@@ -6,6 +6,7 @@ import logging
 import uuid
 from datetime import datetime, UTC
 from typing import Dict, List, Optional, Any
+from uuid import UUID
 from concurrent.futures import ThreadPoolExecutor
 
 from langconnect.database.connection import get_db_connection
@@ -671,9 +672,11 @@ class JobService:
                     ))
                     
                     # Create a processing input for the document content
+                    # Use text_content key which EnhancedDocumentProcessor expects
                     reprocess_input = {
-                        "text": doc_data["content"],
-                        "metadata": doc_data.get("metadata", {})
+                        "text_content": doc_data["content"],
+                        "title": doc_data.get("metadata", {}).get("title", "Reprocessed Document"),
+                        "description": doc_data.get("metadata", {}).get("description", "")
                     }
                     
                     result = await processor.process_input(
@@ -682,7 +685,7 @@ class JobService:
                         progress_callback,
                         collection_id=collection_id,
                         user_id=job.user_id,
-                        use_document_model=True
+                        use_document_model=False  # Don't create new document, just process chunks
                     )
                     
                     if result.success and result.documents:
@@ -872,6 +875,7 @@ class JobService:
         """
         # Create a reprocessing job
         job_data = JobCreate(
+            user_id=user_id,
             collection_id=UUID(collection_id),
             job_type=JobType.REPROCESS_DOCUMENT,
             title=f"Reprocess document {document_id[:8]}",
@@ -882,7 +886,7 @@ class JobService:
             },
             processing_options=ProcessingOptions(
                 processing_mode="balanced",
-                skip_duplicate_check=True  # Don't check for duplicates during reprocessing
+                chunking_strategy="markdown_aware"
             )
         )
         

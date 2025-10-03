@@ -67,7 +67,8 @@ BEGIN
       'document_processing',
       'youtube_processing',
       'url_processing',
-      'text_processing'
+      'text_processing',
+      'reprocess_document'
     );
   END IF;
 END $$;
