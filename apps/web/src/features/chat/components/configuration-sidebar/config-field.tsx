@@ -970,6 +970,11 @@ export function ConfigFieldRAGTools({
   const store = useConfigStore();
   const actualAgentId = `${agentId}:rag`;
 
+  // State for collapsible groups
+  const [expandedGroups, setExpandedGroups] = useState<Set<string>>(
+    new Set(["Read Operations"]),
+  );
+
   const isExternallyManaged = externalSetValue !== undefined;
 
   const defaults = (
@@ -991,9 +996,6 @@ export function ConfigFieldRAGTools({
   // Get the enabled_tools list and tool metadata
   console.log('[ConfigFieldRAGTools] Defaults:', defaults);
   const enabledTools = defaults.enabled_tools || ["hybrid_search", "fs_list_collections", "fs_list_files", "fs_read_file", "fs_grep_files"];
-  
-  // State for collapsible groups
-  const [expandedGroups, setExpandedGroups] = useState<Set<string>>(new Set(["Read Operations"]));
   
   const toggleGroup = (groupName: string) => {
     setExpandedGroups(prev => {

@@ -271,6 +271,7 @@ export function AgentFieldsForm({
                               description: tool.description,
                               toolkit: group.name.toLowerCase().replace(/\s+/g, '_'),
                               toolkit_display_name: group.name,
+                              inputSchema: { type: "object" as const },
                             })),
                           }));
                           
@@ -283,7 +284,7 @@ export function AgentFieldsForm({
                               onChange={(newValue) => {
                                 onChange({
                                   ...value,
-                                  enabled_tools: newValue.tools || [],
+                                  enabled_tools: newValue?.tools || [],
                                 });
                               }}
                               searchTerm=""

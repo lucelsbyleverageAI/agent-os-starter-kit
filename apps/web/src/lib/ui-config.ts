@@ -264,6 +264,7 @@ export function configSchemaToAgentsConfig(
               itemSchema.push({
                 label: propKey,
                 ...propUiConfig,
+                type: propUiConfig.type as ConfigurableFieldUIMetadata['type'],
               });
             } else {
               // Default to text input if no UI config

@@ -32,7 +32,6 @@ import {
 import { 
   Trash2, 
   MoreVertical, 
-  Calendar, 
   Eye, 
   Loader2, 
   X, 
@@ -47,7 +46,6 @@ import { Document } from "@langchain/core/documents";
 import { useKnowledgeContext } from "../../providers/Knowledge";
 import { format } from "date-fns";
 import { Collection } from "@/types/collection";
-import { getCollectionName } from "../../hooks/use-knowledge";
 import { toast } from "sonner";
 import { ViewDocumentDialog } from "./view-document-dialog";
 import { EditDocumentDialog } from "./edit-document-dialog";

@@ -8,7 +8,6 @@ import {
   ConfigField,
   ConfigFieldAgents,
   ConfigFieldRAG,
-  ConfigFieldRAGTools,
   ConfigFieldTool,
 } from "@/features/chat/components/configuration-sidebar/config-field";
 import { ConfigSection } from "@/features/chat/components/configuration-sidebar/config-section";
@@ -553,6 +552,7 @@ export const ConfigurationSidebar = forwardRef<
                               description: tool.description,
                               toolkit: group.name.toLowerCase().replace(/\s+/g, '_'),
                               toolkit_display_name: group.name,
+                              inputSchema: { type: "object" as const },
                             })),
                           }));
                           
@@ -569,7 +569,7 @@ export const ConfigurationSidebar = forwardRef<
                                 const currentRagConfig = store.configsByAgentId[`${agentId}:rag`]?.[ragConfigurations[0].label] || {};
                                 store.updateConfig(`${agentId}:rag`, ragConfigurations[0].label, {
                                   ...currentRagConfig,
-                                  enabled_tools: newValue.tools || [],
+                                  enabled_tools: newValue?.tools || [],
                                 });
                               }}
                               searchTerm=""
