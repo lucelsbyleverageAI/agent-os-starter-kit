@@ -1345,14 +1345,14 @@ class EnhancedDocumentProcessor:
         filename: str, 
         processing_mode: str = "balanced"
     ) -> Tuple[str, str]:
-        """Generate individual document title and description from filename.
+        """Generate individual document title from filename.
         
         Args:
             filename: Original filename
-            processing_mode: Processing mode used
+            processing_mode: Processing mode used (not currently used)
             
         Returns:
-            Tuple of (title, description)
+            Tuple of (title, description) - description is empty string for user to fill in
         """
         import os
         
@@ -1369,28 +1369,8 @@ class EnhancedDocumentProcessor:
         # Title case for better readability
         title = ' '.join(word.capitalize() for word in clean_title.split())
         
-        # Generate description based on file type
-        file_ext = os.path.splitext(filename)[1].lower()
-        
-        file_type_descriptions = {
-            '.pdf': 'PDF document',
-            '.docx': 'Word document',
-            '.doc': 'Word document', 
-            '.pptx': 'PowerPoint presentation',
-            '.ppt': 'PowerPoint presentation',
-            '.xlsx': 'Excel spreadsheet',
-            '.xls': 'Excel spreadsheet',
-            '.txt': 'Text file',
-            '.md': 'Markdown document',
-            '.csv': 'CSV data file',
-            '.html': 'HTML document',
-            '.htm': 'HTML document'
-        }
-        
-        file_type = file_type_descriptions.get(file_ext, 'Document')
-        processing_mode_desc = 'OCR processing' if processing_mode == 'balanced' else 'Standard processing'
-        
-        description = f"{file_type} processed with {processing_mode_desc.lower()}"
+        # Return empty description - user should add their own
+        description = ""
         
         return title, description
 

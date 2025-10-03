@@ -5,13 +5,10 @@ import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from "
 import { Button } from "@/components/ui/button";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Badge } from "@/components/ui/badge";
-import { Label } from "@/components/ui/label";
 import { 
   Upload, 
   Link, 
-  Type, 
-  Zap, 
-  ScanText,
+  Type,
 } from "lucide-react";
 import { uploadToasts } from "@/utils/upload-toasts";
 import { cn } from "@/lib/utils";
@@ -23,31 +20,6 @@ import { URLUploadSection } from "./url-upload-section";
 import { TextUploadSection } from "./text-upload-section";
 
 export type ProcessingMode = 'fast' | 'balanced';
-
-interface ProcessingModeConfig {
-  id: ProcessingMode;
-  name: string;
-  description: string;
-  detail: string;
-  icon: React.ComponentType<any>;
-}
-
-const PROCESSING_MODES: ProcessingModeConfig[] = [
-  {
-    id: 'fast',
-    name: 'Standard Processing',
-    description: 'Quick text extraction with table detection',
-    detail: 'Best for digital documents with selectable text',
-    icon: Zap,
-  },
-  {
-    id: 'balanced',
-    name: 'OCR Processing',
-    description: 'Text extraction with OCR for scanned documents',
-    detail: 'Detects text from images and scanned pages (takes longer)',
-    icon: ScanText,
-  }
-];
 
 export interface URLItem {
   id: string;
@@ -77,7 +49,7 @@ export function EnhancedUploadDialog({
   collectionId 
 }: EnhancedUploadDialogProps) {
   const [activeTab, setActiveTab] = useState<'files' | 'urls' | 'text'>('files');
-  const [processingMode, setProcessingMode] = useState<ProcessingMode>('balanced');
+  const [processingMode] = useState<ProcessingMode>('fast'); // Always use 'fast' mode
   const [submitting, setSubmitting] = useState(false);
   
   // Content state
@@ -116,7 +88,6 @@ export function EnhancedUploadDialog({
     setFiles([]);
     setURLs([]);
     setTextContent('');
-    setProcessingMode('balanced');
     setActiveTab('files');
   }, []);
 
@@ -166,48 +137,15 @@ export function EnhancedUploadDialog({
 
   return (
     <Dialog open={open} onOpenChange={handleClose}>
-      <DialogContent className={cn("!max-w-5xl !w-[80vw] max-h-[90vh]", ...getScrollbarClasses('y'))}>
-        <DialogHeader>
+      <DialogContent className={cn("!max-w-5xl !w-[80vw] max-h-[90vh] flex flex-col gap-0", ...getScrollbarClasses('y'))}>
+        <DialogHeader className="pb-4">
           <DialogTitle>Upload Documents</DialogTitle>
         </DialogHeader>
 
-        <div className="space-y-6">
-          {/* Processing Mode Selection */}
-          <div className="space-y-3">
-            <Label className="text-base font-medium">Processing Mode</Label>
-            <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-              {PROCESSING_MODES.map((mode) => {
-                const Icon = mode.icon;
-                const isSelected = processingMode === mode.id;
-                
-                return (
-                  <div 
-                    key={mode.id}
-                    className={cn(
-                      "cursor-pointer transition-all duration-300 ease-out rounded-lg border bg-card text-card-foreground shadow-sm p-4",
-                      isSelected 
-                        ? "border-primary border-2 shadow-lg shadow-primary/10" 
-                        : "hover:border-primary hover:border-2 hover:shadow-lg hover:shadow-primary/10"
-                    )}
-                    onClick={() => setProcessingMode(mode.id)}
-                  >
-                    <div className="flex items-start space-x-3">
-                      <Icon className="h-6 w-6 text-foreground flex-shrink-0 mt-0.5" />
-                      <div className="flex-1 min-w-0">
-                        <h3 className="font-semibold text-base text-foreground mb-1">{mode.name}</h3>
-                        <p className="text-sm text-muted-foreground mb-2">{mode.description}</p>
-                        <p className="text-xs text-muted-foreground">{mode.detail}</p>
-                      </div>
-                    </div>
-                  </div>
-                );
-              })}
-            </div>
-          </div>
-
+        <div className="flex-1 min-h-0">
           {/* Content Upload Tabs */}
-          <Tabs value={activeTab} onValueChange={(value) => setActiveTab(value as any)}>
-            <TabsList className="grid w-full grid-cols-3">
+          <Tabs value={activeTab} onValueChange={(value) => setActiveTab(value as any)} className="flex flex-col h-full">
+            <TabsList className="grid w-full grid-cols-3 mb-6">
               <TabsTrigger value="files" className="flex items-center space-x-2">
                 <Upload className="h-4 w-4" />
                 <span>Files</span>
@@ -237,32 +175,30 @@ export function EnhancedUploadDialog({
               </TabsTrigger>
             </TabsList>
 
-            <TabsContent value="files" className="space-y-4">
+            <TabsContent value="files" className="flex-1 mt-0">
               <FileUploadSection 
                 files={files}
                 onFilesChange={setFiles}
               />
             </TabsContent>
 
-            <TabsContent value="urls" className="space-y-4">
+            <TabsContent value="urls" className="flex-1 mt-0">
               <URLUploadSection 
                 urls={urls}
                 onURLsChange={setURLs}
               />
             </TabsContent>
 
-            <TabsContent value="text" className="space-y-4">
+            <TabsContent value="text" className="flex-1 mt-0">
               <TextUploadSection 
                 textContent={textContent}
                 onTextChange={setTextContent}
               />
             </TabsContent>
           </Tabs>
-
-
         </div>
 
-        <DialogFooter className="flex items-center justify-between">
+        <DialogFooter className="flex items-center justify-between pt-6 mt-6 border-t">
           <Button variant="outline" onClick={handleClose} disabled={submitting}>
             Cancel
           </Button>

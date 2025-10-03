@@ -107,15 +107,15 @@ export function ViewDocumentMetadataDialog({
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent className={cn("max-w-2xl max-h-[80vh]", ...getScrollbarClasses('y'))}>
-        <DialogHeader>
+      <DialogContent className={cn("max-w-2xl max-h-[80vh] flex flex-col gap-0", ...getScrollbarClasses('y'))}>
+        <DialogHeader className="pb-4">
           <DialogTitle>Document Metadata</DialogTitle>
-          <p className="text-sm text-muted-foreground">
+          <p className="text-sm text-muted-foreground mt-1">
             Detailed information about "{document.title}"
           </p>
         </DialogHeader>
 
-        <div className={cn("space-y-4 overflow-y-auto", ...getScrollbarClasses('y'))}>
+        <div className={cn("flex-1 min-h-0 overflow-y-auto", ...getScrollbarClasses('y'))}>
           {allFields.length === 0 ? (
             <Card>
               <CardContent className="pt-6">

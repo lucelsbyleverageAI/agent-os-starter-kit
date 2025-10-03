@@ -447,6 +447,8 @@ export function useKnowledge(): UseKnowledgeReturn {
         metadata: {
           file_id: doc.id,
           name: doc.title,
+          title: doc.title,
+          description: doc.description,
           collection: collectionId,
           created_at: doc.created_at,
           updated_at: doc.updated_at,

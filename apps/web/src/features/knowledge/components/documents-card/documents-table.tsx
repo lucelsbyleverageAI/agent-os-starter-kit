@@ -32,7 +32,6 @@ import {
 import { 
   Trash2, 
   MoreVertical, 
-  FolderOpen, 
   Calendar, 
   Eye, 
   Loader2, 
@@ -41,7 +40,8 @@ import {
   ChevronUp,
   ChevronDown,
   ChevronsUpDown,
-  Files
+  Files,
+  Edit
 } from "lucide-react";
 import { Document } from "@langchain/core/documents";
 import { useKnowledgeContext } from "../../providers/Knowledge";
@@ -50,6 +50,7 @@ import { Collection } from "@/types/collection";
 import { getCollectionName } from "../../hooks/use-knowledge";
 import { toast } from "sonner";
 import { ViewDocumentDialog } from "./view-document-dialog";
+import { EditDocumentDialog } from "./edit-document-dialog";
 import { cn } from "@/lib/utils";
 import { getScrollbarClasses } from "@/lib/scrollbar-styles";
 
@@ -124,6 +125,7 @@ export function DocumentsTable({
   const { deleteDocument } = useKnowledgeContext();
   const [deletingDocumentId, setDeletingDocumentId] = useState<string | null>(null);
   const [viewDocumentId, setViewDocumentId] = useState<string | null>(null);
+  const [editDocumentId, setEditDocumentId] = useState<string | null>(null);
   const [loadingMore, setLoadingMore] = useState(false);
   
   // Multi-select state
@@ -507,7 +509,7 @@ export function DocumentsTable({
 
         {/* Frozen Header */}
         <div className="bg-muted/30 border-b border-border">
-          <div className="grid grid-cols-13 gap-4 px-4 py-3">
+          <div className="grid grid-cols-12 gap-4 px-4 py-3">
             <div className="col-span-1 flex items-center">
               <Checkbox
                 checked={isAllVisibleSelected}
@@ -517,24 +519,24 @@ export function DocumentsTable({
                 {...(isIndeterminate && { 'data-state': 'indeterminate' })}
               />
             </div>
-            <div className="col-span-4 flex items-center">
+            <div className="col-span-3 flex items-center">
               <button
                 onClick={() => handleSort('name')}
                 className="flex items-center text-xs font-medium text-muted-foreground hover:text-foreground transition-colors"
               >
-                Document Name
+                Title
                 {getSortIcon('name')}
               </button>
             </div>
-            <div className="col-span-3 text-xs font-medium text-muted-foreground">
-              Collection
+            <div className="col-span-5 text-xs font-medium text-muted-foreground">
+              Description
             </div>
-            <div className="col-span-3 flex items-center">
+            <div className="col-span-1 flex items-center">
               <button
                 onClick={() => handleSort('date')}
                 className="flex items-center text-xs font-medium text-muted-foreground hover:text-foreground transition-colors"
               >
-                Date Uploaded
+                Date
                 {getSortIcon('date')}
               </button>
             </div>
@@ -581,7 +583,7 @@ export function DocumentsTable({
                   <div 
                     key={doc.id}
                     className={cn(
-                      "grid grid-cols-13 gap-4 px-4 py-3 hover:bg-accent/50 transition-colors",
+                      "grid grid-cols-12 gap-4 px-4 py-3 hover:bg-accent/50 transition-colors",
                       !isLastRow && "border-b border-border/30",
                       deletingDocumentId === doc.metadata.file_id && "opacity-50 pointer-events-none",
                       isSelected && "bg-primary/5"
@@ -597,9 +599,10 @@ export function DocumentsTable({
                     </div>
 
                     {/* Document Name */}
-                    <div className="col-span-4 flex items-center">
+                    <div className="col-span-3 flex items-center">
                       {(() => {
-                        const isUrl = isValidUrl(doc.metadata.name);
+                        // Only treat as URL if it's from URL upload (has source_type of 'url')
+                        const isUrl = doc.metadata.source_type === 'url' && isValidUrl(doc.metadata.name);
                         const commonClasses = "text-sm font-normal truncate";
                         const linkClasses = isUrl 
                           ? "text-blue-600 hover:text-blue-800 hover:underline cursor-pointer" 
@@ -651,22 +654,44 @@ export function DocumentsTable({
                       })()}
                     </div>
 
-                    {/* Collection */}
-                    <div className="col-span-3 flex items-center">
-                      <MinimalistBadgeWithText
-                        icon={FolderOpen}
-                        text={getCollectionName(selectedCollection.name)}
-                        tooltip={`Collection: ${getCollectionName(selectedCollection.name)}`}
-                      />
+                    {/* Description */}
+                    <div className="col-span-5 flex items-center">
+                      {doc.metadata.description ? (
+                        <TooltipProvider>
+                          <Tooltip delayDuration={300}>
+                            <TooltipTrigger asChild>
+                              <p className="text-sm text-muted-foreground line-clamp-2 cursor-help">
+                                {doc.metadata.description}
+                              </p>
+                            </TooltipTrigger>
+                            <TooltipContent side="top" className="max-w-md">
+                              <p className="text-sm whitespace-pre-wrap">
+                                {doc.metadata.description}
+                              </p>
+                            </TooltipContent>
+                          </Tooltip>
+                        </TooltipProvider>
+                      ) : (
+                        <span className="text-sm text-muted-foreground italic">No description</span>
+                      )}
                     </div>
 
                     {/* Date Uploaded */}
-                    <div className="col-span-3 flex items-center">
-                      <MinimalistBadgeWithText
-                        icon={Calendar}
-                        text={format(new Date(doc.metadata.created_at), "MMM d, yyyy")}
-                        tooltip={format(new Date(doc.metadata.created_at), "MMMM d, yyyy 'at' h:mm a")}
-                      />
+                    <div className="col-span-1 flex items-center">
+                      <TooltipProvider>
+                        <Tooltip delayDuration={300}>
+                          <TooltipTrigger asChild>
+                            <span className="text-sm text-muted-foreground cursor-help">
+                              {format(new Date(doc.metadata.created_at), "MMM d")}
+                            </span>
+                          </TooltipTrigger>
+                          <TooltipContent side="top">
+                            <p className="text-sm">
+                              {format(new Date(doc.metadata.created_at), "MMMM d, yyyy 'at' h:mm a")}
+                            </p>
+                          </TooltipContent>
+                        </Tooltip>
+                      </TooltipProvider>
                     </div>
 
                     {/* Actions */}
@@ -690,6 +715,13 @@ export function DocumentsTable({
                             >
                               <Eye className="mr-2 h-4 w-4" />
                               View Document
+                            </DropdownMenuItem>
+                            <DropdownMenuItem
+                              onClick={() => setEditDocumentId(doc.metadata.file_id)}
+                              disabled={deletingDocumentId === doc.metadata.file_id || batchDeleting}
+                            >
+                              <Edit className="mr-2 h-4 w-4" />
+                              Edit Title & Description
                             </DropdownMenuItem>
                             <AlertDialogTrigger asChild>
                               <DropdownMenuItem
@@ -834,6 +866,29 @@ export function DocumentsTable({
           open={!!viewDocumentId}
           onOpenChange={(open: boolean) => !open && setViewDocumentId(null)}
         />
+
+        {/* Edit Document Dialog */}
+        {editDocumentId && (() => {
+          const doc = documents.find(d => d.metadata.file_id === editDocumentId);
+          if (!doc) return null;
+          
+          return (
+            <EditDocumentDialog
+              documentId={editDocumentId}
+              collectionId={selectedCollection.uuid}
+              currentTitle={doc.metadata.name || doc.metadata.title || ""}
+              currentDescription={doc.metadata.description || ""}
+              open={!!editDocumentId}
+              onOpenChange={(open: boolean) => !open && setEditDocumentId(null)}
+              onSuccess={async () => {
+                // Refresh documents after successful edit
+                if (onDocumentsChanged) {
+                  await onDocumentsChanged();
+                }
+              }}
+            />
+          );
+        })()}
       </div>
     </div>
   );

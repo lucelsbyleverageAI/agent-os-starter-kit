@@ -2,7 +2,7 @@
 
 import React, { useState, useEffect } from "react";
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog";
-import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
+import { Card, CardContent } from "@/components/ui/card";
 import { Skeleton } from "@/components/ui/skeleton";
 import { toast } from "sonner";
 import { Eye, Layers } from "lucide-react";
@@ -113,13 +113,13 @@ export function ViewDocumentDialog({
   return (
     <>
       <Dialog open={open} onOpenChange={handleClose}>
-        <DialogContent className={cn("!max-w-5xl !w-[80vw] max-h-[90vh] flex flex-col", ...getScrollbarClasses('y'))}>
-          <DialogHeader className="flex-shrink-0">
+        <DialogContent className={cn("!max-w-5xl !w-[80vw] max-h-[90vh] flex flex-col gap-0", ...getScrollbarClasses('y'))}>
+          <DialogHeader className="flex-shrink-0 pb-4">
             <DialogTitle className="text-xl font-semibold">
               {loading ? "Loading Document..." : error ? "Error Loading Document" : document ? document.title : "Document"}
             </DialogTitle>
             {loading ? (
-              <Skeleton className="h-4 w-48" />
+              <Skeleton className="h-4 w-48 mt-1" />
             ) : error ? (
               <p className="text-sm text-muted-foreground mt-1">{error}</p>
             ) : document && document.description ? (
@@ -127,9 +127,9 @@ export function ViewDocumentDialog({
             ) : null}
           </DialogHeader>
 
-                    <div className="flex-1 min-h-0 space-y-4">
+          <div className="flex-1 min-h-0 flex flex-col gap-3">
             {loading ? (
-              <div className="space-y-4">
+              <div className="flex flex-col gap-3">
                 <div className="flex justify-end gap-2">
                   <Skeleton className="h-8 w-8" />
                   <Skeleton className="h-8 w-8" />
@@ -162,25 +162,13 @@ export function ViewDocumentDialog({
                   />
                 </div>
 
-                {/* Document Content */}
-                <Card className="flex-1 min-h-0">
-                  <CardHeader className="pb-3">
-                    <CardTitle className="text-base">Document Content</CardTitle>
-                    <CardDescription>
-                      {document.chunk_count ? `${document.chunk_count} chunks` : "Full document"}
-                      {" • "}
-                      {new Date(document.created_at).toLocaleDateString()}
-                    </CardDescription>
-                  </CardHeader>
-                  <CardContent className="pt-0">
-                    <div className={cn(
-                      "max-h-[400px] overflow-y-auto rounded-lg border bg-muted/20 p-4",
-                      ...getScrollbarClasses('y')
-                    )}>
-                      <MarkdownText>{document.content}</MarkdownText>
-                    </div>
-                  </CardContent>
-                </Card>
+                {/* Document Content - Minimal styling */}
+                <div className={cn(
+                  "flex-1 min-h-0 overflow-y-auto rounded-md border border-border/30 bg-muted/5 p-6",
+                  ...getScrollbarClasses('y')
+                )}>
+                  <MarkdownText>{document.content}</MarkdownText>
+                </div>
               </>
             ) : null}
           </div>

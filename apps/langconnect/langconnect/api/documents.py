@@ -232,6 +232,66 @@ async def get_document_detail(
 # For document-level search (by title, filename, etc.), use the list endpoint with filters
 
 
+@router.patch(
+    "/collections/{collection_id}/documents/{document_id}",
+    response_model=dict[str, bool]
+)
+async def update_document_metadata(
+    actor: Annotated[AuthenticatedActor, Depends(resolve_user_or_service)],
+    collection_id: UUID,
+    document_id: str,
+    title: str = Form(..., description="Document title"),
+    description: str = Form(default="", description="Document description"),
+):
+    """Update document title and description metadata."""
+    
+    # Resolve effective user ID for service accounts
+    if isinstance(actor, ServiceAccount):
+        collections_manager = CollectionsManager(actor.identity)
+        collections_manager._is_service_account = True
+        collection_details = await collections_manager.get(str(collection_id))
+        if not collection_details:
+            raise HTTPException(status_code=404, detail="Collection not found or access denied")
+        effective_user_id = collection_details["metadata"].get("owner_id")
+        if not effective_user_id:
+            raise HTTPException(status_code=400, detail="Collection missing owner_id in metadata")
+    else:
+        effective_user_id = actor.identity
+
+    # Check edit permissions
+    permissions_manager = CollectionPermissionsManager(effective_user_id)
+    permission_level = await permissions_manager.get_user_permission_level(str(collection_id))
+    if permission_level not in ["owner", "editor"]:
+        raise HTTPException(
+            status_code=403,
+            detail="Edit permission required for this collection"
+        )
+    
+    # Get document manager
+    collection = Collection(str(collection_id), effective_user_id)
+    if isinstance(actor, ServiceAccount):
+        collection._is_service_account = True
+        collection.permissions_manager._is_service_account = True
+    
+    document_manager = collection.get_document_manager()
+    
+    # Get current document to merge metadata
+    current_doc = await document_manager.get_document(document_id)
+    if not current_doc:
+        raise HTTPException(status_code=404, detail="Document not found")
+    
+    # Update metadata with new title and description
+    updated_metadata = current_doc.get("metadata", {}).copy()
+    updated_metadata["title"] = title
+    updated_metadata["name"] = title  # Keep both for compatibility
+    updated_metadata["description"] = description
+    
+    # Update the document
+    success = await document_manager.update_document_metadata(document_id, updated_metadata)
+    
+    return {"success": success}
+
+
 @router.delete(
     "/collections/{collection_id}/documents/{document_id}",
     response_model=dict[str, bool]
@@ -410,6 +470,8 @@ async def upload_documents(
             input_data["text_content"] = text_content.strip()
         
         # Determine job type based on input
+        # Note: TEXT_PROCESSING is reserved for chat text extraction (which doesn't save to collection)
+        # For uploading text to a collection, use DOCUMENT_PROCESSING
         if files:
             job_type = JobType.DOCUMENT_PROCESSING
         elif input_data.get("urls"):
@@ -420,7 +482,9 @@ async def upload_documents(
             else:
                 job_type = JobType.URL_PROCESSING
         elif input_data.get("text_content"):
-            job_type = JobType.TEXT_PROCESSING
+            # Use DOCUMENT_PROCESSING for text uploads to collection
+            # (TEXT_PROCESSING is for chat feature only)
+            job_type = JobType.DOCUMENT_PROCESSING
         else:
             job_type = JobType.DOCUMENT_PROCESSING
         

@@ -191,34 +191,32 @@ export function DocumentsModal({
   return (
     <>
       <Dialog open={open} onOpenChange={onOpenChange}>
-        <DialogContent className={cn("!max-w-6xl !w-[85vw] max-h-[90vh] flex flex-col", ...getScrollbarClasses('y'))}>
-          <DialogHeader className="flex-shrink-0">
+        <DialogContent className={cn("!max-w-6xl !w-[85vw] max-h-[90vh] flex flex-col gap-0", ...getScrollbarClasses('y'))}>
+          <DialogHeader className="flex-shrink-0 pb-4">
             <DialogTitle className="text-xl">
               {getCollectionName(collection.name)}
             </DialogTitle>
-            <p className="text-sm text-muted-foreground">
+            <p className="text-sm text-muted-foreground mt-1">
               {collection.metadata?.description || "No description available"}
             </p>
           </DialogHeader>
 
-          <div className="flex-1 min-h-0 space-y-6">
+          <div className="flex-1 min-h-0 flex flex-col gap-4">
             {/* Enhanced Upload Button */}
-            <div className="flex flex-col items-center">
-              <div className="w-full max-w-xs">
-                <Button 
-                  onClick={() => setEnhancedUploadOpen(true)}
-                  className="w-full max-w-xs"
-                  size="lg"
-                >
-                  <Plus className="mr-2 h-4 w-4" />
-                  Add To This Collection
-                </Button>
-              </div>
+            <div className="flex justify-center pt-2">
+              <Button 
+                onClick={() => setEnhancedUploadOpen(true)}
+                className="w-full max-w-xs"
+                size="lg"
+              >
+                <Plus className="mr-2 h-4 w-4" />
+                Add To This Collection
+              </Button>
             </div>
 
             {/* Job Progress */}
             {processingJobs.length > 0 && (
-              <div>
+              <div className="px-1">
                 <JobProgressCard 
                   jobs={processingJobs}
                   collectionId={collection.uuid}
@@ -229,7 +227,7 @@ export function DocumentsModal({
             )}
 
             {/* Document Table with Infinite Scroll */}
-            <div className={cn("flex-1 min-h-0 pb-6", ...getScrollbarClasses('y'))}>
+            <div className={cn("flex-1 min-h-0", ...getScrollbarClasses('y'))}>
               <DocumentsTable
                 documents={modalDocuments}
                 selectedCollection={collection}

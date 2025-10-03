@@ -514,7 +514,7 @@ class YouTubeService:
             doc_metadata.update({
                 'url': url,
                 'title': title or f"YouTube Video {transcript.metadata['video_id']}",
-                'description': description or "YouTube video transcript",
+                'description': description or "",  # Empty description for user to fill in
                 'source_name': url,
             })
             
