@@ -476,20 +476,65 @@ export function Thread({ historyOpen = false, configOpen = false }: ThreadProps)
         })()}
 
         <StickToBottom className="flex flex-1 min-h-0 flex-col overflow-hidden">
-          <div className="flex flex-1 min-h-0 flex-col">
-            <StickyToBottomContent
-              className={cn(
-                "flex-1 overflow-y-auto overflow-x-hidden px-2 md:px-4",
-                ...getScrollbarClasses('y'),
-              )}
-              contentClassName={cn(
-                "flex flex-col gap-4 w-full",
-                !hasMessages ? "min-h-full justify-center" : "pt-8 pb-4",
-                chatWidth
-              )}
-              content={
+          <div className={cn(
+            "flex flex-1 min-h-0 flex-col",
+            !hasMessages && "items-center justify-center"
+          )}>
+            {!hasMessages ? (
+              // Empty state: centered logo and composer
+              <div className={cn("flex flex-col items-center gap-8 px-2 md:px-4 w-full", chatWidth)}>
+                <div className="flex items-center justify-center gap-3">
+                  <Image 
+                    src="/logo_icon_round.png" 
+                    alt="AgentOS Logo" 
+                    width={48} 
+                    height={48} 
+                    priority
+                    unoptimized
+                    className="flex-shrink-0"
+                  />
+                  <h1 className="text-3xl font-semibold tracking-tight">
+                    AgentOS
+                  </h1>
+                </div>
+
+                <div className="relative w-full">
+                  <DynamicInputComposer
+                    dropRef={dropRef}
+                    chatWidth="w-full"
+                    dragOver={dragOver}
+                    handleSubmit={handleSubmit}
+                    contentBlocks={contentBlocks}
+                    processingAttachments={processingAttachments}
+                    removeBlock={removeBlock}
+                    removeProcessingAttachment={removeProcessingAttachment}
+                    setHasInput={setHasInput}
+                    handlePaste={handlePaste}
+                    hasMessages={hasMessages}
+                    hideToolCalls={hideToolCalls}
+                    setHideToolCalls={setHideToolCalls}
+                    handleFileUpload={handleFileUpload}
+                    isLoading={isLoading}
+                    hasInput={hasInput}
+                    onStop={() => stream.stop()}
+                  />
+                </div>
+              </div>
+            ) : (
+              // Messages state: scrollable content with sticky composer
               <>
-                {/* Agent Mismatch Warning Banner */}
+                <StickyToBottomContent
+                  className={cn(
+                    "flex-1 overflow-y-auto overflow-x-hidden px-2 md:px-4",
+                    ...getScrollbarClasses('y'),
+                  )}
+                  contentClassName={cn(
+                    "flex flex-col gap-4 w-full pt-8 pb-4",
+                    chatWidth
+                  )}
+                  content={
+                  <>
+                    {/* Agent Mismatch Warning Banner */}
                 {agentMismatch === "true" && (
                   <Alert variant="default" className="border-orange-200 bg-orange-50">
                     <AlertCircle className="h-4 w-4 text-orange-600" />
@@ -548,50 +593,35 @@ export function Thread({ historyOpen = false, configOpen = false }: ThreadProps)
                 )}
               </>
             }
-            />
-            
-            <div className="flex shrink-0 flex-col items-center gap-4 bg-background px-2 md:px-4 pb-4">
-              {!hasMessages && (
-                <div className="flex items-center gap-3 mb-4">
-                  <Image 
-                    src="/logo_icon_round.png" 
-                    alt="AgentOS Logo" 
-                    width={48} 
-                    height={48} 
-                    priority
-                    unoptimized
-                    className="flex-shrink-0"
-                  />
-                  <h1 className="text-3xl font-semibold tracking-tight">
-                    AgentOS
-                  </h1>
-                </div>
-              )}
-
-              <div className="relative w-full">
-                <ScrollToBottom className="animate-in fade-in-0 zoom-in-95 absolute bottom-full left-1/2 mb-4 -translate-x-1/2" />
-
-                <DynamicInputComposer
-                  dropRef={dropRef}
-                  chatWidth={chatWidth}
-                  dragOver={dragOver}
-                  handleSubmit={handleSubmit}
-                  contentBlocks={contentBlocks}
-                  processingAttachments={processingAttachments}
-                  removeBlock={removeBlock}
-                  removeProcessingAttachment={removeProcessingAttachment}
-                  setHasInput={setHasInput}
-                  handlePaste={handlePaste}
-                  hasMessages={hasMessages}
-                  hideToolCalls={hideToolCalls}
-                  setHideToolCalls={setHideToolCalls}
-                  handleFileUpload={handleFileUpload}
-                  isLoading={isLoading}
-                  hasInput={hasInput}
-                  onStop={() => stream.stop()}
                 />
-              </div>
-            </div>
+                
+                <div className="flex shrink-0 flex-col items-center gap-4 bg-background px-2 md:px-4 pb-4">
+                  <div className="relative w-full">
+                    <ScrollToBottom className="animate-in fade-in-0 zoom-in-95 absolute bottom-full left-1/2 mb-4 -translate-x-1/2" />
+
+                    <DynamicInputComposer
+                      dropRef={dropRef}
+                      chatWidth={chatWidth}
+                      dragOver={dragOver}
+                      handleSubmit={handleSubmit}
+                      contentBlocks={contentBlocks}
+                      processingAttachments={processingAttachments}
+                      removeBlock={removeBlock}
+                      removeProcessingAttachment={removeProcessingAttachment}
+                      setHasInput={setHasInput}
+                      handlePaste={handlePaste}
+                      hasMessages={hasMessages}
+                      hideToolCalls={hideToolCalls}
+                      setHideToolCalls={setHideToolCalls}
+                      handleFileUpload={handleFileUpload}
+                      isLoading={isLoading}
+                      hasInput={hasInput}
+                      onStop={() => stream.stop()}
+                    />
+                  </div>
+                </div>
+              </>
+            )}
           </div>
         </StickToBottom>
 
