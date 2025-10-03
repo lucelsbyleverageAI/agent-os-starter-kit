@@ -624,6 +624,119 @@ class JobService:
                     logger.error(f"Text extraction job {job_id} failed: {result.error_message}")
                 
                 return # End processing for this job type
+            
+            elif job.job_type == JobType.REPROCESS_DOCUMENT:
+                # Handle document reprocessing after edits
+                from langconnect.database.document import DocumentManager
+                
+                document_id = processing_input.get("document_id")
+                collection_id = processing_input.get("collection_id")
+                
+                if not document_id or not collection_id:
+                    await self.update_job_progress(job_id, JobUpdate(
+                        status=JobStatus.FAILED,
+                        error_message="Missing document_id or collection_id"
+                    ))
+                    return
+                
+                try:
+                    # Step 1: Delete existing embeddings
+                    await self.update_job_progress(job_id, JobUpdate(
+                        progress_percentage=20,
+                        current_step="Deleting old embeddings"
+                    ))
+                    
+                    doc_manager = DocumentManager(collection_id, job.user_id)
+                    deleted_count = await doc_manager.delete_document_embeddings(document_id)
+                    logger.info(f"Deleted {deleted_count} old embeddings for document {document_id}")
+                    
+                    # Step 2: Get updated document content
+                    await self.update_job_progress(job_id, JobUpdate(
+                        progress_percentage=40,
+                        current_step="Fetching updated content"
+                    ))
+                    
+                    doc_data = await doc_manager.get_document(document_id)
+                    if not doc_data:
+                        await self.update_job_progress(job_id, JobUpdate(
+                            status=JobStatus.FAILED,
+                            error_message="Document not found"
+                        ))
+                        return
+                    
+                    # Step 3: Re-chunk and re-embed
+                    await self.update_job_progress(job_id, JobUpdate(
+                        progress_percentage=60,
+                        current_step="Re-chunking and re-embedding"
+                    ))
+                    
+                    # Create a processing input for the document content
+                    reprocess_input = {
+                        "text": doc_data["content"],
+                        "metadata": doc_data.get("metadata", {})
+                    }
+                    
+                    result = await processor.process_input(
+                        reprocess_input,
+                        job.processing_options,
+                        progress_callback,
+                        collection_id=collection_id,
+                        user_id=job.user_id,
+                        use_document_model=True
+                    )
+                    
+                    if result.success and result.documents:
+                        # Step 4: Add new embeddings
+                        await self.update_job_progress(job_id, JobUpdate(
+                            progress_percentage=80,
+                            current_step="Adding new embeddings"
+                        ))
+                        
+                        collection = Collection(
+                            collection_id=collection_id,
+                            user_id=job.user_id,
+                        )
+                        
+                        # Update the document ID in all chunks to match the original document
+                        for doc in result.documents:
+                            if hasattr(doc, 'metadata'):
+                                doc.metadata['document_id'] = document_id
+                        
+                        added_ids = await collection.upsert(result.documents)
+                        
+                        # Step 5: Complete
+                        await self.update_job_progress(job_id, JobUpdate(
+                            status=JobStatus.COMPLETED,
+                            progress_percentage=100,
+                            current_step="Reprocessing complete",
+                            output_data={
+                                "document_id": document_id,
+                                "old_embeddings_deleted": deleted_count,
+                                "new_embeddings_created": len(added_ids),
+                            },
+                            documents_processed=1,
+                            chunks_created=len(added_ids)
+                        ))
+                        
+                        logger.info(
+                            f"Reprocessed document {document_id}: "
+                            f"deleted {deleted_count} old embeddings, created {len(added_ids)} new embeddings"
+                        )
+                    else:
+                        await self.update_job_progress(job_id, JobUpdate(
+                            status=JobStatus.FAILED,
+                            error_message=result.error_message or "Failed to reprocess document"
+                        ))
+                        logger.error(f"Document reprocessing failed: {result.error_message}")
+                    
+                except Exception as e:
+                    await self.update_job_progress(job_id, JobUpdate(
+                        status=JobStatus.FAILED,
+                        error_message=f"Reprocessing error: {str(e)}"
+                    ))
+                    logger.exception(f"Error during document reprocessing: {e}")
+                
+                return # End processing for this job type
 
             # --- Default behavior for other job types (e.g., DOCUMENT_PROCESSING) ---
             
@@ -733,8 +846,53 @@ class JobService:
             return base_time + 60
         elif job_data.job_type == JobType.URL_PROCESSING:
             return base_time + 20
+        elif job_data.job_type == JobType.REPROCESS_DOCUMENT:
+            # Reprocessing typically takes less time than initial processing
+            return base_time + 10
         
         return base_time
+    
+    async def queue_document_reprocessing(
+        self,
+        document_id: str,
+        collection_id: str,
+        user_id: str
+    ) -> str:
+        """Queue a document for reprocessing (re-chunking and re-embedding).
+        
+        This is called after document content is updated via fs_edit_file or fs_write_file.
+        
+        Args:
+            document_id: UUID of the document to reprocess
+            collection_id: UUID of the collection containing the document
+            user_id: ID of the user triggering reprocessing
+            
+        Returns:
+            Job ID of the created reprocessing job
+        """
+        # Create a reprocessing job
+        job_data = JobCreate(
+            collection_id=UUID(collection_id),
+            job_type=JobType.REPROCESS_DOCUMENT,
+            title=f"Reprocess document {document_id[:8]}",
+            description="Re-chunking and re-embedding document after content update",
+            input_data={
+                "document_id": document_id,
+                "collection_id": collection_id
+            },
+            processing_options=ProcessingOptions(
+                processing_mode="balanced",
+                skip_duplicate_check=True  # Don't check for duplicates during reprocessing
+            )
+        )
+        
+        job_response = await self.create_job(job_data, user_id)
+        
+        # Start job processing in the background
+        await self.start_job_processing(job_response.id)
+        
+        logger.info(f"Queued document reprocessing job {job_response.id} for document {document_id}")
+        return job_response.id
 
 
 # Global job service instance

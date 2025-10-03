@@ -86,6 +86,24 @@ export type ConfigurableFieldRAGMetadata = {
   default?: {
     langconnect_api_url?: string;
     collections?: string[];
+    enabled_tools?: string[];
+  };
+  /**
+   * Metadata for the enabled_tools field, including tool groups structure
+   */
+  toolGroupsMetadata?: {
+    type: string;
+    description?: string;
+    default?: string[];
+    tool_groups?: Array<{
+      name: string;
+      permission: string;
+      tools: Array<{
+        name: string;
+        label: string;
+        description: string;
+      }>;
+    }>;
   };
 };
 

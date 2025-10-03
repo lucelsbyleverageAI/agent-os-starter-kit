@@ -35,6 +35,7 @@ from agent_platform.services.mcp_token import fetch_tokens as central_fetch_toke
 from agent_platform.utils.tool_utils import (
     create_langchain_mcp_tool_with_universal_context,
     create_rag_tool_with_universal_context,
+    create_collection_tools,
 )
 
 ##########################
@@ -477,7 +478,7 @@ async def get_all_tools(config: RunnableConfig):
     search_tools = await get_search_tool(search_api)
     tools.extend(search_tools)
     
-    # Add RAG tools (LangConnect collections) if configured
+    # Add collection tools (RAG + file system) if configured
     try:
         rag_cfg = getattr(configurable, "rag", None)
         # Try multiple locations where the JWT token might be stored
@@ -488,31 +489,29 @@ async def get_all_tools(config: RunnableConfig):
         )
         
         if rag_cfg and rag_cfg.langconnect_api_url and rag_cfg.collections and supabase_token:
-            # Create tools in parallel
-            creation_tasks = [
-                create_rag_tool_with_universal_context(
-                    rag_cfg.langconnect_api_url,
-                    collection_id,
-                    supabase_token,
-                    lambda: config,
-                )
-                for collection_id in rag_cfg.collections
-            ]
-            created_tools = await asyncio.gather(*creation_tasks, return_exceptions=True)
+            # Get enabled tools list (default to hybrid_search only for backward compatibility)
+            enabled_tools = getattr(rag_cfg, "enabled_tools", None) or ["hybrid_search"]
+            
+            # Create all enabled tools using the new orchestrator function
+            collection_tools = await create_collection_tools(
+                langconnect_api_url=rag_cfg.langconnect_api_url,
+                collection_ids=rag_cfg.collections,
+                enabled_tools=enabled_tools,
+                access_token=supabase_token,
+                config_getter=lambda: config,
+            )
             
             # Guard against name conflicts with existing tools
             current_tool_names = set(
                 t.name if hasattr(t, "name") else t.get("name", "web_search")
                 for t in tools
             )
-            for maybe_tool in created_tools:
-                if isinstance(maybe_tool, Exception):
-                    continue
+            for maybe_tool in collection_tools:
                 if getattr(maybe_tool, "name", None) and maybe_tool.name not in current_tool_names:
                     tools.append(maybe_tool)
                     current_tool_names.add(maybe_tool.name)
     except Exception:
-        # Silently continue if RAG tool loading fails
+        # Silently continue if collection tool loading fails
         pass
     
     # Track existing tool names to prevent conflicts

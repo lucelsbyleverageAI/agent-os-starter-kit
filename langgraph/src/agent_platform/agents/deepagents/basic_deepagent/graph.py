@@ -12,6 +12,7 @@ from agent_platform.services.mcp_token import fetch_tokens
 from agent_platform.utils.tool_utils import (
     create_rag_tool_with_universal_context,
     create_langchain_mcp_tool_with_universal_context,
+    create_collection_tools,
 )
 from agent_platform.agents.deepagents.basic_deepagent.configuration import (
     GraphConfigPydantic,
@@ -31,20 +32,23 @@ async def graph(config: RunnableConfig):
         "x-supabase-access-token"
     ) or config.get("metadata", {}).get("supabaseAccessToken")
 
+    # Add collection tools (RAG + file system) if configured
     if cfg.rag and cfg.rag.langconnect_api_url and cfg.rag.collections and supabase_token:
-        for collection in cfg.rag.collections:
-            try:
-                rag_tool = await create_rag_tool_with_universal_context(
-                    cfg.rag.langconnect_api_url,
-                    collection,
-                    supabase_token,
-                    lambda: config,
-                )
-                tools.append(rag_tool)
-            except Exception:
-                logger.exception(
-                    "[basic_deepagent] Failed to create RAG tool for collection=%s", collection
-                )
+        try:
+            # Get enabled tools list (default to hybrid_search only for backward compatibility)
+            enabled_tools = getattr(cfg.rag, "enabled_tools", None) or ["hybrid_search"]
+            
+            # Create all enabled tools using the new orchestrator function
+            collection_tools = await create_collection_tools(
+                langconnect_api_url=cfg.rag.langconnect_api_url,
+                collection_ids=cfg.rag.collections,
+                enabled_tools=enabled_tools,
+                access_token=supabase_token,
+                config_getter=lambda: config,
+            )
+            tools.extend(collection_tools)
+        except Exception:
+            logger.exception("[basic_deepagent] Failed to create collection tools")
 
     if (
         cfg.mcp_config

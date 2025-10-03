@@ -130,17 +130,76 @@ export function configSchemaToRagConfig(
   let ragField: ConfigurableFieldRAGMetadata | undefined;
   for (const [key, value] of Object.entries(schema.properties)) {
     const uiConfig = getUiConfig(value);
+    
     if (!uiConfig || uiConfig.type !== "rag") {
       continue;
+    }
+
+    // Extract nested enabled_tools metadata if it exists
+    let toolGroupsMetadata: any = undefined;
+    let refPath: string | undefined = undefined;
+    
+    // Check for $ref in multiple possible locations
+    if (typeof value === "object" && value) {
+      // Case 1: Direct $ref
+      if ("$ref" in value) {
+        refPath = (value as any).$ref;
+      }
+      // Case 2: $ref inside anyOf array (Pydantic Optional pattern)
+      else if ("anyOf" in value && Array.isArray((value as any).anyOf)) {
+        // Find the first item with a $ref (ignore null types)
+        const refItem = (value as any).anyOf.find((item: any) => 
+          typeof item === "object" && item && "$ref" in item
+        );
+        
+        if (refItem) {
+          refPath = refItem.$ref;
+        }
+      }
+    }
+    
+    // If we found a $ref, look it up in $defs
+    if (refPath) {
+      // Extract the definition name from $ref (e.g., "#/$defs/RagConfig" -> "RagConfig")
+      const defName = refPath.split('/').pop();
+      
+      // Look in $defs for the actual RagConfig schema
+      if (schema.$defs && defName && schema.$defs[defName]) {
+        const ragConfigDef = schema.$defs[defName];
+        
+        if (typeof ragConfigDef === "object" && "properties" in ragConfigDef) {
+          const ragProperties = (ragConfigDef as any).properties;
+          
+          if (ragProperties && "enabled_tools" in ragProperties) {
+            const enabledToolsConfig = getUiConfig(ragProperties.enabled_tools);
+            
+            if (enabledToolsConfig) {
+              toolGroupsMetadata = enabledToolsConfig;
+            }
+          }
+        }
+      }
+    }
+    // Fallback: check if properties are directly on the value
+    else if (typeof value === "object" && value && "properties" in value) {
+      const ragProperties = (value as any).properties;
+      if (ragProperties && "enabled_tools" in ragProperties) {
+        const enabledToolsConfig = getUiConfig(ragProperties.enabled_tools);
+        if (enabledToolsConfig) {
+          toolGroupsMetadata = enabledToolsConfig;
+        }
+      }
     }
 
     ragField = {
       label: key,
       type: uiConfig.type,
       default: uiConfig.default,
+      toolGroupsMetadata, // Add the nested metadata
     };
     break;
   }
+  
   return ragField;
 }
 
@@ -222,6 +281,10 @@ export function extractConfigurationsFromAgent({
           langconnect_api_url:
             configurable[ragConfig.label]?.langconnect_api_url ??
             process.env.NEXT_PUBLIC_LANGCONNECT_API_URL,
+          enabled_tools:
+            configurable[ragConfig.label]?.enabled_tools ??
+            ragConfig.default?.enabled_tools ??
+            ["hybrid_search", "fs_list_collections", "fs_list_files", "fs_read_file", "fs_grep_files"],
         },
       }
     : undefined;

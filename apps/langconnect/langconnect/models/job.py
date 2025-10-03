@@ -25,6 +25,7 @@ class JobType(str, Enum):
     YOUTUBE_PROCESSING = "youtube_processing"
     URL_PROCESSING = "url_processing"
     TEXT_PROCESSING = "text_processing"
+    REPROCESS_DOCUMENT = "reprocess_document"
 
 
 class ProcessingOptions(BaseModel):

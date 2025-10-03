@@ -15,6 +15,7 @@ from agent_platform.utils.tool_utils import (
     create_langchain_mcp_tool_with_auth_data,
     create_langchain_mcp_tool_with_universal_context,
     wrap_mcp_authenticate_tool,
+    create_collection_tools,
 )
 
 # Import agent-specific configuration
@@ -83,18 +84,30 @@ async def graph(config: RunnableConfig):
         config.get("configurable", {}).get("supabaseAccessToken")         # Another alternative
     )
     
-    # Step 3: Load RAG tools if configured
+    # Step 3: Load collection tools (RAG + file system) if configured
     if cfg.rag and cfg.rag.langconnect_api_url and cfg.rag.collections and supabase_token:
-        for collection in cfg.rag.collections:
-            try:
-                # Create RAG tool for this collection with universal context injection
-                rag_tool = await create_rag_tool_with_universal_context(
-                    cfg.rag.langconnect_api_url, collection, supabase_token, lambda: config
-                )
-                tools.append(rag_tool)
-            except Exception:
-                # Log and continue on RAG tool creation errors
-                logger.exception("[TOOLS_AGENT] rag_tool_create_failed collection=%s", collection)
+        try:
+            # Get enabled tools list (default to hybrid_search only for backward compatibility)
+            enabled_tools = cfg.rag.enabled_tools or ["hybrid_search"]
+            
+            # Create all enabled tools using the new orchestrator function
+            collection_tools = await create_collection_tools(
+                langconnect_api_url=cfg.rag.langconnect_api_url,
+                collection_ids=cfg.rag.collections,
+                enabled_tools=enabled_tools,
+                access_token=supabase_token,
+                config_getter=lambda: config,
+            )
+            
+            tools.extend(collection_tools)
+            logger.info(
+                "[TOOLS_AGENT] collection_tools_loaded count=%s enabled_tools=%s",
+                len(collection_tools),
+                enabled_tools,
+            )
+        except Exception:
+            # Log and continue on tool creation errors
+            logger.exception("[TOOLS_AGENT] collection_tools_create_failed")
 
     # Step 4: Load MCP tools if configured
     if (

@@ -456,4 +456,332 @@ class DocumentManager:
                 "title": metadata.get("title", "Untitled"),
                 "original_filename": metadata.get("original_filename", "unknown"),
                 "content_hash": metadata.get("content_hash"),
-            } 
+            }
+    
+    async def update_document_content(
+        self,
+        document_id: str,
+        new_content: str
+    ) -> bool:
+        """Update document content and mark for reprocessing.
+        
+        Args:
+            document_id: Document UUID to update
+            new_content: New content to set
+            
+        Returns:
+            True if update successful, False otherwise
+        """
+        async with get_db_connection() as conn:
+            query = """
+                UPDATE langconnect.langchain_pg_document
+                SET 
+                    content = $1,
+                    updated_at = NOW(),
+                    cmetadata = jsonb_set(
+                        cmetadata,
+                        '{processing_status}',
+                        '"pending"'
+                    )
+                WHERE id = $2 AND collection_id = $3
+                RETURNING id
+            """
+            result = await conn.fetchrow(query, new_content, document_id, self.collection_id)
+            return result is not None
+    
+    async def update_document_metadata(
+        self,
+        document_id: str,
+        metadata: Dict[str, Any]
+    ) -> bool:
+        """Update document metadata.
+        
+        Args:
+            document_id: Document UUID to update
+            metadata: New metadata dictionary
+            
+        Returns:
+            True if update successful, False otherwise
+        """
+        async with get_db_connection() as conn:
+            query = """
+                UPDATE langconnect.langchain_pg_document
+                SET 
+                    cmetadata = $1,
+                    updated_at = NOW()
+                WHERE id = $2 AND collection_id = $3
+                RETURNING id
+            """
+            result = await conn.fetchrow(query, json.dumps(metadata), document_id, self.collection_id)
+            return result is not None
+    
+    async def get_document_with_lines(
+        self,
+        document_id: str,
+        offset: int = 0,
+        limit: int = 2000,
+        include_line_numbers: bool = True
+    ) -> Optional[Dict[str, Any]]:
+        """Get document content with line number formatting.
+        
+        Args:
+            document_id: Document UUID to read
+            offset: Starting line number (0-indexed)
+            limit: Number of lines to return
+            include_line_numbers: Whether to include line numbers in output
+            
+        Returns:
+            Dictionary with formatted content and metadata, or None if not found
+        """
+        async with get_db_connection() as conn:
+            if include_line_numbers:
+                # Line-numbered format
+                query = """
+                    WITH lines AS (
+                      SELECT 
+                        row_number() OVER () as line_num,
+                        line_text
+                      FROM (
+                        SELECT unnest(string_to_array(content, E'\n')) as line_text
+                        FROM langconnect.langchain_pg_document
+                        WHERE id = $1 AND collection_id = $2
+                      ) subq
+                    )
+                    SELECT 
+                      string_agg(
+                        lpad(line_num::text, 6, ' ') || '|' || line_text,
+                        E'\n'
+                        ORDER BY line_num
+                      ) as content,
+                      max(line_num) as total_lines,
+                      min(line_num) as start_line,
+                      max(line_num) as end_line
+                    FROM lines
+                    WHERE line_num > $3 AND line_num <= $3 + $4;
+                """
+            else:
+                # Plain format
+                query = """
+                    WITH lines AS (
+                      SELECT 
+                        row_number() OVER () as line_num,
+                        line_text
+                      FROM (
+                        SELECT unnest(string_to_array(content, E'\n')) as line_text
+                        FROM langconnect.langchain_pg_document
+                        WHERE id = $1 AND collection_id = $2
+                      ) subq
+                    )
+                    SELECT 
+                      string_agg(line_text, E'\n' ORDER BY line_num) as content,
+                      max(line_num) as total_lines,
+                      min(line_num) as start_line,
+                      max(line_num) as end_line
+                    FROM lines
+                    WHERE line_num > $3 AND line_num <= $3 + $4;
+                """
+            
+            result = await conn.fetchrow(query, document_id, self.collection_id, offset, limit)
+            
+            if not result:
+                return None
+            
+            # Get document metadata
+            doc = await self.get_document(document_id)
+            
+            if not doc:
+                return None
+            
+            # Calculate total bytes and actual total lines from original content
+            size_query = """
+                SELECT 
+                    LENGTH(content) as total_bytes,
+                    (LENGTH(content) - LENGTH(REPLACE(content, E'\n', ''))) + 1 as actual_total_lines
+                FROM langconnect.langchain_pg_document
+                WHERE id = $1 AND collection_id = $2
+            """
+            size_result = await conn.fetchrow(size_query, document_id, self.collection_id)
+            
+            actual_total_lines = size_result["actual_total_lines"] if size_result else 0
+            
+            return {
+                "content": result["content"] or "",
+                "total_lines": actual_total_lines,
+                "total_bytes": size_result["total_bytes"] if size_result else 0,
+                "line_range": {
+                    "start": result["start_line"] or 0,
+                    "end": result["end_line"] or 0
+                },
+                "document_name": doc.get("metadata", {}).get("title") or doc.get("metadata", {}).get("original_filename") or "Untitled",
+                "collection_id": self.collection_id,
+                "document_id": document_id,
+                "truncated": (result["end_line"] or 0) < actual_total_lines
+            }
+    
+    async def search_documents_by_pattern(
+        self,
+        pattern: str,
+        case_sensitive: bool = False,
+        max_results: int = 100,
+        context_lines: int = 2,
+        document_ids: Optional[List[str]] = None
+    ) -> List[Dict[str, Any]]:
+        """Search for pattern across documents using regex (grep-like functionality).
+        
+        Args:
+            pattern: Regex pattern to search for
+            case_sensitive: Whether search should be case sensitive
+            max_results: Maximum number of matches to return
+            context_lines: Number of lines to include before/after matches
+            document_ids: Optional list of specific document IDs to search
+            
+        Returns:
+            List of match dictionaries with line number, content, and context
+        """
+        async with get_db_connection() as conn:
+            # Build the query with optional document filter
+            doc_filter = ""
+            params = [self.collection_id, pattern, max_results]
+            if document_ids:
+                doc_filter = "AND d.id = ANY($4::uuid[])"
+                params.append(document_ids)
+            
+            # Use regex operator based on case sensitivity
+            regex_op = "~" if case_sensitive else "~*"
+            
+            query = f"""
+                WITH line_matches AS (
+                  SELECT 
+                    d.id as document_id,
+                    d.cmetadata,
+                    t.line_num,
+                    t.line_text
+                  FROM langconnect.langchain_pg_document d,
+                       LATERAL (
+                         SELECT 
+                           row_number() OVER () as line_num,
+                           line_text
+                         FROM unnest(string_to_array(d.content, E'\n')) as line_text
+                       ) t
+                  WHERE d.collection_id = $1
+                    {doc_filter}
+                    AND t.line_text {regex_op} $2
+                  LIMIT $3
+                )
+                SELECT 
+                  lm.document_id,
+                  lm.cmetadata,
+                  lm.line_num,
+                  lm.line_text
+                FROM line_matches lm
+                ORDER BY lm.document_id, lm.line_num;
+            """
+            
+            rows = await conn.fetch(query, *params)
+            
+            matches = []
+            for row in rows:
+                metadata = json.loads(row["cmetadata"]) if row["cmetadata"] else {}
+                document_name = (
+                    metadata.get("title") or 
+                    metadata.get("original_filename") or 
+                    metadata.get("source_name") or 
+                    "Untitled"
+                )
+                
+                match = {
+                    "document_id": str(row["document_id"]),
+                    "collection_id": self.collection_id,
+                    "document_name": document_name,
+                    "line_number": row["line_num"],
+                    "line_content": row["line_text"],
+                }
+                
+                # Get context lines if requested
+                if context_lines > 0:
+                    context = await self._get_line_context(
+                        str(row["document_id"]),
+                        row["line_num"],
+                        context_lines
+                    )
+                    match["context_before"] = context["before"]
+                    match["context_after"] = context["after"]
+                
+                matches.append(match)
+            
+            return matches
+    
+    async def _get_line_context(
+        self,
+        document_id: str,
+        line_number: int,
+        context_lines: int
+    ) -> Dict[str, List[str]]:
+        """Get lines before and after a specific line number.
+        
+        Args:
+            document_id: Document UUID
+            line_number: Target line number
+            context_lines: Number of lines to get before and after
+            
+        Returns:
+            Dictionary with 'before' and 'after' lists of line strings
+        """
+        async with get_db_connection() as conn:
+            query = """
+                WITH lines AS (
+                  SELECT 
+                    row_number() OVER () as line_num,
+                    line_text
+                  FROM unnest(string_to_array(
+                    (SELECT content FROM langconnect.langchain_pg_document 
+                     WHERE id = $1 AND collection_id = $2),
+                    E'\n'
+                  )) as line_text
+                )
+                SELECT line_text, line_num
+                FROM lines
+                WHERE line_num BETWEEN $3 - $4 AND $3 + $4
+                  AND line_num != $3
+                ORDER BY line_num;
+            """
+            
+            rows = await conn.fetch(
+                query,
+                document_id,
+                self.collection_id,
+                line_number,
+                context_lines
+            )
+            
+            before = []
+            after = []
+            
+            for row in rows:
+                if row["line_num"] < line_number:
+                    before.append(row["line_text"])
+                else:
+                    after.append(row["line_text"])
+            
+            return {
+                "before": before,
+                "after": after
+            }
+    
+    async def delete_document_embeddings(self, document_id: str) -> int:
+        """Delete all embeddings associated with a document.
+        
+        Args:
+            document_id: Document UUID
+            
+        Returns:
+            Number of embeddings deleted
+        """
+        async with get_db_connection() as conn:
+            query = """
+                DELETE FROM langconnect.langchain_pg_embedding
+                WHERE document_id = $1 AND collection_id = $2
+            """
+            result = await conn.execute(query, document_id, self.collection_id)
+            # Extract count from result string like "DELETE 15"
+            return int(result.split()[-1]) if result and " " in result else 0 

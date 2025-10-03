@@ -8,7 +8,7 @@ except ImportError:
     from agent_platform.agents.deepagents.deep_agent_toolkit import write_todos, write_file, read_file, ls, edit_file
 from agent_platform.services.mcp_token import fetch_tokens
 from agent_platform.utils.tool_utils import (
-    create_rag_tool_with_universal_context,
+    create_collection_tools,
     create_langchain_mcp_tool_with_universal_context,
 )
 from mcp.client.streamable_http import streamablehttp_client
@@ -65,9 +65,12 @@ async def _get_tools_for_sub_agent(
         if isinstance(rag_config, dict):
             langconnect_api_url = rag_config.get('langconnect_api_url')
             collections = rag_config.get('collections', [])
+            enabled_tools = rag_config.get('enabled_tools', ["hybrid_search", "fs_list_collections", "fs_list_files", "fs_read_file", "fs_grep_files"])
         else:
             langconnect_api_url = getattr(rag_config, 'langconnect_api_url', None)
             collections = getattr(rag_config, 'collections', [])
+            enabled_tools = getattr(rag_config, 'enabled_tools', ["hybrid_search", "fs_list_collections", "fs_list_files", "fs_read_file", "fs_grep_files"])
+        
         # Fallback to global RAG URL from main config
         if not langconnect_api_url:
             langconnect_api_url = (
@@ -77,17 +80,21 @@ async def _get_tools_for_sub_agent(
             )
         
         if langconnect_api_url and collections and supabase_token:
-            for collection in collections:
-                try:
-                    rag_tool = await create_rag_tool_with_universal_context(
-                        langconnect_api_url,
-                        collection,
-                        supabase_token,
-                        lambda: config,
-                    )
-                    tools.append(rag_tool)
-                except Exception:
-                    pass
+            try:
+                # Use the new create_collection_tools that supports all file system operations
+                collection_tools = await create_collection_tools(
+                    langconnect_api_url=langconnect_api_url,
+                    collection_ids=collections,
+                    enabled_tools=enabled_tools,
+                    access_token=supabase_token,
+                    config_getter=lambda: config,
+                )
+                tools.extend(collection_tools)
+                logger.info("[SUB_AGENT] collection_tools_loaded count=%s enabled_tools=%s", 
+                           len(collection_tools), enabled_tools)
+            except Exception as e:
+                logger.exception("[SUB_AGENT] collection_tools_create_failed error=%s", str(e))
+                pass
 
     # Handle MCP config (fallback to global MCP URL if not provided per sub-agent)
     if mcp_config:

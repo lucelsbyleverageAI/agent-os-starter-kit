@@ -20,7 +20,7 @@ class RagConfig(BaseModel):
     """Configuration for RAG (Retrieval-Augmented Generation) integration.
     
     Enables the researcher to search through LangConnect document collections
-    using semantic and keyword hybrid search.
+    using semantic and keyword hybrid search, plus optional file system operations.
     """
     langconnect_api_url: Optional[str] = Field(
         default=None,
@@ -33,6 +33,79 @@ class RagConfig(BaseModel):
         optional=True,
     )
     """List of collection IDs to expose as search tools"""
+    
+    enabled_tools: Optional[List[str]] = Field(
+        default=["hybrid_search", "fs_list_collections", "fs_list_files", "fs_read_file", "fs_grep_files"],
+        optional=True,
+        metadata={
+            "x_oap_ui_config": {
+                "type": "rag_tools",
+                "description": "Select which tools the agent can use to interact with document collections",
+                "default": ["hybrid_search", "fs_list_collections", "fs_list_files", "fs_read_file", "fs_grep_files"],
+                "tool_groups": [
+                    {
+                        "name": "Read Operations",
+                        "permission": "viewer",
+                        "tools": [
+                            {
+                                "name": "hybrid_search",
+                                "label": "Hybrid Search",
+                                "description": "Semantic + keyword search (best for most use cases)",
+                            },
+                            {
+                                "name": "fs_list_collections",
+                                "label": "List Collections",
+                                "description": "Browse available document collections",
+                            },
+                            {
+                                "name": "fs_list_files",
+                                "label": "List Files",
+                                "description": "Browse documents across collections",
+                            },
+                            {
+                                "name": "fs_read_file",
+                                "label": "Read File",
+                                "description": "Read document contents with line numbers",
+                            },
+                            {
+                                "name": "fs_grep_files",
+                                "label": "Search in Files (Grep)",
+                                "description": "Search for patterns across documents using regex",
+                            },
+                        ],
+                    },
+                    {
+                        "name": "Write Operations",
+                        "permission": "editor",
+                        "tools": [
+                            {
+                                "name": "fs_write_file",
+                                "label": "Write File",
+                                "description": "Create new documents in collections",
+                            },
+                            {
+                                "name": "fs_edit_file",
+                                "label": "Edit File",
+                                "description": "Modify existing document contents",
+                            },
+                        ],
+                    },
+                    {
+                        "name": "Delete Operations",
+                        "permission": "owner",
+                        "tools": [
+                            {
+                                "name": "fs_delete_file",
+                                "label": "Delete File",
+                                "description": "Permanently remove documents",
+                            }
+                        ],
+                    },
+                ],
+            }
+        },
+    )
+    """List of tool names to enable (controls both search and file system operations)"""
 
 class MCPConfig(BaseModel):
     """Configuration for Model Context Protocol (MCP) servers."""

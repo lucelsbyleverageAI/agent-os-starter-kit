@@ -8,6 +8,7 @@ import {
   ConfigField,
   ConfigFieldAgents,
   ConfigFieldRAG,
+  ConfigFieldRAGTools,
   ConfigFieldTool,
 } from "@/features/chat/components/configuration-sidebar/config-field";
 import { ConfigSection } from "@/features/chat/components/configuration-sidebar/config-section";
@@ -525,13 +526,58 @@ export const ConfigurationSidebar = forwardRef<
                   value="rag"
                   className="m-0 p-4"
                 >
-                  <ConfigSection title="Agent Knowledge">
+                  <ConfigSection title="Collections">
                     {agentId && ragConfigurations[0]?.label && (
                       <ConfigFieldRAG
                         id={ragConfigurations[0].label}
                         label={ragConfigurations[0].label}
                         agentId={agentId}
                       />
+                    )}
+                  </ConfigSection>
+                  
+                  <ConfigSection title="Document Tools">
+                    {agentId && ragConfigurations[0]?.label && ragConfigurations[0].toolGroupsMetadata?.tool_groups && (
+                      <div className="w-full">
+                        {(() => {
+                          // Use tool groups from backend schema
+                          const toolGroups = ragConfigurations[0].toolGroupsMetadata?.tool_groups || [];
+                          
+                          // Convert tool groups into toolkit structure for ConfigToolkitSelector
+                          const ragToolkits = toolGroups.map(group => ({
+                            name: group.name.toLowerCase().replace(/\s+/g, '_'),
+                            display_name: group.name,
+                            count: group.tools.length,
+                            tools: group.tools.map(tool => ({
+                              name: tool.name,
+                              description: tool.description,
+                              toolkit: group.name.toLowerCase().replace(/\s+/g, '_'),
+                              toolkit_display_name: group.name,
+                            })),
+                          }));
+                          
+                          // Get currently selected tools from RAG config
+                          const ragConfig = store.configsByAgentId[`${agentId}:rag`]?.[ragConfigurations[0].label];
+                          const selectedTools = ragConfig?.enabled_tools || ragConfigurations[0].toolGroupsMetadata?.default || ["hybrid_search"];
+                          
+                          return (
+                            <ConfigToolkitSelector
+                              toolkits={ragToolkits}
+                              value={{ url: undefined as any, tools: selectedTools }}
+                              onChange={(newValue) => {
+                                // Update the enabled_tools in the RAG config
+                                const currentRagConfig = store.configsByAgentId[`${agentId}:rag`]?.[ragConfigurations[0].label] || {};
+                                store.updateConfig(`${agentId}:rag`, ragConfigurations[0].label, {
+                                  ...currentRagConfig,
+                                  enabled_tools: newValue.tools || [],
+                                });
+                              }}
+                              searchTerm=""
+                              className="w-full"
+                            />
+                          );
+                        })()}
+                      </div>
                     )}
                   </ConfigSection>
                 </TabsContent>

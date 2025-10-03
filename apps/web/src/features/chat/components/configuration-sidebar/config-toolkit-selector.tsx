@@ -188,7 +188,7 @@ export function ConfigToolkitSelector({
                         />
                         <div className="flex-1 min-w-0">
                           <div className="text-sm font-medium">
-                            {_.startCase(tool.name)}
+                            {_.startCase(tool.name.replace(/^fs_/, ''))}
                           </div>
                           {tool.description && (
                             <div className="text-xs text-muted-foreground mt-1 line-clamp-2">

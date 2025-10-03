@@ -1,4 +1,4 @@
-from typing import Annotated, Optional
+from typing import Annotated, Optional, List
 from langchain_core.tools import StructuredTool, ToolException, tool
 from langchain_core.messages import AIMessage, ToolCall, ToolMessage
 import aiohttp
@@ -225,50 +225,149 @@ def wrap_mcp_authenticate_tool(tool: StructuredTool) -> StructuredTool:
     return tool
 
 
-async def create_rag_tool(langconnect_api_url: str, collection_id: str, access_token: str):
+async def create_hybrid_search_tool(
+    langconnect_api_url: str,
+    access_token: str,
+    scoped_collections: List[str]
+) -> StructuredTool:
     """
-    Create a RAG (Retrieval-Augmented Generation) tool for searching document collections.
+    Create a collection-agnostic hybrid search tool.
     
-    This function dynamically creates a LangChain tool that can search through
-    a specific document collection using semantic similarity with contextual expansion.
-    The tool connects to a RAG API server to perform contextual searches with
-    surrounding context and LLM-optimized formatting.
+    This tool can search across all configured collections or filter to a specific one.
+    Works consistently with other file system tools by accepting optional collection_id.
     
     Args:
-        langconnect_api_url: Base URL of the LangConnect API server (e.g., "https://rag.example.com")
-        collection_id: Unique identifier for the document collection
+        langconnect_api_url: Base URL of the LangConnect API server
         access_token: Bearer token for API authentication
+        scoped_collections: List of collection IDs the agent is allowed to access
         
     Returns:
-        StructuredTool: A contextual search tool configured for the specific collection
+        StructuredTool: A hybrid search tool that works across collections
+    """
+    # Normalize API URL
+    if langconnect_api_url.endswith("/"):
+        langconnect_api_url = langconnect_api_url[:-1]
+    
+    @tool
+    async def hybrid_search(
+        query: Annotated[str, "Semantic query (natural language)"],
+        keywords: Annotated[Optional[list[str]], "Optional keywords/phrases to combine with semantic search"] = None,
+        collection_id: Annotated[Optional[str], "Optional collection filter; if omitted, search all accessible" ] = None,
+        limit: Annotated[int, "Result chunk count (1-20). Default: 5"] = 5,
+        max_context_characters: Annotated[int, "Context characters per chunk (amount of characters to return before and after the matched chunk). Default: 2500"] = 2500,
+        semantic_weight: Annotated[float, "Semantic vs keyword weight (0.0-1.0). Default: 0.6"] = 0.6,
+        **kwargs  # Accept context arguments injected by universal context wrapper
+    ) -> str:
+        """Search across your scoped collections using a hybrid (semantic + keyword) ranker.
+
+        Optionally limit to a specific `collection_id`. The response contains
+        LLM‑ready formatted content plus a compact citation list of unique
+        documents. Use `limit`, `max_context_characters`, and `semantic_weight`
+        to balance breadth, context size, and semantic vs keyword emphasis.
+        """
+        import json
+        import httpx
         
-    Raises:
-        Exception: If collection cannot be accessed or tool creation fails
+        logger.info(f"[HYBRID_SEARCH] query={query!r}, keywords={keywords!r}, collection_id={collection_id!r}, limit={limit}, semantic_weight={semantic_weight}")
         
-    Tool Creation Process:
-        1. Fetch collection metadata from RAG API
-        2. Sanitize collection name for tool naming requirements
-        3. Create tool description from collection metadata
-        4. Generate async search function with contextual parameters
-        5. Return configured LangChain tool
+        # Normalize keywords input
+        try:
+            if isinstance(keywords, str):
+                keywords = [keywords]
+            if keywords is None:
+                keywords = []
+        except Exception:
+            keywords = []
+        if not isinstance(keywords, list):
+            keywords = []
         
-    Search Configuration:
-        - Always uses contextual search with surrounding context
-        - Fixed max_context_characters: 10,000 for comprehensive results
-        - Always formats results for LLM consumption
-        - Returns formatted text + unique document metadata for citations
+        # Validate and clamp parameters
+        limit = max(1, min(20, limit))
+        max_context_characters = max(500, min(5000, max_context_characters))
+        semantic_weight = max(0.0, min(1.0, semantic_weight))
         
-    Example:
-        ```python
-        search_tool = await create_rag_tool(
-            "https://langconnect-api.example.com",
-            "docs-collection-123",
-            "bearer-token-xyz"
-        )
+        # Validate collection_id if provided
+        if collection_id and collection_id not in scoped_collections:
+            error_response = {
+                "formatted_content": f"Error: You don't have access to collection {collection_id}. Available collections can be found using fs_list_collections.",
+                "documents": []
+            }
+            return json.dumps(error_response, indent=2)
         
-        # Tool returns optimized format for LLM + citations
-        results = await search_tool.ainvoke({"query": "machine learning basics"})
-        ```
+        # Prepare search payload
+        payload = {
+            "query": query,
+            "keywords": keywords,
+            "limit": limit,
+            "return_surrounding_context": True,
+            "max_context_characters": max_context_characters,
+            "format_chunks_for_llm": True,
+            "semantic_weight": semantic_weight,
+            "scoped_collections": scoped_collections  # Enforce permissions at backend
+        }
+        
+        # If specific collection requested, add to payload
+        if collection_id:
+            payload["collection_id"] = collection_id
+        
+        try:
+            # Call unified search endpoint
+            search_endpoint = f"{langconnect_api_url}/agent-filesystem/search"
+            
+            async with httpx.AsyncClient() as client:
+                response = await client.post(
+                    search_endpoint,
+                    json=payload,
+                    headers={"Authorization": f"Bearer {access_token}"},
+                    timeout=30.0
+                )
+                response.raise_for_status()
+                search_data = response.json()
+            
+            # Extract formatted text and structured results
+            formatted_text = search_data.get("formatted_text", "")
+            structured_results = search_data.get("structured_results", [])
+            
+            # Extract unique document information for citations
+            unique_documents = {}
+            for result in structured_results:
+                doc_id = result.get("document_id")
+                if doc_id and doc_id not in unique_documents:
+                    doc_metadata = result.get("document_metadata", {})
+                    unique_documents[doc_id] = {
+                        "document_id": doc_id,
+                        "collection_name": result.get("collection_name", "Unknown"),
+                        "title": doc_metadata.get("title", "Untitled"),
+                        "source_name": doc_metadata.get("source_name") or doc_metadata.get("original_filename", "Unknown source"),
+                    }
+            
+            # Create optimized response for LLM
+            response_data = {
+                "formatted_content": formatted_text,
+                "documents": list(unique_documents.values())
+            }
+            
+            return json.dumps(response_data, indent=2)
+            
+        except Exception as e:
+            logger.exception(f"[HYBRID_SEARCH] Error searching documents")
+            error_response = {
+                "formatted_content": f"Error searching documents: {str(e)}",
+                "documents": []
+            }
+            return json.dumps(error_response, indent=2)
+    
+    return hybrid_search
+
+
+async def create_rag_tool(langconnect_api_url: str, collection_id: str, access_token: str):
+    """
+    DEPRECATED: Create a collection-specific RAG tool.
+    
+    This function is kept for backward compatibility but is deprecated in favor of
+    create_hybrid_search_tool() which works across collections.
+    
+    Use create_hybrid_search_tool() instead for new implementations.
     """
     # Normalize RAG URL by removing trailing slash
     if langconnect_api_url.endswith("/"):
@@ -313,20 +412,14 @@ async def create_rag_tool(langconnect_api_url: str, collection_id: str, access_t
 
         @tool(f"search_collection_{collection_name}", description=collection_description)
         async def get_documents(
-            query: Annotated[str, "The semantic search query - a natural language description of what you're looking for"],
-            keywords: Annotated[Optional[list[str]], "Optional list of keywords/phrases to combine with semantic search" ] = None,
+            query: Annotated[str, "Semantic query (natural language)"],
+            keywords: Annotated[Optional[list[str]], "Optional keywords/phrases to combine with semantic search" ] = None,
             **kwargs  # Accept context arguments injected by universal context wrapper
         ) -> str:
-            """
-            Search for documents in collection using hybrid search (semantic + keyword).
-            
-            This tool combines semantic similarity search with keyword matching to find the most relevant documents.
-            Provide both a natural language query for semantic search and specific keywords/phrases for exact matching.
-            
-            Args:
-                query: Natural language search query for semantic similarity
-                keywords: List of specific keywords, phrases, or technical terms to search for
-                
+            """Search within this collection using hybrid (semantic + keyword) ranking.
+
+            Best for focused lookups when you already know the target collection.
+            Returns LLM‑formatted content plus a concise citation list.
             """
 
             logger.info(f"[RAG] Tool 'search_collection_{collection_name}' called! query={query!r}, keywords={keywords!r}, context_keys={list(kwargs.keys())}")
@@ -1072,3 +1165,396 @@ def create_langchain_mcp_tool_with_memory_context(
     
     # Finally wrap with memory context injection (legacy)
     return wrap_memory_tool_with_context(mcp_tool_with_auth_handling, state_getter)
+
+
+# ==================== File System Tool Factories ====================
+
+async def create_fs_list_collections_tool(
+    langconnect_api_url: str,
+    access_token: str,
+    scoped_collections: List[str]
+) -> StructuredTool:
+    """Create tool to list all accessible collections (scoped to agent config)."""
+    
+    @tool
+    async def fs_list_collections() -> str:
+        """List collections accessible to this agent with key metadata.
+
+        Returns each collection's id, name, description, document count,
+        total size, and your permission level (viewer/editor/owner).
+        """
+        import json
+        import httpx
+        
+        url = f"{langconnect_api_url}/agent-filesystem/collections"
+        headers = {"Authorization": f"Bearer {access_token}"}
+        params = {"scoped_collections": ",".join(scoped_collections)}
+        
+        async with httpx.AsyncClient() as client:
+            response = await client.get(url, headers=headers, params=params, timeout=10.0)
+            response.raise_for_status()
+            data = response.json()
+        
+        return json.dumps(data, indent=2)
+    
+    return fs_list_collections
+
+
+async def create_fs_list_files_tool(
+    langconnect_api_url: str,
+    access_token: str,
+    scoped_collections: List[str]
+) -> StructuredTool:
+    """Create tool to list files across collections (scoped to agent config)."""
+    
+    @tool
+    async def fs_list_files(
+        collection_id: Annotated[Optional[str], "Optional collection filter; otherwise list across all accessible"] = None,
+        limit: Annotated[int, "Max files to return (1-500). Default: 100"] = 100,
+        sort_by: Annotated[str, "Sort by: 'updated_at' | 'created_at' | 'name' | 'size'"] = "updated_at"
+    ) -> str:
+        """List files across your scoped collections or a specific collection.
+
+        Useful for discovery before reading or editing. Returns id, collection,
+        name, sizes (bytes/lines), chunk_count, and timestamps.
+        """
+        import json
+        import httpx
+        
+        # Validate collection_id if provided
+        if collection_id and collection_id not in scoped_collections:
+            error_response = {
+                "error": f"You don't have access to collection {collection_id}. Available collections can be found using fs_list_collections."
+            }
+            return json.dumps(error_response, indent=2)
+        
+        url = f"{langconnect_api_url}/agent-filesystem/files"
+        headers = {"Authorization": f"Bearer {access_token}"}
+        params = {
+            "limit": min(limit, 500),
+            "sort_by": sort_by,
+            "scoped_collections": ",".join(scoped_collections)
+        }
+        if collection_id:
+            params["collection_id"] = collection_id
+        
+        async with httpx.AsyncClient() as client:
+            response = await client.get(url, headers=headers, params=params, timeout=10.0)
+            response.raise_for_status()
+            data = response.json()
+        
+        return json.dumps(data, indent=2)
+    
+    return fs_list_files
+
+
+async def create_fs_read_file_tool(
+    langconnect_api_url: str,
+    access_token: str,
+    scoped_collections: List[str]
+) -> StructuredTool:
+    """Create tool to read file contents (scoped to agent config)."""
+    
+    @tool
+    async def fs_read_file(
+        document_id: Annotated[str, "Document UUID"],
+        offset: Annotated[int, "Start line (0-based)"] = 0,
+        limit: Annotated[int, "Lines to return (1-5000). Default: 2000"] = 2000
+    ) -> str:
+        """Read document content with line numbers; page using offset/limit.
+
+        Returns `content` plus metadata: document_name, total_lines, line_range,
+        and truncated (to indicate more content is available).
+        """
+        import json
+        import httpx
+        
+        url = f"{langconnect_api_url}/agent-filesystem/files/{document_id}"
+        headers = {"Authorization": f"Bearer {access_token}"}
+        params = {
+            "offset": offset,
+            "limit": min(limit, 5000),
+            "include_line_numbers": True,
+            "scoped_collections": ",".join(scoped_collections)
+        }
+        
+        async with httpx.AsyncClient() as client:
+            response = await client.get(url, headers=headers, params=params, timeout=30.0)
+            response.raise_for_status()
+            data = response.json()
+        
+        # Return content with metadata
+        result = {
+            "content": data["content"],
+            "metadata": {
+                "document_name": data["document_name"],
+                "total_lines": data["total_lines"],
+                "line_range": data["line_range"],
+                "truncated": data["truncated"]
+            }
+        }
+        
+        return json.dumps(result, indent=2)
+    
+    return fs_read_file
+
+
+async def create_fs_grep_tool(
+    langconnect_api_url: str,
+    access_token: str,
+    scoped_collections: List[str]
+) -> StructuredTool:
+    """Create tool to search for patterns across files (scoped to agent config)."""
+    
+    @tool
+    async def fs_grep_files(
+        pattern: Annotated[str, "Text or regex to search for"],
+        collection_id: Annotated[Optional[str], "Optional collection filter"] = None,
+        case_sensitive: Annotated[bool, "Case‑sensitive search"] = False,
+        max_results: Annotated[int, "Max matches to return (1-500). Default: 100"] = 100
+    ) -> str:
+        """Find lines matching a text/regex across files; optionally filter by collection.
+
+        Returns matches with document name, line number, line content, and small
+        before/after context. Start simple, then add regex as needed.
+        """
+        import json
+        import httpx
+        
+        # Validate collection_id if provided
+        if collection_id and collection_id not in scoped_collections:
+            error_response = {
+                "error": f"You don't have access to collection {collection_id}. Available collections can be found using fs_list_collections."
+            }
+            return json.dumps(error_response, indent=2)
+        
+        url = f"{langconnect_api_url}/agent-filesystem/files/search"
+        headers = {"Authorization": f"Bearer {access_token}"}
+        payload = {
+            "pattern": pattern,
+            "case_sensitive": case_sensitive,
+            "max_results": min(max_results, 500),
+            "context_lines": 2,
+            "scoped_collections": scoped_collections
+        }
+        if collection_id:
+            payload["collection_id"] = collection_id
+        
+        async with httpx.AsyncClient() as client:
+            response = await client.post(url, headers=headers, json=payload, timeout=30.0)
+            response.raise_for_status()
+            data = response.json()
+        
+        return json.dumps(data, indent=2)
+    
+    return fs_grep_files
+
+
+async def create_fs_write_file_tool(
+    langconnect_api_url: str,
+    access_token: str,
+    scoped_collections: List[str]
+) -> StructuredTool:
+    """Create tool to create new files (scoped to agent config)."""
+    
+    @tool
+    async def fs_write_file(
+        collection_id: Annotated[str, "Target collection UUID"],
+        name: Annotated[str, "Document name/title"],
+        content: Annotated[str, "Document content"],
+        metadata: Annotated[Optional[dict], "Optional extra metadata"] = None
+    ) -> str:
+        """Create a new document in a collection (editor/owner only).
+
+        Content is chunked and embedded server‑side for search. Provide a clear
+        title and well‑formatted content for best retrieval quality.
+        """
+        import json
+        import httpx
+        
+        # Validate collection_id
+        if collection_id not in scoped_collections:
+            error_response = {
+                "error": f"You don't have access to collection {collection_id}. Available collections can be found using fs_list_collections."
+            }
+            return json.dumps(error_response, indent=2)
+        
+        url = f"{langconnect_api_url}/agent-filesystem/collections/{collection_id}/files"
+        headers = {"Authorization": f"Bearer {access_token}"}
+        payload = {
+            "name": name,
+            "content": content,
+            "metadata": metadata or {},
+            "scoped_collections": scoped_collections
+        }
+        
+        async with httpx.AsyncClient() as client:
+            response = await client.post(url, headers=headers, json=payload, timeout=30.0)
+            response.raise_for_status()
+            data = response.json()
+        
+        return json.dumps(data, indent=2)
+    
+    return fs_write_file
+
+
+async def create_fs_edit_file_tool(
+    langconnect_api_url: str,
+    access_token: str,
+    scoped_collections: List[str]
+) -> StructuredTool:
+    """Create tool to edit file contents (scoped to agent config)."""
+    
+    @tool
+    async def fs_edit_file(
+        document_id: Annotated[str, "Document UUID"],
+        old_string: Annotated[str, "Exact text to replace; include unique surrounding context"],
+        new_string: Annotated[str, "Replacement text (empty to delete)"],
+        replace_all: Annotated[bool, "Replace all occurrences instead of a single unique match"] = False
+    ) -> str:
+        """Replace exact text in a document (editor/owner).
+
+        Read the file first and include unique surrounding context in `old_string`
+        to avoid ambiguous matches. Returns a diff preview and change counts.
+        """
+        import json
+        import httpx
+        
+        url = f"{langconnect_api_url}/agent-filesystem/files/{document_id}"
+        headers = {"Authorization": f"Bearer {access_token}"}
+        payload = {
+            "old_string": old_string,
+            "new_string": new_string,
+            "replace_all": replace_all,
+            "scoped_collections": scoped_collections
+        }
+        
+        async with httpx.AsyncClient() as client:
+            response = await client.patch(url, headers=headers, json=payload, timeout=30.0)
+            response.raise_for_status()
+            data = response.json()
+        
+        return json.dumps(data, indent=2)
+    
+    return fs_edit_file
+
+
+async def create_fs_delete_file_tool(
+    langconnect_api_url: str,
+    access_token: str,
+    scoped_collections: List[str]
+) -> StructuredTool:
+    """Create tool to delete files (scoped to agent config)."""
+    
+    @tool
+    async def fs_delete_file(
+        document_id: Annotated[str, "Document UUID"]
+    ) -> str:
+        """Permanently delete a document and its chunks (irreversible, owner only).
+
+        Confirm the target before use; consider archiving when deletion isn't required.
+        """
+        import json
+        import httpx
+        
+        url = f"{langconnect_api_url}/agent-filesystem/files/{document_id}"
+        headers = {"Authorization": f"Bearer {access_token}"}
+        params = {"scoped_collections": ",".join(scoped_collections)}
+        
+        async with httpx.AsyncClient() as client:
+            response = await client.delete(url, headers=headers, params=params, timeout=10.0)
+            response.raise_for_status()
+            data = response.json()
+        
+        return json.dumps(data, indent=2)
+    
+    return fs_delete_file
+
+
+async def create_collection_tools(
+    langconnect_api_url: str,
+    collection_ids: List[str],
+    enabled_tools: List[str],
+    access_token: str,
+    config_getter: Optional[callable] = None
+) -> List[StructuredTool]:
+    """
+    Create file system tools for document collections.
+    
+    This is the main orchestrator function that creates all enabled tools based on
+    the agent's configuration. All tools are now scoped to the agent's configured
+    collections for consistent permission enforcement.
+    
+    Args:
+        langconnect_api_url: Base URL of LangConnect API
+        collection_ids: List of collection UUIDs agent can access (scoped permissions)
+        enabled_tools: List of tool names to create (from agent config)
+        access_token: Supabase JWT for authentication
+        config_getter: Optional callable to get RunnableConfig for context injection
+        
+    Returns:
+        List of enabled and instantiated tools
+        
+    Tool Types:
+        - hybrid_search: Collection-agnostic search with optional collection_id filter
+        - File system tools: All work across configured collections with permission checks
+    """
+    tools = []
+    
+    # Normalize API URL
+    if langconnect_api_url.endswith("/"):
+        langconnect_api_url = langconnect_api_url[:-1]
+    
+    # Map of tool names to factory functions (all now receive scoped_collections)
+    tool_factories = {
+        # Search tool (collection-agnostic with optional filter)
+        "hybrid_search": lambda: create_hybrid_search_tool(
+            langconnect_api_url, access_token, collection_ids
+        ),
+        
+        # File system tools (all scoped to configured collections)
+        "fs_list_collections": lambda: create_fs_list_collections_tool(
+            langconnect_api_url, access_token, collection_ids
+        ),
+        "fs_list_files": lambda: create_fs_list_files_tool(
+            langconnect_api_url, access_token, collection_ids
+        ),
+        "fs_read_file": lambda: create_fs_read_file_tool(
+            langconnect_api_url, access_token, collection_ids
+        ),
+        "fs_grep_files": lambda: create_fs_grep_tool(
+            langconnect_api_url, access_token, collection_ids
+        ),
+        "fs_write_file": lambda: create_fs_write_file_tool(
+            langconnect_api_url, access_token, collection_ids
+        ),
+        "fs_edit_file": lambda: create_fs_edit_file_tool(
+            langconnect_api_url, access_token, collection_ids
+        ),
+        "fs_delete_file": lambda: create_fs_delete_file_tool(
+            langconnect_api_url, access_token, collection_ids
+        ),
+    }
+    
+    for tool_name in enabled_tools:
+        if tool_name not in tool_factories:
+            logger.warning(f"[TOOL_CREATE] Unknown tool: {tool_name}")
+            continue
+            
+        try:
+            # All tools now created once (no per-collection duplication)
+            tool = await tool_factories[tool_name]()
+            
+            # Wrap with context injection if config_getter provided
+            if config_getter and tool_name == "hybrid_search":
+                tool = wrap_tool_with_context_injection(tool, config_getter)
+            
+            tools.append(tool)
+            logger.info(f"[TOOL_CREATE] Created {tool_name} (scoped to {len(collection_ids)} collections)")
+                
+        except Exception as e:
+            logger.exception(f"[TOOL_CREATE] Failed to create {tool_name}: {e}")
+            continue
+    
+    logger.info(f"[TOOL_CREATE] Successfully created {len(tools)} tools for {len(collection_ids)} collections")
+    return tools

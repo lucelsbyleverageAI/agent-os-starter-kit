@@ -15,7 +15,7 @@ import {
 import { Label } from "@/components/ui/label";
 import { useConfigStore } from "@/features/chat/hooks/use-config-store";
 import { useKnowledgeContext } from "@/features/knowledge/providers/Knowledge";
-import { Check, ChevronsUpDown, AlertCircle } from "lucide-react";
+import { Check, ChevronsUpDown, AlertCircle, ChevronDown, ChevronRight } from "lucide-react";
 import {
   Command,
   CommandEmpty,
@@ -29,8 +29,10 @@ import {
   PopoverContent,
   PopoverTrigger,
 } from "@/components/ui/popover";
+import { Collapsible, CollapsibleContent, CollapsibleTrigger } from "@/components/ui/collapsible";
 import { Alert, AlertDescription } from "@/components/ui/alert";
 import { Button } from "@/components/ui/button";
+import { Checkbox } from "@/components/ui/checkbox";
 import _ from "lodash";
 import { cn } from "@/lib/utils";
 import {
@@ -826,16 +828,31 @@ export function ConfigFieldAgents({
                     </div>
                   </div>
 
-                  <ConfigFieldRAG
-                    id={`subagent-${i}-rag`}
-                    label="rag"
-                    agentId={agentId}
-                    value={{
-                      collections: sa.rag_config?.collections || [],
-                      langconnect_api_url: undefined,
-                    }}
-                    setValue={(v) => updateAtPath(i, ["rag_config"], v)}
-                  />
+                  <div className="space-y-4">
+                    <ConfigFieldRAG
+                      id={`subagent-${i}-rag`}
+                      label="rag"
+                      agentId={agentId}
+                      value={{
+                        collections: sa.rag_config?.collections || [],
+                        langconnect_api_url: undefined,
+                      }}
+                      setValue={(v) => updateAtPath(i, ["rag_config"], v)}
+                    />
+                    {sa.rag_config?.collections && sa.rag_config.collections.length > 0 && (
+                      <ConfigFieldRAGTools
+                        id={`subagent-${i}-rag-tools`}
+                        label="rag"
+                        agentId={agentId}
+                        value={{
+                          collections: sa.rag_config?.collections || [],
+                          langconnect_api_url: undefined,
+                          enabled_tools: sa.rag_config?.enabled_tools || ["hybrid_search", "fs_list_collections", "fs_list_files", "fs_read_file", "fs_grep_files"],
+                        }}
+                        setValue={(v) => updateAtPath(i, ["rag_config"], v)}
+                      />
+                    )}
+                  </div>
                 </div>
               )}
             </div>
@@ -865,6 +882,333 @@ export function ConfigFieldAgents({
       <p className="text-xs text-muted-foreground">
         The agents to make available to this supervisor.
       </p>
+    </div>
+  );
+}
+
+export function ConfigFieldRAGTools({
+  id,
+  label,
+  agentId,
+  className,
+  value: externalValue,
+  setValue: externalSetValue,
+}: Pick<
+  ConfigFieldProps,
+  "id" | "label" | "agentId" | "className" | "value" | "setValue"
+>) {
+  const { collections } = useKnowledgeContext();
+  const store = useConfigStore();
+  const actualAgentId = `${agentId}:rag`;
+
+  const isExternallyManaged = externalSetValue !== undefined;
+
+  const defaults = (
+    isExternallyManaged
+      ? externalValue
+      : store.configsByAgentId[actualAgentId]?.[label]
+  ) as any;
+
+  if (!defaults) {
+    console.log('[ConfigFieldRAGTools] No defaults found', {
+      actualAgentId,
+      label,
+      configsByAgentId: store.configsByAgentId,
+      ragConfig: store.configsByAgentId[actualAgentId],
+    });
+    return null;
+  }
+
+  // Get the enabled_tools list and tool metadata
+  console.log('[ConfigFieldRAGTools] Defaults:', defaults);
+  const enabledTools = defaults.enabled_tools || ["hybrid_search", "fs_list_collections", "fs_list_files", "fs_read_file", "fs_grep_files"];
+  
+  // State for collapsible groups
+  const [expandedGroups, setExpandedGroups] = useState<Set<string>>(new Set(["Read Operations"]));
+  
+  const toggleGroup = (groupName: string) => {
+    setExpandedGroups(prev => {
+      const newSet = new Set(prev);
+      if (newSet.has(groupName)) {
+        newSet.delete(groupName);
+      } else {
+        newSet.add(groupName);
+      }
+      return newSet;
+    });
+  };
+  
+  // Tool groups structure matching the backend configuration
+  const toolGroups = [
+    {
+      name: "Read Operations",
+      permission: "viewer",
+      tools: [
+        {
+          name: "hybrid_search",
+          label: "Hybrid Search",
+          description: "Semantic + keyword search (best for most use cases)",
+        },
+        {
+          name: "fs_list_collections",
+          label: "List Collections",
+          description: "Browse available document collections",
+        },
+        {
+          name: "fs_list_files",
+          label: "List Files",
+          description: "Browse documents across collections",
+        },
+        {
+          name: "fs_read_file",
+          label: "Read File",
+          description: "Read document contents with line numbers",
+        },
+        {
+          name: "fs_grep_files",
+          label: "Search in Files (Grep)",
+          description: "Search for patterns across documents using regex",
+        },
+      ],
+    },
+    {
+      name: "Write Operations",
+      permission: "editor",
+      tools: [
+        {
+          name: "fs_write_file",
+          label: "Write File",
+          description: "Create new documents in collections",
+        },
+        {
+          name: "fs_edit_file",
+          label: "Edit File",
+          description: "Modify existing document contents",
+        },
+      ],
+    },
+    {
+      name: "Delete Operations",
+      permission: "owner",
+      tools: [
+        {
+          name: "fs_delete_file",
+          label: "Delete File",
+          description: "Permanently remove documents",
+        }
+      ],
+    },
+  ];
+
+  // Get user's permissions for selected collections
+  const selectedCollections = defaults.collections || [];
+  const userPermissionLevels = new Set<string>();
+  
+  // Check actual permissions for selected collections
+  selectedCollections.forEach((collectionId: string) => {
+    const collection = collections.find(c => c.uuid === collectionId);
+    if (collection?.permission_level) {
+      // Add the user's permission level and all lower levels
+      if (collection.permission_level === "owner") {
+        userPermissionLevels.add("owner");
+        userPermissionLevels.add("editor");
+        userPermissionLevels.add("viewer");
+      } else if (collection.permission_level === "editor") {
+        userPermissionLevels.add("editor");
+        userPermissionLevels.add("viewer");
+      } else {
+        userPermissionLevels.add("viewer");
+      }
+    } else {
+      // Fallback to viewer if permission level not found
+      userPermissionLevels.add("viewer");
+    }
+  });
+
+  const handleToggleTool = (toolName: string, checked: boolean) => {
+    const currentTools = [...enabledTools];
+    
+    if (checked) {
+      if (!currentTools.includes(toolName)) {
+        currentTools.push(toolName);
+      }
+    } else {
+      const index = currentTools.indexOf(toolName);
+      if (index > -1) {
+        currentTools.splice(index, 1);
+      }
+    }
+
+    const newValue = {
+      ...defaults,
+      enabled_tools: currentTools,
+    };
+
+    if (isExternallyManaged) {
+      externalSetValue(newValue);
+      return;
+    }
+
+    store.updateConfig(actualAgentId, label, newValue);
+  };
+
+  const handleToggleGroup = (groupTools: string[], checked: boolean) => {
+    const currentTools = new Set(enabledTools);
+    
+    if (checked) {
+      groupTools.forEach(tool => currentTools.add(tool));
+    } else {
+      groupTools.forEach(tool => currentTools.delete(tool));
+    }
+
+    const newValue = {
+      ...defaults,
+      enabled_tools: Array.from(currentTools),
+    };
+
+    if (isExternallyManaged) {
+      externalSetValue(newValue);
+      return;
+    }
+
+    store.updateConfig(actualAgentId, label, newValue);
+  };
+
+  const getGroupState = (groupTools: string[]) => {
+    const selectedCount = groupTools.filter(t => enabledTools.includes(t)).length;
+    if (selectedCount === 0) return "none";
+    if (selectedCount === groupTools.length) return "all";
+    return "some";
+  };
+
+  if (!selectedCollections.length) {
+    return (
+      <div className={cn("w-full", className)}>
+        <p className="text-sm text-muted-foreground">
+          Select at least one collection to configure tools.
+        </p>
+      </div>
+    );
+  }
+
+  return (
+    <div className={cn("w-full space-y-4", className)}>
+      <div>
+        <Label className="text-sm font-medium mb-2 block">
+          Document Tools
+        </Label>
+        <p className="text-xs text-muted-foreground mb-3">
+          Select which tools the agent can use to interact with your document collections.
+          Tools are grouped by permission level.
+        </p>
+      </div>
+
+      <div className="space-y-2">
+        {toolGroups.map((group: any) => {
+          const groupToolNames = group.tools.map((t: any) => t.name);
+          const groupState = getGroupState(groupToolNames);
+          const isExpanded = expandedGroups.has(group.name);
+          
+          // Check if user has required permission for this group
+          const hasPermission = userPermissionLevels.has(group.permission);
+          
+          return (
+            <div
+              key={group.name}
+              className="border rounded-lg"
+            >
+              <Collapsible
+                open={isExpanded}
+                onOpenChange={() => toggleGroup(group.name)}
+              >
+                <div className={cn(
+                  "flex items-center gap-3 p-3 hover:bg-accent/50 transition-colors",
+                  !hasPermission && "opacity-50"
+                )}>
+                  <Checkbox
+                    checked={
+                      groupState === "all"
+                        ? true
+                        : groupState === "none"
+                          ? false
+                          : "indeterminate"
+                    }
+                    onCheckedChange={(checked) =>
+                      handleToggleGroup(groupToolNames, checked === true)
+                    }
+                    disabled={!hasPermission}
+                    onClick={(e) => e.stopPropagation()}
+                  />
+                  
+                  <CollapsibleTrigger asChild>
+                    <Button
+                      variant="ghost"
+                      size="sm"
+                      className="h-6 w-6 p-0"
+                    >
+                      {isExpanded ? (
+                        <ChevronDown className="h-4 w-4" />
+                      ) : (
+                        <ChevronRight className="h-4 w-4" />
+                      )}
+                    </Button>
+                  </CollapsibleTrigger>
+                  
+                  <div className="flex-1 min-w-0">
+                    <div className="flex items-center justify-between">
+                      <h4 className="text-sm font-medium truncate">
+                        {group.name}
+                      </h4>
+                      <span className="text-xs text-muted-foreground ml-2">
+                        {groupToolNames.filter((t: string) => enabledTools.includes(t)).length}/{groupToolNames.length} enabled
+                      </span>
+                    </div>
+                    {!hasPermission && (
+                      <p className="text-xs text-muted-foreground mt-0.5">
+                        Requires {group.permission} permission
+                      </p>
+                    )}
+                  </div>
+                </div>
+                
+                <CollapsibleContent>
+                  <div className="border-t bg-muted/20">
+                    <div className="p-3 space-y-2">
+                      {group.tools.map((tool: any) => {
+                        const isEnabled = enabledTools.includes(tool.name);
+                        
+                        return (
+                          <div
+                            key={tool.name}
+                            className="flex items-start gap-3 p-2 rounded hover:bg-background transition-colors"
+                          >
+                            <Checkbox
+                              checked={isEnabled}
+                              onCheckedChange={(checked) =>
+                                handleToggleTool(tool.name, checked === true)
+                              }
+                              disabled={!hasPermission}
+                              className="mt-0.5"
+                            />
+                            <div className="flex-1 min-w-0">
+                              <div className="text-sm font-medium">
+                                {tool.label}
+                              </div>
+                              <div className="text-xs text-muted-foreground mt-1 line-clamp-2">
+                                {tool.description}
+                              </div>
+                            </div>
+                          </div>
+                        );
+                      })}
+                    </div>
+                  </div>
+                </CollapsibleContent>
+              </Collapsible>
+            </div>
+          );
+        })}
+      </div>
     </div>
   );
 }

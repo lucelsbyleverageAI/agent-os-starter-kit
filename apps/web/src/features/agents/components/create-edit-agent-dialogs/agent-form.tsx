@@ -230,21 +230,71 @@ export function AgentFieldsForm({
 
         {hasRag && (
           <TabsContent value="rag" className="m-0 pt-2">
-            <div className="flex w-full flex-col items-start justify-start gap-2">
-              <p className="text-lg font-semibold tracking-tight">Agent Knowledge</p>
-              <Controller
-                control={form.control}
-                name={`config.${ragConfigurations[0].label}`}
-                render={({ field: { value, onChange } }) => (
-                  <ConfigFieldRAG
-                    id={ragConfigurations[0].label}
-                    label={ragConfigurations[0].label}
-                    agentId={agentId}
-                    value={value}
-                    setValue={onChange}
-                  />
+            <div className="flex w-full flex-col items-start justify-start gap-6">
+              {/* Collections Selection */}
+              <div className="flex w-full flex-col items-start justify-start gap-2">
+                <p className="text-lg font-semibold tracking-tight">Agent Knowledge</p>
+                <Controller
+                  control={form.control}
+                  name={`config.${ragConfigurations[0].label}`}
+                  render={({ field: { value, onChange } }) => (
+                    <ConfigFieldRAG
+                      id={ragConfigurations[0].label}
+                      label={ragConfigurations[0].label}
+                      agentId={agentId}
+                      value={value}
+                      setValue={onChange}
+                    />
+                  )}
+                />
+              </div>
+
+              {/* Document Tools */}
+              {ragConfigurations[0]?.toolGroupsMetadata?.tool_groups && (
+                  <div className="flex w-full flex-col items-start justify-start gap-2">
+                    <p className="text-lg font-semibold tracking-tight">Document Tools</p>
+                    <div className="w-full">
+                      <Controller
+                        control={form.control}
+                        name={`config.${ragConfigurations[0].label}`}
+                        render={({ field: { value, onChange } }) => {
+                          // Use tool groups from backend schema
+                          const toolGroups = ragConfigurations[0].toolGroupsMetadata?.tool_groups || [];
+                          
+                          // Convert tool groups into toolkit structure for ConfigToolkitSelector
+                          const ragToolkits = toolGroups.map(group => ({
+                            name: group.name.toLowerCase().replace(/\s+/g, '_'),
+                            display_name: group.name,
+                            count: group.tools.length,
+                            tools: group.tools.map(tool => ({
+                              name: tool.name,
+                              description: tool.description,
+                              toolkit: group.name.toLowerCase().replace(/\s+/g, '_'),
+                              toolkit_display_name: group.name,
+                            })),
+                          }));
+                          
+                          const selectedTools = value?.enabled_tools || ragConfigurations[0].toolGroupsMetadata?.default || ["hybrid_search"];
+                          
+                          return (
+                            <ConfigToolkitSelector
+                              toolkits={ragToolkits}
+                              value={{ url: undefined as any, tools: selectedTools }}
+                              onChange={(newValue) => {
+                                onChange({
+                                  ...value,
+                                  enabled_tools: newValue.tools || [],
+                                });
+                              }}
+                              searchTerm=""
+                              className="w-full"
+                            />
+                          );
+                        }}
+                      />
+                    </div>
+                  </div>
                 )}
-              />
             </div>
           </TabsContent>
         )}

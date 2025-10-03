@@ -112,7 +112,6 @@ class MemoryService:
             logger.info("Initializing mem0 memory service...")
             logger.info(f"IS_TESTING: {IS_TESTING}")
             logger.info(f"Database config - Host: {POSTGRES_HOST}, Port: {POSTGRES_PORT}, DB: {POSTGRES_DB}, Schema: {POSTGRES_SCHEMA}")
-            logger.info(f"OpenAI API Key available: {bool(os.environ.get('OPENAI_API_KEY'))}")
             
             if IS_TESTING:
                 # Use in-memory configuration for testing
@@ -174,7 +173,6 @@ class MemoryService:
                 }
             
             logger.info("Creating Memory client with config...")
-            logger.info(f"Config being used: {config}")
             
             # Check OpenAI API key availability
             openai_key = os.environ.get("OPENAI_API_KEY")
