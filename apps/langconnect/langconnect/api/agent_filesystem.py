@@ -47,6 +47,7 @@ class FileInfo(BaseModel):
     collection_id: str
     collection_name: str
     name: str
+    description: Optional[str] = None
     size_bytes: int
     size_lines: int
     chunk_count: int
@@ -371,6 +372,7 @@ async def list_files(
                         d.cmetadata->>'original_filename',
                         d.cmetadata->>'source_name'
                     ) as name,
+                    d.cmetadata->>'description' as description,
                     LENGTH(d.content) as size_bytes,
                     (LENGTH(d.content) - LENGTH(REPLACE(d.content, E'\n', ''))) + 1 as size_lines,
                     (
@@ -411,6 +413,7 @@ async def list_files(
                 collection_id=str(row["collection_id"]),
                 collection_name=row["collection_name"],
                 name=row["name"] or "Untitled",
+                description=row["description"] or None,
                 size_bytes=row["size_bytes"] or 0,
                 size_lines=row["size_lines"] or 0,
                 chunk_count=row["chunk_count"] or 0,

@@ -446,7 +446,7 @@ async def upload_documents(
         # Prepare input data for job
         input_data = {
             "title": job_title,
-            "description": job_description,
+            "description": "",
         }
         
         # Add file information

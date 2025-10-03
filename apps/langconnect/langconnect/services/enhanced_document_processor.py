@@ -1151,7 +1151,7 @@ class EnhancedDocumentProcessor:
                     if conversion_result.status == ConversionStatus.SUCCESS:
                         # Generate individual metadata for URL
                         individual_title = url  # Use raw URL as title
-                        individual_description = f"Web content processed with {processing_options.processing_mode.lower()} mode"
+                        individual_description = ""
                         
                         documents = self._convert_docling_result_to_documents(
                             conversion_result,
@@ -1273,7 +1273,7 @@ class EnhancedDocumentProcessor:
         metadata = {
             "source_type": "text",
             "title": title or "Text Input",
-            "description": description or "User-provided text content",
+            "description": description or "",
             "processing_mode": processing_options.processing_mode,
             "content_length": len(text_content),
             "word_count": len(text_content.split())
@@ -1406,7 +1406,7 @@ class EnhancedDocumentProcessor:
         metadata = {
             "source_name": source_name,
             "title": title or source_name,
-            "description": description or f"Document processed from {source_name}",
+            "description": description or "",
             "source_type": "file" if not source_name.startswith("http") else "url",
             "processing_approach": "docling_enhanced",
             "content_format": "markdown",

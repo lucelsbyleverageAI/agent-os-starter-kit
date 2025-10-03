@@ -110,6 +110,24 @@ function generateBatchTitle(uploadData: UploadData, itemCount: number): string {
   return `Batch upload: ${parts.join(', ')}`;
 }
 
+// function generateBatchDescription(uploadData: UploadData): string {
+//   const details: string[] = [];
+  
+//   if (uploadData.files.length > 0) {
+//     details.push(`Files: ${uploadData.files.map(f => f.name).join(', ')}`);
+//   }
+  
+//   if (uploadData.urls.length > 0) {
+//     details.push(`URLs: ${uploadData.urls.map(u => u.url).join(', ')}`);
+//   }
+  
+//   if (uploadData.textContent) {
+//     details.push(`Text content (${uploadData.textContent.length} characters)`);
+//   }
+  
+//   return `Batch processed with ${uploadData.processingMode} mode. ${details.join(' | ')}`;
+// }
+
 function generateBatchDescription(uploadData: UploadData): string {
   const details: string[] = [];
   
@@ -125,7 +143,7 @@ function generateBatchDescription(uploadData: UploadData): string {
     details.push(`Text content (${uploadData.textContent.length} characters)`);
   }
   
-  return `Batch processed with ${uploadData.processingMode} mode. ${details.join(' | ')}`;
+  return ``;
 }
 
 async function uploadDocumentsEnhanced(

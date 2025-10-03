@@ -1216,7 +1216,8 @@ async def create_fs_list_files_tool(
         """List files across your scoped collections or a specific collection.
 
         Useful for discovery before reading or editing. Returns id, collection,
-        name, sizes (bytes/lines), chunk_count, and timestamps.
+        name, description, sizes (bytes/lines), chunk_count, and timestamps.
+        Use descriptions to understand file contents at a glance.
         """
         import json
         import httpx
