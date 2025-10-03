@@ -373,3 +373,129 @@ class AssistantPermissionsManager:
             """
             results = await conn.fetch(query, assistant_id)
             return [dict(result) for result in results]
+
+    @staticmethod
+    async def get_user_accessible_assistants(user_id: str) -> List[Dict[str, Any]]:
+        """Get all assistants a user has access to with metadata."""
+        async with get_db_connection() as conn:
+            query = """
+                SELECT 
+                    ap.assistant_id::text as assistant_id,
+                    am.graph_id,
+                    am.name AS display_name,
+                    am.description,
+                    ap.permission_level,
+                    owner_perm.user_id AS owner_id,
+                    ur.email AS owner_email,
+                    ur.display_name AS owner_display_name,
+                    am.langgraph_created_at AS assistant_created_at,
+                    am.langgraph_updated_at AS assistant_updated_at
+                FROM langconnect.assistant_permissions ap
+                JOIN langconnect.assistants_mirror am ON ap.assistant_id = am.assistant_id
+                LEFT JOIN LATERAL (
+                    SELECT user_id
+                    FROM langconnect.assistant_permissions p
+                    WHERE p.assistant_id = am.assistant_id AND p.permission_level = 'owner'
+                    ORDER BY p.created_at ASC
+                    LIMIT 1
+                ) AS owner_perm ON TRUE
+                LEFT JOIN langconnect.user_roles ur ON owner_perm.user_id = ur.user_id
+                WHERE ap.user_id = $1
+                ORDER BY am.langgraph_created_at DESC NULLS LAST
+            """
+            results = await conn.fetch(query, user_id)
+            return [dict(result) for result in results]
+
+    @staticmethod
+    async def delete_assistant_permissions(assistant_id: str) -> bool:
+        """Delete all permissions for an assistant."""
+        async with get_db_connection() as conn:
+            result = await conn.execute(
+                "DELETE FROM langconnect.assistant_permissions WHERE assistant_id = $1::uuid",
+                assistant_id
+            )
+            # Check if any rows were deleted
+            if isinstance(result, str) and result.split()[-1].isdigit():
+                return int(result.split()[-1]) > 0
+            return False
+
+    @staticmethod
+    async def delete_assistant_metadata(assistant_id: str) -> bool:
+        """Delete assistant metadata from mirror."""
+        async with get_db_connection() as conn:
+            result = await conn.execute(
+                "DELETE FROM langconnect.assistants_mirror WHERE assistant_id = $1::uuid",
+                assistant_id
+            )
+            # Check if any rows were deleted
+            if isinstance(result, str) and result.split()[-1].isdigit():
+                return int(result.split()[-1]) > 0
+            return False
+
+    @staticmethod
+    async def get_all_public_assistant_permissions() -> List[Dict[str, Any]]:
+        """Get all public assistant permissions, including revoked ones."""
+        async with get_db_connection() as conn:
+            query = """
+                SELECT 
+                    pap.id,
+                    pap.assistant_id,
+                    pap.permission_level,
+                    pap.created_at,
+                    pap.revoked_at,
+                    pap.revoke_mode,
+                    pap.notes,
+                    ur.email AS created_by_email,
+                    ur.display_name AS created_by_display_name
+                FROM langconnect.public_assistant_permissions pap
+                LEFT JOIN langconnect.user_roles ur ON pap.created_by::text = ur.user_id
+                ORDER BY pap.created_at DESC
+            """
+            results = await conn.fetch(query)
+            return [dict(row) for row in results]
+
+    @staticmethod
+    async def revoke_public_assistant_permission(assistant_id: str, mode: str) -> Dict[str, Any]:
+        """Revoke a public permission for an assistant.
+
+        Args:
+            assistant_id: The ID of the assistant.
+            mode: The revocation mode ('revoke_all' or 'future_only').
+
+        Returns:
+            A dictionary with a summary of the revocation.
+        """
+        if mode not in ['revoke_all', 'future_only']:
+            raise ValueError("Invalid revocation mode. Must be 'revoke_all' or 'future_only'.")
+
+        async with get_db_connection() as conn:
+            async with conn.transaction():
+                update_query = """
+                    UPDATE langconnect.public_assistant_permissions
+                    SET revoked_at = NOW(), revoke_mode = $1
+                    WHERE assistant_id = $2 AND revoked_at IS NULL
+                    RETURNING id
+                """
+                result = await conn.fetchrow(update_query, mode, assistant_id)
+
+                if not result:
+                    raise ValueError(f"No active public permission found for assistant_id: {assistant_id}")
+
+                revoked_count = 0
+                if mode == 'revoke_all':
+                    delete_query = """
+                        DELETE FROM langconnect.assistant_permissions
+                        WHERE assistant_id = $1 AND granted_by = 'system:public'
+                    """
+                    delete_result = await conn.execute(delete_query, assistant_id)
+                    if hasattr(delete_result, 'split'):
+                        revoked_count = int(delete_result.split()[-1]) if delete_result.split()[-1].isdigit() else 0
+                    else:
+                        revoked_count = 0
+                
+                return {
+                    "assistant_id": assistant_id,
+                    "status": "revoked",
+                    "mode": mode,
+                    "revoked_user_count": revoked_count
+                }

@@ -10,7 +10,7 @@ from pydantic import BaseModel, Field
 from langconnect.auth import resolve_user_or_service, AuthenticatedActor
 from langconnect.database.user_roles import UserRoleManager
 from langconnect.database.graph_permissions import GraphPermissionManager
-from langconnect.database.assistant_permissions import AssistantPermissionManager
+from langconnect.database.permissions import AssistantPermissionsManager
 from langconnect.database.collections import CollectionsManager
 from langconnect.database.connection import get_db_connection
 from langconnect.services.langgraph_integration import get_langgraph_service, LangGraphService
@@ -252,7 +252,7 @@ async def list_public_assistant_permissions(
 
     try:
         # Get all public assistant permissions (no more implied logic needed)
-        direct_permissions = await AssistantPermissionManager.get_all_public_assistant_permissions()
+        direct_permissions = await AssistantPermissionsManager.get_all_public_assistant_permissions()
         
         result = []
         
@@ -538,7 +538,7 @@ async def revoke_public_assistant_permission(
             
             # If there's an active permission, revoke it normally
             if active_permission:
-                result = await AssistantPermissionManager.revoke_public_assistant_permission(assistant_id, request.revoke_mode)
+                result = await AssistantPermissionsManager.revoke_public_assistant_permission(assistant_id, request.revoke_mode)
                 return {"message": "Public assistant permission revoked successfully", "result": result}
             
             # If no active permission, check for a revoked one that we might want to change mode
