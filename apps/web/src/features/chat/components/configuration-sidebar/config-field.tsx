@@ -13,6 +13,7 @@ import {
   SelectValue,
 } from "@/components/ui/select";
 import { Label } from "@/components/ui/label";
+import { RunbookField } from "@/components/ui/runbook-editor";
 import { useConfigStore } from "@/features/chat/hooks/use-config-store";
 import { useKnowledgeContext } from "@/features/knowledge/providers/Knowledge";
 import { Check, ChevronsUpDown, AlertCircle, ChevronDown, ChevronRight } from "lucide-react";
@@ -59,6 +60,7 @@ interface ConfigFieldProps {
   type:
     | "text"
     | "textarea"
+    | "runbook"
     | "number"
     | "switch"
     | "slider"
@@ -189,6 +191,15 @@ export function ConfigField({
           onChange={(e) => handleChange(e.target.value)}
           placeholder={placeholder}
           className="min-h-[100px]"
+        />
+      )}
+
+      {type === "runbook" && (
+        <RunbookField
+          value={currentValue || ""}
+          onChange={handleChange}
+          placeholder={placeholder}
+          description={undefined} // Description is shown above, no need to duplicate
         />
       )}
 
@@ -763,10 +774,10 @@ export function ConfigFieldAgents({
                     </div>
                     <div>
                       <Label className="text-xs">System Prompt</Label>
-                      <Textarea
+                      <RunbookField
                         value={sa.prompt || ""}
-                        onChange={(e) => updateAtPath(i, ["prompt"], e.target.value)}
-                        className="min-h-[100px]"
+                        onChange={(value) => updateAtPath(i, ["prompt"], value)}
+                        placeholder="Enter the system prompt for this sub-agent..."
                       />
                     </div>
                   </div>
@@ -809,6 +820,12 @@ export function ConfigFieldAgents({
                                 value={sa[field.label] || field.default || ""}
                                 onChange={(e) => updateAtPath(i, [field.label], e.target.value)}
                                 className="min-h-[80px]"
+                              />
+                            ) : field.type === "runbook" ? (
+                              <RunbookField
+                                value={sa[field.label] || field.default || ""}
+                                onChange={(value) => updateAtPath(i, [field.label], value)}
+                                placeholder={field.placeholder || `Enter ${field.label}...`}
                               />
                             ) : (
                               <Input

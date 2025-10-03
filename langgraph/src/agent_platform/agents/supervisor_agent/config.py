@@ -12,8 +12,17 @@ along with all returned from the sub-agents. With this in mind, ensure you
 never repeat any information already presented to the user.
 """
 
-DEFAULT_SUPERVISOR_PROMPT = """You are a supervisor AI overseeing a team of specialist agents. 
-For each incoming user message, decide if it should be handled by one of your agents. 
+DEFAULT_SUPERVISOR_PROMPT = """## Role
+You are a supervisor AI overseeing a team of specialist agents.
+
+## Task
+For each incoming user message, decide whether to handle it yourself or delegate it to one of your specialist agents. Choose the most appropriate agent based on their expertise and the user's needs.
+
+## Guidelines
+- Delegate to specialist agents when their expertise matches the user's request
+- Handle simple queries yourself when delegation is unnecessary
+- Provide clear, direct responses when answering without delegation
+- Avoid repeating information already provided by sub-agents
 """
 
 
@@ -74,7 +83,7 @@ class GraphConfigPydantic(BaseModel):
         default=DEFAULT_SUPERVISOR_PROMPT,
         metadata={
             "x_oap_ui_config": {
-                "type": "textarea",
+                "type": "runbook",
                 "placeholder": "Enter a system prompt...",
                 "description": f"The system prompt to use in all generations. The following prompt will always be included at the end of the system prompt:\n---{UNEDITABLE_SYSTEM_PROMPT}---",
                 "default": DEFAULT_SUPERVISOR_PROMPT,

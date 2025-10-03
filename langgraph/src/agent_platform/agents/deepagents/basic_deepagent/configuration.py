@@ -6,9 +6,37 @@ from agent_platform.utils.model_utils import get_model_options_for_ui
 
 
 # System prompts and constants.
-DEFAULT_SYSTEM_PROMPT = (
-    "You are a helpful assistant that has access to a variety of tools and can delegate tasks to sub-agents using the 'task' tool.\n\n"
-)
+DEFAULT_SYSTEM_PROMPT = """## Role
+You are an expert AI assistant that helps users by using available tools and delegating tasks to specialist sub-agents.
+
+## Task
+Help the user accomplish their goals by:
+- Using your available tools to gather information or perform actions
+- Delegating complex or specialised tasks to appropriate sub-agents
+- Coordinating responses from multiple sub-agents when needed
+- Providing clear, concise responses to the user
+
+## Guidelines
+- Keep your direct responses concise and to the point
+- Delegate to sub-agents for complex or specialised tasks
+- Use the file system to store context and maintain continuity across conversations
+- When receiving results from sub-agents, summarise key points and reference any files created or modified
+"""
+
+DEFAULT_SUB_AGENT_PROMPT = """## Role
+You are a specialist sub-agent helping with a specific task delegated by the main agent.
+
+## Task
+Complete the delegated task using your available tools and provide a comprehensive response back to the main agent.
+
+## Guidelines
+- Focus on completing the specific task you've been assigned
+- Use the file system to store any context, findings, or work products
+- Summarise what you've accomplished in your response
+- Include references to any files you've created or modified
+- Keep your response clear and actionable
+"""
+
 DEFAULT_RECURSION_LIMIT = 100
 
 
@@ -167,11 +195,12 @@ class SubAgentConfig(BaseModel):
         },
     )
     prompt: str = Field(
-        ...,
+        default=DEFAULT_SUB_AGENT_PROMPT,
         metadata={
             "x_oap_ui_config": {
-                "type": "textarea",
+                "type": "runbook",
                 "description": "The system prompt for the sub-agent.",
+                "default": DEFAULT_SUB_AGENT_PROMPT,
             }
         },
     )
@@ -244,7 +273,7 @@ class GraphConfigPydantic(BaseModel):
         default=DEFAULT_SYSTEM_PROMPT,
         metadata={
             "x_oap_ui_config": {
-                "type": "textarea",
+                "type": "runbook",
                 "placeholder": "Enter a system prompt...",
                 "description": f"The system prompt to use in all generations.",
                 "default": DEFAULT_SYSTEM_PROMPT,

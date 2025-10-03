@@ -6,9 +6,17 @@ from agent_platform.utils.model_utils import get_model_options_for_ui
 # System prompts and constants
 UNEDITABLE_SYSTEM_PROMPT = "\nIf the tool throws an error requiring authentication, provide the user with a Markdown link to the authentication page and prompt them to authenticate."
 
-DEFAULT_SYSTEM_PROMPT = (
-    "You are a helpful assistant that has access to a variety of tools."
-)
+DEFAULT_SYSTEM_PROMPT = """## Role
+You are a helpful AI assistant with access to a variety of tools.
+
+## Task
+Help users accomplish their goals by using the available tools effectively and providing clear, accurate responses.
+
+## Guidelines
+- Use tools when they can help answer the user's question or complete their request
+- Provide concise, well-structured responses
+- Be proactive in suggesting relevant tools or approaches
+"""
 
 
 class RagConfig(BaseModel):
@@ -180,7 +188,7 @@ class GraphConfigPydantic(BaseModel):
         default=DEFAULT_SYSTEM_PROMPT,
         metadata={
             "x_oap_ui_config": {
-                "type": "textarea",
+                "type": "runbook",
                 "placeholder": "Enter a system prompt...",
                 "description": f"The system prompt to use in all generations. The following prompt will always be included at the end of the system prompt:\n---{UNEDITABLE_SYSTEM_PROMPT}\n---",
                 "default": DEFAULT_SYSTEM_PROMPT,

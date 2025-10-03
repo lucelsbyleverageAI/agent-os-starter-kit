@@ -263,4 +263,91 @@
     overflow-wrap: break-word;
     word-break: break-word;
   }
+
+  /* Runbook Preview Styles */
+  .runbook-preview {
+    @apply text-foreground;
+  }
+
+  .runbook-preview h1 {
+    @apply text-2xl font-semibold mt-6 mb-4 text-foreground;
+  }
+
+  .runbook-preview h2 {
+    @apply text-xl font-semibold mt-5 mb-3 text-foreground;
+  }
+
+  .runbook-preview h3 {
+    @apply text-lg font-semibold mt-4 mb-2 text-foreground;
+  }
+
+  .runbook-preview h4 {
+    @apply text-base font-semibold mt-3 mb-2 text-foreground;
+  }
+
+  .runbook-preview p {
+    @apply text-sm leading-relaxed mb-4 text-foreground;
+  }
+
+  .runbook-preview ul,
+  .runbook-preview ol {
+    @apply mb-4 ml-6;
+  }
+
+  .runbook-preview ul {
+    @apply list-disc;
+  }
+
+  .runbook-preview ol {
+    @apply list-decimal;
+  }
+
+  .runbook-preview li {
+    @apply text-sm mb-2 text-foreground;
+  }
+
+  .runbook-preview code {
+    @apply text-xs bg-muted px-1 py-0.5 rounded font-mono;
+  }
+
+  .runbook-preview pre {
+    @apply bg-muted p-4 rounded-lg overflow-x-auto mb-4;
+  }
+
+  .runbook-preview pre code {
+    @apply bg-transparent p-0;
+  }
+
+  .runbook-preview blockquote {
+    @apply border-l-4 border-primary pl-4 italic my-4 text-muted-foreground;
+  }
+
+  .runbook-preview a {
+    @apply text-primary no-underline hover:underline;
+  }
+
+  .runbook-preview strong {
+    @apply font-semibold;
+  }
+
+  .runbook-preview em {
+    @apply italic;
+  }
+
+  .runbook-preview hr {
+    @apply border-border my-6;
+  }
+
+  .runbook-preview table {
+    @apply w-full border-collapse mb-4;
+  }
+
+  .runbook-preview th,
+  .runbook-preview td {
+    @apply border border-border px-3 py-2 text-sm;
+  }
+
+  .runbook-preview th {
+    @apply bg-muted font-semibold;
+  }
 }

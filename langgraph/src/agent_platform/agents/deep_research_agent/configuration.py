@@ -283,7 +283,7 @@ class Configuration(BaseModel):
         optional=True,
         metadata={
             "x_oap_ui_config": {
-                "type": "textarea",
+                "type": "runbook",
                 "description": "Any additional instructions to pass along to the Agent regarding the MCP tools that are available to it."
             }
         }
