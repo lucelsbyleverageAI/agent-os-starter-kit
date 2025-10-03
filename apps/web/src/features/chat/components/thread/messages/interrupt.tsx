@@ -91,7 +91,7 @@ export function Interrupt({
         
     // Create a simple approval UI for legacy format
     return (
-      <div className="w-full max-w-4xl space-y-4 rounded-xl border border-amber-200 bg-amber-50 p-6">
+      <div className="w-full space-y-4 rounded-xl border border-amber-200 bg-amber-50 p-6">
         <div className="flex items-start gap-3">
           <div className="flex h-8 w-8 items-center justify-center rounded-full bg-amber-100 text-amber-600">
             ⚠️

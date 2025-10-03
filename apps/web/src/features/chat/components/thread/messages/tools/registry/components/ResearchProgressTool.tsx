@@ -99,7 +99,7 @@ export function ResearchProgressTool({
 
   
   return (
-    <Card className="w-full max-w-3xl p-4 space-y-3">
+    <Card className="w-full p-4 space-y-3">
         {/* Header with spinner, message, and expand button */}
         <div className="flex items-center gap-3 w-full">
         {data.step >= 5 ? (

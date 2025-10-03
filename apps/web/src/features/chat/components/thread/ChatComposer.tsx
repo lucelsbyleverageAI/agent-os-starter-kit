@@ -139,7 +139,7 @@ export function ChatComposer({
     >
       <form
         onSubmit={handleFormSubmit}
-        className={cn("flex flex-col gap-1 p-2", chatWidth)}
+        className="flex flex-col gap-1 p-2"
       >
         {!disableUploads && (
           <ContentBlocksPreview

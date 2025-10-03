@@ -29,7 +29,7 @@ export function DefaultInterrupt({ interrupt }: InterruptComponentProps) {
   const actionTitle = interrupt.action_request.action || "Agent Interrupt";
 
   return (
-    <div className="w-full max-w-4xl space-y-6 rounded-xl border border-border bg-background p-6">
+    <div className="w-full space-y-6 rounded-xl border border-border bg-background p-6">
       {/* Header */}
       <div className="flex items-start gap-3">
         <div className="flex h-8 w-8 items-center justify-center rounded-full bg-amber-100 text-amber-600">

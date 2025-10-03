@@ -250,7 +250,7 @@ const defaultComponents: any = {
   pre: ({ className, ...props }: { className?: string }) => (
     <pre
       className={cn(
-        "max-w-4xl overflow-x-auto rounded-lg bg-black text-white",
+        "w-full overflow-x-auto rounded-lg bg-black text-white",
         className,
       )}
       {...props}

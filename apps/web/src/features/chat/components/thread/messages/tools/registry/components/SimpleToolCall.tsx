@@ -55,7 +55,7 @@ export function SimpleToolCall({
   return (
     <Card className={cn(
       // Subtle, less invasive container – closer to Claude's style
-      "overflow-hidden relative group transition-colors duration-200 ease-out py-0 gap-0 w-full max-w-3xl rounded-md shadow-none border border-border/70",
+      "overflow-hidden relative group transition-colors duration-200 ease-out py-0 gap-0 w-full rounded-md shadow-none border border-border/70",
       hasExpandableContent && "hover:bg-muted/30 hover:border-border"
     )}>
       {/* Main Content Row */}

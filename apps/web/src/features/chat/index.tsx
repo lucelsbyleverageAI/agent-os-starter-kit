@@ -146,11 +146,11 @@ export default function ChatInterface({
         onAgentSelect={handleAgentSelect}
         onClose={() => setShowAgentModal(false)}
       />
-      <div className="flex h-full overflow-x-hidden">
+      <div className="flex flex-1 min-h-0 overflow-hidden">
         <div
           className={cn(
-            "flex h-full flex-1 flex-col p-4",
-            historyOpen || configOpen ? "mr-80 md:mr-[36rem]" : ""
+            "flex flex-1 flex-col min-h-0 overflow-hidden",
+            historyOpen || configOpen ? "md:mr-[36rem]" : ""
           )}
         >
           {!mounted ? (

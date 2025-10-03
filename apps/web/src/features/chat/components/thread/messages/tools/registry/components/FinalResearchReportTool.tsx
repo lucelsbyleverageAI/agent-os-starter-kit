@@ -414,7 +414,7 @@ export function FinalResearchReportTool({
   // Loading state
   if (state === "loading" || streaming) {
     return (
-      <Card className="w-full max-w-3xl p-4">
+      <Card className="w-full p-4">
         <div className="flex items-center gap-3">
           <MinimalistBadge
             icon={Loader2}
@@ -437,7 +437,7 @@ export function FinalResearchReportTool({
   // Error state
   if (state === "error") {
     return (
-      <Card className="w-full max-w-3xl p-4">
+      <Card className="w-full p-4">
         <div className="flex items-center gap-3 mb-3">
           <MinimalistBadge
             icon={AlertCircle}
@@ -464,7 +464,7 @@ export function FinalResearchReportTool({
   // Collapsed preview
   if (!isExpanded) {
     return (
-      <Card className="w-full max-w-3xl p-4 cursor-pointer transition-all hover:border-primary hover:shadow-lg"
+      <Card className="w-full p-4 cursor-pointer transition-all hover:border-primary hover:shadow-lg"
             onClick={() => setIsExpanded(true)}>
         <div className="flex items-center gap-3">
           <MinimalistBadge

@@ -10,7 +10,7 @@ export default function Home() {
   const [configOpen, setConfigOpen] = useState(false);
 
   return (
-    <>
+    <div className="flex h-full w-full flex-col overflow-hidden">
       <ChatHeader
         historyOpen={historyOpen}
         setHistoryOpen={setHistoryOpen}
@@ -26,6 +26,6 @@ export default function Home() {
           setConfigOpen={setConfigOpen}
         />
       </ThreadsProvider>
-    </>
+    </div>
   );
 }

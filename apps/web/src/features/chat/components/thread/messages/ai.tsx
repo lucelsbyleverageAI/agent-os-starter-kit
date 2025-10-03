@@ -308,7 +308,7 @@ export function AssistantMessage({
   }
 
   return (
-    <div className="group mr-auto flex items-start gap-2 w-full max-w-4xl">
+    <div className="group mr-auto flex items-start gap-2 w-full">
       <div className="flex flex-col gap-2 w-full">{/* Fixed: Ensure full width flows down */}
           {(() => {
             // Suppress streaming of control JSON payloads (routing/flags) to avoid jarring UI

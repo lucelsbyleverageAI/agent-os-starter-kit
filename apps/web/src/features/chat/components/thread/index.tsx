@@ -38,7 +38,6 @@ import { FileItem } from "@/types/deep-agent";
 
 function StickyToBottomContent(props: {
   content: ReactNode;
-  footer?: ReactNode;
   className?: string;
   contentClassName?: string;
 }) {
@@ -46,7 +45,6 @@ function StickyToBottomContent(props: {
   return (
     <div
       ref={context.scrollRef}
-      style={{ width: "100%", height: "100%" }}
       className={props.className}
     >
       <div
@@ -55,8 +53,6 @@ function StickyToBottomContent(props: {
       >
         {props.content}
       </div>
-
-      {props.footer}
     </div>
   );
 }
@@ -221,14 +217,13 @@ export function Thread({ historyOpen = false, configOpen = false }: ThreadProps)
 
   // Calculate dynamic width based on sidebar states
   const chatWidth = useMemo(() => {
-    // Now that parent container handles spacing, use consistent wider widths
+    // Mobile-first responsive widths - no max-width on mobile, progressively wider on larger screens
     return cn(
       "w-full mx-auto",
-      "max-w-3xl",      // Base width
-      "md:max-w-4xl",   // Medium screens  
-      "lg:max-w-5xl",   // Large screens
-      "xl:max-w-6xl",   // Extra large screens
-      "2xl:max-w-7xl",  // Very large screens
+      "md:max-w-3xl",   // Tablet and up: 768px
+      "lg:max-w-4xl",   // Desktop: 1024px  
+      "xl:max-w-5xl",   // Large desktop: 1280px
+      "2xl:max-w-6xl",  // Extra large: 1536px
     );
   }, [historyOpen, configOpen]);
 
@@ -465,7 +460,7 @@ export function Thread({ historyOpen = false, configOpen = false }: ThreadProps)
 
   return (
     <>
-      <div className="flex h-full w-full overflow-hidden">
+      <div className="flex flex-1 min-h-0 w-full overflow-hidden">
         {/* Deep Agent Workspace Sidebar - Left Side */}
         {(() => {
           
@@ -480,19 +475,19 @@ export function Thread({ historyOpen = false, configOpen = false }: ThreadProps)
           );
         })()}
 
-        <StickToBottom className="relative flex-1 overflow-hidden">
-          <StickyToBottomContent
-            className={cn(
-              "absolute inset-0 px-4",
-              ...getScrollbarClasses('y'),
-              !hasMessages && "flex flex-col justify-center",
-              hasMessages && "grid grid-rows-[1fr_auto]",
-            )}
-            contentClassName={cn(
-              "pt-8 pb-4 flex flex-col gap-4 w-full",
-              chatWidth
-            )}
-            content={
+        <StickToBottom className="flex flex-1 min-h-0 flex-col overflow-hidden">
+          <div className="flex flex-1 min-h-0 flex-col">
+            <StickyToBottomContent
+              className={cn(
+                "flex-1 overflow-y-auto overflow-x-hidden px-2 md:px-4",
+                ...getScrollbarClasses('y'),
+              )}
+              contentClassName={cn(
+                "flex flex-col gap-4 w-full",
+                !hasMessages ? "min-h-full justify-center" : "pt-8 pb-4",
+                chatWidth
+              )}
+              content={
               <>
                 {/* Agent Mismatch Warning Banner */}
                 {agentMismatch === "true" && (
@@ -553,25 +548,27 @@ export function Thread({ historyOpen = false, configOpen = false }: ThreadProps)
                 )}
               </>
             }
-            footer={
-              <div className="sticky bottom-0 flex flex-col items-center gap-4 bg-background">
-                {!hasMessages && (
-                  <div className="flex items-center gap-3 -mt-8 mb-4">
-                    <Image 
-                      src="/logo_icon_round.png" 
-                      alt="AgentOS Logo" 
-                      width={48} 
-                      height={48} 
-                      priority
-                      unoptimized
-                      className="flex-shrink-0"
-                    />
-                    <h1 className="text-3xl font-semibold tracking-tight">
-                      AgentOS
-                    </h1>
-                  </div>
-                )}
+            />
+            
+            <div className="flex shrink-0 flex-col items-center gap-4 bg-background px-2 md:px-4 pb-4">
+              {!hasMessages && (
+                <div className="flex items-center gap-3 mb-4">
+                  <Image 
+                    src="/logo_icon_round.png" 
+                    alt="AgentOS Logo" 
+                    width={48} 
+                    height={48} 
+                    priority
+                    unoptimized
+                    className="flex-shrink-0"
+                  />
+                  <h1 className="text-3xl font-semibold tracking-tight">
+                    AgentOS
+                  </h1>
+                </div>
+              )}
 
+              <div className="relative w-full">
                 <ScrollToBottom className="animate-in fade-in-0 zoom-in-95 absolute bottom-full left-1/2 mb-4 -translate-x-1/2" />
 
                 <DynamicInputComposer
@@ -594,8 +591,8 @@ export function Thread({ historyOpen = false, configOpen = false }: ThreadProps)
                   onStop={() => stream.stop()}
                 />
               </div>
-            }
-          />
+            </div>
+          </div>
         </StickToBottom>
 
       </div>
