@@ -1,11 +1,17 @@
 import re
 from typing import Optional
 from langchain_core.runnables import RunnableConfig
-from langchain_openai import ChatOpenAI
 from langgraph.pregel.remote import RemoteGraph
 
 # Import agent-specific configuration
 from agent_platform.agents.supervisor_agent.config import GraphConfigPydantic, AgentsConfig
+
+# Import centralized model utilities
+from agent_platform.utils.model_utils import (
+    init_model,
+    ModelConfig,
+    RetryConfig,
+)
 
 from langgraph_supervisor import create_supervisor
 
@@ -139,16 +145,27 @@ def make_model(cfg: GraphConfigPydantic):
     """
     Instantiate the LLM for the supervisor based on the config.
     
-    Currently uses a fixed GPT-4o model for supervisor reasoning.
-    This could be made configurable in future versions.
+    Uses centralized model utilities with production-grade enhancements:
+    - Provider-specific optimizations (caching, reasoning)
+    - Consistent configuration across all agents
+    - No retry wrapper (supervisor uses .bind_tools())
+    
+    Currently uses GPT-4.1 as the default supervisor model, but this
+    could be made configurable in future versions via cfg.
     
     Args:
         cfg: The supervisor configuration
         
     Returns:
-        Configured ChatOpenAI model instance
+        Configured chat model instance without retry wrapper
     """
-    return ChatOpenAI(model="gpt-4o")
+    # Initialize without retry wrapper to allow .bind_tools() to work
+    return init_model(
+        ModelConfig(
+            model_name="openai:gpt-4.1",
+            retry=RetryConfig(max_retries=0),  # Disable retry wrapper for .bind_tools()
+        )
+    )
 
 
 def make_prompt(cfg: GraphConfigPydantic):

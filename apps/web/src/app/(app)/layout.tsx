@@ -25,7 +25,7 @@ export default function RootLayout({
 }>) {
   const isDemoApp = process.env.NEXT_PUBLIC_DEMO_APP === "true";
   return (
-    <div className="relative h-full w-full overflow-hidden">
+    <div className="relative h-full w-full">
       <DevTools />
       {isDemoApp && (
         <div className="fixed top-0 right-0 left-0 z-10 bg-[#CFC8FE] py-2 text-center text-black shadow-md">

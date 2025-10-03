@@ -116,4 +116,5 @@ export type ConfigurableFieldAgentsMetadata = {
     deployment_url?: string;
     name?: string;
   }[];
+  itemSchema?: ConfigurableFieldUIMetadata[]; // Schema for individual sub-agent fields
 };

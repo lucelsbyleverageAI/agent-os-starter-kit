@@ -10,7 +10,7 @@ export default function Home() {
   const [configOpen, setConfigOpen] = useState(false);
 
   return (
-    <div className="flex h-full w-full flex-col overflow-hidden">
+    <div className="flex h-full w-full flex-col overflow-hidden absolute inset-0">
       <ChatHeader
         historyOpen={historyOpen}
         setHistoryOpen={setHistoryOpen}

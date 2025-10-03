@@ -18,7 +18,8 @@ class SerializableSubAgent(BaseModel):
     name: str
     description: str
     prompt: str
-    model: Optional[dict[str, Any]] = None
+    model_name: Optional[str] = None  # New centralized model config (string model name)
+    model: Optional[dict[str, Any]] = None  # Legacy model config (kept for backward compatibility)
     mcp_config: Optional[MCPConfig] = None
     rag_config: Optional[RagConfig] = None
     tools: Optional[list[str]] = None

@@ -563,6 +563,7 @@ export function ConfigFieldAgents({
   className,
   value: externalValue, // Rename to avoid conflict
   setValue: externalSetValue, // Rename to avoid conflict
+  itemSchema, // NEW: Schema for sub-agent fields
 }: Pick<
   ConfigFieldProps,
   | "id"
@@ -572,7 +573,9 @@ export function ConfigFieldAgents({
   | "className"
   | "value"
   | "setValue"
->) {
+> & {
+  itemSchema?: any[]; // Schema for individual sub-agent items
+}) {
   const store = useConfigStore();
   const actualAgentId = `${agentId}:agents`;
 
@@ -650,10 +653,25 @@ export function ConfigFieldAgents({
     };
 
     const addSubAgent = () => {
-      const next = [
-        ...subAgents,
-        { name: "", description: "", prompt: "", model: {}, mcp_config: {}, rag_config: {} },
-      ];
+      // Create default sub-agent with fields from schema
+      const defaultSubAgent: any = { 
+        name: "", 
+        description: "", 
+        prompt: "", 
+        mcp_config: {}, 
+        rag_config: {} 
+      };
+      
+      // Add default values from schema
+      if (itemSchema) {
+        itemSchema.forEach((field) => {
+          if (!defaultSubAgent[field.label] && field.default !== undefined) {
+            defaultSubAgent[field.label] = field.default;
+          }
+        });
+      }
+      
+      const next = [...subAgents, defaultSubAgent];
       setSubAgents(next);
     };
 
@@ -753,45 +771,79 @@ export function ConfigFieldAgents({
                     </div>
                   </div>
 
-                  <div className="grid grid-cols-1 gap-3">
-                    <div>
-                      <Label className="text-xs">Model</Label>
-                      <Select
-                        value={sa.model?.model || ""}
-                        onValueChange={(v) => updateAtPath(i, ["model", "model"], v)}
-                      >
-                        <SelectTrigger>
-                          <SelectValue placeholder="Select a model" />
-                        </SelectTrigger>
-                        <SelectContent>
-                          <SelectItem value="anthropic:claude-3-7-sonnet-latest">Claude 3.7 Sonnet</SelectItem>
-                          <SelectItem value="anthropic:claude-3-5-sonnet-latest">Claude 3.5 Sonnet</SelectItem>
-                          <SelectItem value="openai:gpt-4o">GPT-4o</SelectItem>
-                          <SelectItem value="openai:gpt-4o-mini">GPT-4o mini</SelectItem>
-                          <SelectItem value="openai:gpt-4.1">GPT-4.1</SelectItem>
-                        </SelectContent>
-                      </Select>
+                  {/* Render sub-agent fields dynamically from schema */}
+                  {itemSchema && itemSchema.length > 0 ? (
+                    <div className="grid grid-cols-1 gap-3">
+                      {itemSchema
+                        .filter((field) => !["name", "description", "prompt", "mcp_config", "rag_config"].includes(field.label))
+                        .map((field) => (
+                          <div key={field.label}>
+                            <Label className="text-xs">{_.startCase(field.label)}</Label>
+                            {field.type === "select" && field.options ? (
+                              <Select
+                                value={sa[field.label] || field.default || ""}
+                                onValueChange={(v) => updateAtPath(i, [field.label], v)}
+                              >
+                                <SelectTrigger>
+                                  <SelectValue placeholder={field.placeholder || `Select ${field.label}`} />
+                                </SelectTrigger>
+                                <SelectContent>
+                                  {field.options.map((opt: any) => (
+                                    <SelectItem key={opt.value} value={opt.value}>
+                                      {opt.label}
+                                    </SelectItem>
+                                  ))}
+                                </SelectContent>
+                              </Select>
+                            ) : field.type === "number" ? (
+                              <Input
+                                type="number"
+                                value={sa[field.label] ?? field.default ?? ""}
+                                onChange={(e) => updateAtPath(i, [field.label], Number(e.target.value))}
+                                min={field.min}
+                                max={field.max}
+                                step={field.step || 1}
+                              />
+                            ) : field.type === "textarea" ? (
+                              <Textarea
+                                value={sa[field.label] || field.default || ""}
+                                onChange={(e) => updateAtPath(i, [field.label], e.target.value)}
+                                className="min-h-[80px]"
+                              />
+                            ) : (
+                              <Input
+                                value={sa[field.label] || field.default || ""}
+                                onChange={(e) => updateAtPath(i, [field.label], e.target.value)}
+                              />
+                            )}
+                            {field.description && (
+                              <p className="text-xs text-muted-foreground mt-1">{field.description}</p>
+                            )}
+                          </div>
+                        ))}
                     </div>
-                    <div className="grid grid-cols-2 gap-3">
+                  ) : (
+                    /* Fallback to legacy hardcoded model fields if no schema */
+                    <div className="grid grid-cols-1 gap-3">
                       <div>
-                        <Label className="text-xs">Max Tokens</Label>
-                        <Input
-                          type="number"
-                          value={sa.model?.max_tokens ?? 4000}
-                          onChange={(e) => updateAtPath(i, ["model", "max_tokens"], Number(e.target.value))}
-                        />
-                      </div>
-                      <div>
-                        <Label className="text-xs">Temperature</Label>
-                        <Input
-                          type="number"
-                          step={0.1}
-                          value={sa.model?.temperature ?? 0.7}
-                          onChange={(e) => updateAtPath(i, ["model", "temperature"], Number(e.target.value))}
-                        />
+                        <Label className="text-xs">Model</Label>
+                        <Select
+                          value={sa.model?.model || sa.model_name || ""}
+                          onValueChange={(v) => updateAtPath(i, ["model_name"], v)}
+                        >
+                          <SelectTrigger>
+                            <SelectValue placeholder="Select a model" />
+                          </SelectTrigger>
+                          <SelectContent>
+                            <SelectItem value="anthropic:claude-sonnet-4-5-20250929">Claude 4.5 Sonnet</SelectItem>
+                            <SelectItem value="anthropic:claude-3-5-haiku-20250219">Claude 3.5 Haiku</SelectItem>
+                            <SelectItem value="openai:gpt-4.1">GPT-4.1</SelectItem>
+                            <SelectItem value="openai:gpt-4.1-mini">GPT-4.1 Mini</SelectItem>
+                          </SelectContent>
+                        </Select>
                       </div>
                     </div>
-                  </div>
+                  )}
 
                   <div className="space-y-2">
                     <div className="flex items-center justify-between">

@@ -21,8 +21,12 @@ from typing_extensions import TypedDict
 from langchain_core.tools import tool, InjectedToolCallId
 from langchain_core.messages import ToolMessage
 from langchain_core.language_models import LanguageModelLike
-from langchain.chat_models import init_chat_model
 from typing import Annotated, NotRequired, Any, Union, Optional, Callable, List
+from agent_platform.utils.model_utils import (
+    init_model,
+    ModelConfig,
+    RetryConfig,
+)
 from langgraph.types import Command
 from langchain_core.runnables import RunnableConfig
 from langchain_core.messages import HumanMessage
@@ -211,13 +215,15 @@ async def _get_agents(
         if isinstance(_agent, dict):
             agent_name = _agent.get('name', 'unnamed_agent')
             agent_tools = _agent.get('tools', [])
-            agent_model = _agent.get('model', None)
+            # Check for model_name field first (new centralized config), then fall back to legacy 'model' field
+            agent_model = _agent.get('model_name', None) or _agent.get('model', None)
             agent_prompt = _agent.get('prompt', 'You are a helpful assistant.')
         else:
             # Handle SerializableSubAgent object
             agent_name = getattr(_agent, 'name', 'unnamed_agent')
             agent_tools = getattr(_agent, 'tools', [])
-            agent_model = getattr(_agent, 'model', None)
+            # Check for model_name field first (new centralized config), then fall back to legacy 'model' field
+            agent_model = getattr(_agent, 'model_name', None) or getattr(_agent, 'model', None)
             agent_prompt = getattr(_agent, 'prompt', 'You are a helpful assistant.')
 
         if config:
@@ -241,12 +247,38 @@ async def _get_agents(
                 _tools = list(builtin_tools_by_name.values())
 
         if agent_model:
-            if isinstance(agent_model, dict):
-                sub_model = init_chat_model(**agent_model)
+            if isinstance(agent_model, str):
+                # Direct model name string (new centralized config format)
+                sub_model = init_model(
+                    ModelConfig(
+                        model_name=agent_model,
+                        retry=RetryConfig(max_retries=0),  # Disable retry wrapper for .bind_tools()
+                    )
+                )
+                logger.info("[SUB_AGENT] model_initialized agent=%s model=%s source=string", agent_name, agent_model)
+            elif isinstance(agent_model, dict):
+                # Legacy dict format with 'model_name' or 'model' key
+                if 'model_name' in agent_model or 'model' in agent_model:
+                    model_name = agent_model.get('model_name') or agent_model.get('model')
+                    sub_model = init_model(
+                        ModelConfig(
+                            model_name=model_name,
+                            retry=RetryConfig(max_retries=0),  # Disable retry wrapper for .bind_tools()
+                        )
+                    )
+                    logger.info("[SUB_AGENT] model_initialized agent=%s model=%s source=dict", agent_name, model_name)
+                else:
+                    # Fallback for legacy format
+                    sub_model = agent_model
+                    logger.info("[SUB_AGENT] model_initialized agent=%s source=legacy_dict", agent_name)
             else:
+                # Already a model instance
                 sub_model = agent_model
+                logger.info("[SUB_AGENT] model_initialized agent=%s source=instance", agent_name)
         else:
+            # Use parent model
             sub_model = model
+            logger.info("[SUB_AGENT] model_initialized agent=%s source=parent", agent_name)
 
         logger.info("[SUB_AGENT] tools_assigned agent=%s total=%s", agent_name, len(_tools))
         agents[agent_name] = custom_create_react_agent(

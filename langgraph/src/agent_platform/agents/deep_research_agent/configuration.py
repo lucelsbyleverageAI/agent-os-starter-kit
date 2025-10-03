@@ -7,6 +7,8 @@ from typing import Any, List, Optional
 from langchain_core.runnables import RunnableConfig
 from pydantic import BaseModel, Field
 
+from agent_platform.utils.model_utils import get_model_options_for_ui
+
 
 class SearchAPI(Enum):
     """Enumeration of available search API providers."""
@@ -213,19 +215,10 @@ class Configuration(BaseModel):
         default="openai:gpt-4.1-mini",
         metadata={
             "x_oap_ui_config": {
-                "type": "text",
+                "type": "select",
                 "default": "openai:gpt-4.1-mini",
-                "description": "Model for summarizing research results from Tavily search results"
-            }
-        }
-    )
-    summarization_model_max_tokens: int = Field(
-        default=8192,
-        metadata={
-            "x_oap_ui_config": {
-                "type": "number",
-                "default": 8192,
-                "description": "Maximum output tokens for summarization model"
+                "description": "Model for summarizing research results from Tavily search results. Temperature and max_tokens are configured automatically per model.",
+                "options": get_model_options_for_ui(),
             }
         }
     )
@@ -245,19 +238,10 @@ class Configuration(BaseModel):
         default="openai:gpt-4.1-mini",
         metadata={
             "x_oap_ui_config": {
-                "type": "text",
+                "type": "select",
                 "default": "openai:gpt-4.1-mini",
-                "description": "Model for conducting research. NOTE: Make sure your Researcher Model supports the selected search API."
-            }
-        }
-    )
-    research_model_max_tokens: int = Field(
-        default=10000,
-        metadata={
-            "x_oap_ui_config": {
-                "type": "number",
-                "default": 10000,
-                "description": "Maximum output tokens for research model"
+                "description": "Model for conducting research. Temperature and max_tokens are configured automatically per model. NOTE: Make sure your Researcher Model supports the selected search API.",
+                "options": get_model_options_for_ui(),
             }
         }
     )
@@ -265,19 +249,10 @@ class Configuration(BaseModel):
         default="openai:gpt-4.1-mini",
         metadata={
             "x_oap_ui_config": {
-                "type": "text",
+                "type": "select",
                 "default": "openai:gpt-4.1-mini",
-                "description": "Model for compressing research findings from sub-agents. NOTE: Make sure your Compression Model supports the selected search API."
-            }
-        }
-    )
-    compression_model_max_tokens: int = Field(
-        default=8192,
-        metadata={
-            "x_oap_ui_config": {
-                "type": "number",
-                "default": 8192,
-                "description": "Maximum output tokens for compression model"
+                "description": "Model for compressing research findings from sub-agents. Temperature and max_tokens are configured automatically per model. NOTE: Make sure your Compression Model supports the selected search API.",
+                "options": get_model_options_for_ui(),
             }
         }
     )
@@ -285,19 +260,10 @@ class Configuration(BaseModel):
         default="openai:gpt-4.1-mini",
         metadata={
             "x_oap_ui_config": {
-                "type": "text",
+                "type": "select",
                 "default": "openai:gpt-4.1-mini",
-                "description": "Model for writing the final report from all research findings"
-            }
-        }
-    )
-    final_report_model_max_tokens: int = Field(
-        default=10000,
-        metadata={
-            "x_oap_ui_config": {
-                "type": "number",
-                "default": 10000,
-                "description": "Maximum output tokens for final report model"
+                "description": "Model for writing the final report from all research findings. Temperature and max_tokens are configured automatically per model.",
+                "options": get_model_options_for_ui(),
             }
         }
     )

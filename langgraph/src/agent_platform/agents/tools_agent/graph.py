@@ -1,5 +1,4 @@
 from langchain_core.runnables import RunnableConfig
-from langchain.chat_models import init_chat_model
 from langgraph.prebuilt import create_react_agent
 from langchain_core.tools import StructuredTool
 from mcp.client.streamable_http import streamablehttp_client
@@ -16,6 +15,15 @@ from agent_platform.utils.tool_utils import (
     create_langchain_mcp_tool_with_universal_context,
     wrap_mcp_authenticate_tool,
     create_collection_tools,
+)
+from agent_platform.utils.model_utils import (
+    init_model_simple,
+    get_model_info,
+    ModelConfig,
+    RetryConfig,
+    FallbackConfig,
+    MessageTrimmingConfig,
+    create_trimming_hook,
 )
 
 # Import agent-specific configuration
@@ -183,12 +191,39 @@ async def graph(config: RunnableConfig):
             # Log and continue on MCP connection errors
             logger.exception("[TOOLS_AGENT] mcp_connection_or_loading_error")
 
-    # Step 5: Initialize the LLM model with configured parameters
-    model = init_chat_model(
-        cfg.model_name,
-        temperature=cfg.temperature,
-        max_tokens=cfg.max_tokens,
-    )
+    # Step 5: Initialize the LLM model with optimized settings
+    # Temperature and max_tokens are configured automatically based on the model tier
+    # - Fast models: temperature=0.7, max_tokens=4000
+    # - Standard models: temperature=0.7, max_tokens=8000
+    # - Advanced models: temperature=0.5, max_tokens=16000
+    model = init_model_simple(model_name=cfg.model_name)
+    
+    # Step 5b: Create message trimming hook based on model-level settings
+    # Each model has its own trimming configuration based on context window
+    model_info = get_model_info(cfg.model_name)
+    trimming_hook = None
+    
+    if model_info.enable_trimming:
+        trimming_hook = create_trimming_hook(
+            MessageTrimmingConfig(
+                enabled=True,
+                max_tokens=model_info.trimming_max_tokens,
+                strategy="last",  # Keep most recent messages
+                start_on="human",
+                end_on=("human", "tool"),
+                include_system=True,
+            )
+        )
+        logger.info(
+            "[TOOLS_AGENT] message_trimming_enabled max_tokens=%s (model: %s)",
+            model_info.trimming_max_tokens,
+            model_info.display_name
+        )
+    else:
+        logger.info(
+            "[TOOLS_AGENT] message_trimming_disabled (model: %s)",
+            model_info.display_name
+        )
 
     # Step 6: Create and return the ReAct agent
     logger.info("[TOOLS_AGENT] agent_created tools_count=%s", len(tools))
@@ -197,4 +232,5 @@ async def graph(config: RunnableConfig):
         model=model,
         tools=tools,
         config_schema=GraphConfigPydantic,
+        pre_model_hook=trimming_hook,  # Configured per-model
     )

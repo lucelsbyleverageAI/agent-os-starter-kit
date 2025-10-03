@@ -318,6 +318,7 @@ export function AgentFieldsForm({
                         agentId={agentId}
                         value={value}
                         setValue={onChange}
+                        itemSchema={agentsConfigurations[0]?.itemSchema}
                       />
                     )}
                   />

@@ -1,6 +1,5 @@
 import json
 from langchain_core.runnables import RunnableConfig
-from langchain.chat_models import init_chat_model
 from mcp.client.streamable_http import streamablehttp_client
 from mcp import ClientSession
 from dotenv import find_dotenv, load_dotenv
@@ -13,6 +12,11 @@ from agent_platform.utils.tool_utils import (
     create_rag_tool_with_universal_context,
     create_langchain_mcp_tool_with_universal_context,
     create_collection_tools,
+)
+from agent_platform.utils.model_utils import (
+    init_model,
+    ModelConfig,
+    RetryConfig,
 )
 from agent_platform.agents.deepagents.basic_deepagent.configuration import (
     GraphConfigPydantic,
@@ -112,10 +116,12 @@ async def graph(config: RunnableConfig):
                     "[basic_deepagent] MCP connection/tool loading error"
                 )
 
-    model = init_chat_model(
-        cfg.model_name,
-        temperature=cfg.temperature,
-        max_tokens=cfg.max_tokens,
+    # Initialize model with centralized config (no retry wrapper for .bind_tools())
+    model = init_model(
+        ModelConfig(
+            model_name=cfg.model_name,
+            retry=RetryConfig(max_retries=0),  # Disable retry wrapper
+        )
     )
 
     sub_agents_config = json.loads(cfg.json()).get("sub_agents", [])

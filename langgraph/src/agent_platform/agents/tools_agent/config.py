@@ -1,5 +1,6 @@
 from typing import Optional, List
 from pydantic import BaseModel, Field
+from agent_platform.utils.model_utils import get_model_options_for_ui
 
 
 # System prompts and constants
@@ -163,57 +164,17 @@ class GraphConfigPydantic(BaseModel):
     """
     
     model_name: Optional[str] = Field(
-        default="anthropic:claude-3-7-sonnet-latest",
+        default="anthropic:claude-sonnet-4-5-20250929",  # Registry key for Claude Sonnet 4.5
         metadata={
             "x_oap_ui_config": {
                 "type": "select",
-                "default": "anthropic:claude-3-7-sonnet-latest",
-                "description": "The model to use in all generations",
-                "options": [
-                    {
-                        "label": "Claude 3.7 Sonnet",
-                        "value": "anthropic:claude-3-7-sonnet-latest",
-                    },
-                    {
-                        "label": "Claude 3.5 Sonnet",
-                        "value": "anthropic:claude-3-5-sonnet-latest",
-                    },
-                    {"label": "GPT 4o", "value": "openai:gpt-4o"},
-                    {"label": "GPT 4o mini", "value": "openai:gpt-4o-mini"},
-                    {"label": "GPT 4.1", "value": "openai:gpt-4.1"},
-                ],
+                "default": "anthropic:claude-sonnet-4-5-20250929",
+                "description": "Select the AI model to use. Each model has optimized settings for its tier (Fast, Standard, or Advanced).",
+                "options": get_model_options_for_ui(),  # Dynamically populated from model registry
             }
         },
     )
-    """LLM model to use for generation"""
-    
-    temperature: Optional[float] = Field(
-        default=0.7,
-        metadata={
-            "x_oap_ui_config": {
-                "type": "slider",
-                "default": 0.7,
-                "min": 0,
-                "max": 2,
-                "step": 0.1,
-                "description": "Controls randomness (0 = deterministic, 2 = creative)",
-            }
-        },
-    )
-    """Temperature parameter for controlling response randomness"""
-    
-    max_tokens: Optional[int] = Field(
-        default=4000,
-        metadata={
-            "x_oap_ui_config": {
-                "type": "number",
-                "default": 4000,
-                "min": 1,
-                "description": "The maximum number of tokens to generate",
-            }
-        },
-    )
-    """Maximum number of tokens in the response"""
+    """LLM model to use for generation (registry key - temperature and max_tokens are configured automatically per model)"""
     
     system_prompt: Optional[str] = Field(
         default=DEFAULT_SYSTEM_PROMPT,

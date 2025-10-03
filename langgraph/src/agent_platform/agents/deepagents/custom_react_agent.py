@@ -17,10 +17,16 @@ from typing_extensions import Annotated, TypedDict, NotRequired
 from pydantic import BaseModel
 
 try:
-    # Available in our environment and used by existing code elsewhere
-    from langchain.chat_models import init_chat_model
+    # Use centralized model utilities
+    from agent_platform.utils.model_utils import (
+        init_model,
+        ModelConfig,
+        RetryConfig,
+    )
 except Exception:  # pragma: no cover
-    init_chat_model = None  # type: ignore
+    init_model = None  # type: ignore
+    ModelConfig = None  # type: ignore
+    RetryConfig = None  # type: ignore
 
 try:
     # Use ToolNode for robust tool execution and ToolMessage creation
@@ -288,11 +294,17 @@ def custom_create_react_agent(
     # Setup static model if not dynamic
     if not is_dynamic_model:
         if isinstance(model, str):
-            if init_chat_model is None:
+            if init_model is None:
                 raise ImportError(
-                    "Please install langchain to use '<provider>:<model>' string syntax"
+                    "Please install agent_platform.utils.model_utils to use '<provider>:<model>' string syntax"
                 )
-            model = cast(BaseChatModel, init_chat_model(model))
+            # Initialize without retry wrapper for .bind_tools() compatibility
+            model = cast(BaseChatModel, init_model(
+                ModelConfig(
+                    model_name=model,
+                    retry=RetryConfig(max_retries=0),  # Disable retry wrapper
+                )
+            ))
 
         # Bind tools if needed
         if (

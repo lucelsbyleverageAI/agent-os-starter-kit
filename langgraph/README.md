@@ -76,6 +76,92 @@ From these graphs, the system creates **Assistants**: parameterised, versioned i
 
 ---
 
+## Centralised Model Configuration
+
+To ensure consistency, maintainability, and production-readiness, the platform uses a centralised model configuration system located in `src/agent_platform/utils/model_utils.py`. This module is the single source of truth for all LLM configurations and provides numerous benefits:
+- **Easy Maintenance**: Update the model registry once, and all agents automatically get access to new models.
+- **Production-Grade Features**: Automatic retry and fallback logic for all models.
+- **Provider Optimisations**: Centralised handling of provider-specific features like Anthropic prompt caching and OpenAI reasoning models.
+- **Consistency**: All agents use the same configuration and initialisation logic.
+
+### The Model Registry
+
+The core of the system is the `MODEL_REGISTRY`, which defines all available models, their capabilities, tiers (e.g., Fast, Standard, Advanced), context windows, and other metadata. This registry drives the model selection in the UI and the behaviour of the models at runtime.
+
+### How to Use in New Agents
+
+All new agents **must** use this centralised system for model configuration and initialisation.
+
+#### 1. Agent Configuration (`config.py`)
+
+In your agent's configuration file, use the `get_model_options_for_ui()` utility to dynamically populate the model selection dropdown. This ensures that when the central registry is updated, your agent's UI will automatically display the new models.
+
+**Example from `tools_agent/config.py`**:
+```python
+from agent_platform.utils.model_utils import get_model_options_for_ui
+
+class GraphConfigPydantic(BaseModel):
+    model_name: Optional[str] = Field(
+        default="anthropic:claude-sonnet-4-5-20250929",
+        metadata={
+            "x_oap_ui_config": {
+                "type": "select",
+                "description": "Select the AI model to use.",
+                "options": get_model_options_for_ui(),  # Dynamically populated!
+            }
+        },
+    )
+    # ... other config fields
+```
+
+#### 2. Model Initialisation (`graph.py`)
+
+In your agent's graph file, use `init_model_simple()` to initialise the model. This helper function takes care of applying all production-grade features like retry logic, streaming support, and provider-specific optimisations based on the model's entry in the registry.
+
+**Example from `tools_agent/graph.py`**:
+```python
+from agent_platform.utils.model_utils import init_model_simple
+
+# Inside your graph builder function
+def graph(config: GraphConfig):
+    # ...
+    model = init_model_simple(
+        model_name=config.configurable.get("model_name"),
+    )
+    # ... now use the model to build your agent
+```
+This replaces older patterns of using `init_chat_model()` or instantiating a `ChatModel` class directly.
+
+#### 3. Message Trimming (Recommended)
+
+To prevent context window errors, it is highly recommended to use the built-in message trimming functionality. You can create a `pre_model_hook` to automatically trim the message history before each call to the LLM.
+
+```python
+from agent_platform.utils.model_utils import (
+    create_trimming_hook,
+    MessageTrimmingConfig,
+)
+
+# Create the trimming hook
+trimming_hook = create_trimming_hook(
+    MessageTrimmingConfig(
+        max_tokens=100000, # Conservative limit
+        strategy="last",
+    )
+)
+
+# Use it when creating your agent
+agent = create_react_agent(
+    model=model,
+    tools=tools,
+    pre_model_hook=trimming_hook,
+)
+```
+
+For more detailed information on advanced configuration, fallbacks, provider-specific features, and more, please refer to the full documentation: `src/agent_platform/utils/MODEL_UTILS_README.md`.
+
+---
+
 ## Authentication Model
 
 LangGraph participates in the platform’s unified authentication model:

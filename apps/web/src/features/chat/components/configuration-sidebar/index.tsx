@@ -594,6 +594,7 @@ export const ConfigurationSidebar = forwardRef<
                         id="sub_agents"
                         label="sub_agents"
                         agentId={agentId}
+                        itemSchema={agentsConfigurations[0].itemSchema}
                       />
                     )}
                   </ConfigSection>

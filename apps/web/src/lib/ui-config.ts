@@ -217,11 +217,72 @@ export function configSchemaToAgentsConfig(
       continue;
     }
 
+    // Extract sub-agent item schema from array definition
+    let itemSchema: ConfigurableFieldUIMetadata[] | undefined;
+    let refPath: string | undefined = undefined;
+
+    // Check for $ref in multiple possible locations (for array item types)
+    if (typeof value === "object" && value) {
+      // Case 1: Array with items.$ref
+      if ("items" in value && typeof (value as any).items === "object") {
+        const items = (value as any).items;
+        if ("$ref" in items) {
+          refPath = items.$ref;
+        } else if ("anyOf" in items && Array.isArray(items.anyOf)) {
+          const refItem = items.anyOf.find((item: any) => 
+            typeof item === "object" && item && "$ref" in item
+          );
+          if (refItem) {
+            refPath = refItem.$ref;
+          }
+        }
+      }
+      // Case 2: anyOf with array type
+      else if ("anyOf" in value && Array.isArray((value as any).anyOf)) {
+        for (const anyOfItem of (value as any).anyOf) {
+          if (anyOfItem && "items" in anyOfItem && typeof anyOfItem.items === "object") {
+            if ("$ref" in anyOfItem.items) {
+              refPath = anyOfItem.items.$ref;
+              break;
+            }
+          }
+        }
+      }
+    }
+
+    // If we found a $ref, look it up in $defs and extract its properties
+    if (refPath && schema.$defs) {
+      const defName = refPath.split('/').pop();
+      if (defName && schema.$defs[defName]) {
+        const itemDef = schema.$defs[defName];
+        if (typeof itemDef === "object" && "properties" in itemDef) {
+          // Extract UI config for each property in the sub-agent schema
+          itemSchema = [];
+          for (const [propKey, propValue] of Object.entries((itemDef as any).properties)) {
+            const propUiConfig = getUiConfig(propValue);
+            if (propUiConfig) {
+              itemSchema.push({
+                label: propKey,
+                ...propUiConfig,
+              });
+            } else {
+              // Default to text input if no UI config
+              itemSchema.push({
+                label: propKey,
+                type: "text",
+              });
+            }
+          }
+        }
+      }
+    }
+
     agentsField = {
       label: key,
       type: uiConfig.type,
       mode: uiConfig.mode, // optional builder/selector hint
       default: uiConfig.default,
+      itemSchema, // Include the extracted item schema
     };
     break;
   }

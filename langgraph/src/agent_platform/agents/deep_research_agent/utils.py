@@ -7,7 +7,6 @@ import warnings
 from datetime import datetime
 from typing import Annotated, Any, Dict, List, Literal, Optional
 
-from langchain.chat_models import init_chat_model
 from langchain_core.language_models import BaseChatModel
 from langchain_core.messages import (
     AIMessage,
@@ -27,6 +26,12 @@ from mcp.client.streamable_http import streamablehttp_client
 from mcp import ClientSession
 from mcp import McpError
 from tavily import AsyncTavilyClient
+
+from agent_platform.utils.model_utils import (
+    init_model,
+    ModelConfig,
+    RetryConfig,
+)
 
 from agent_platform.agents.deep_research_agent.configuration import Configuration, SearchAPI
 from agent_platform.agents.deep_research_agent.prompts import summarize_webpage_prompt
@@ -86,15 +91,19 @@ async def tavily_search(
     # Character limit to stay within model token limits (configurable)
     max_char_to_include = configurable.max_content_length
     
-    # Initialize summarization model with retry logic
-    model_api_key = get_api_key_for_model(configurable.summarization_model, config)
-    summarization_model = init_chat_model(
-        model=configurable.summarization_model,
-        max_tokens=configurable.summarization_model_max_tokens,
-        api_key=model_api_key,
-        tags=["langsmith:nostream"]
-    ).with_structured_output(Summary).with_retry(
-        stop_after_attempt=configurable.max_structured_output_retries
+    # Initialize summarization model with centralized config (no retry wrapper)
+    base_model = init_model(
+        ModelConfig(
+            model_name=configurable.summarization_model,
+            retry=RetryConfig(max_retries=0),  # Disable retry wrapper for structured output
+        )
+    )
+    
+    # Configure model with structured output and retry logic
+    summarization_model = (
+        base_model
+        .with_structured_output(Summary)
+        .with_retry(stop_after_attempt=configurable.max_structured_output_retries)
     )
     
     # Step 4: Create summarization tasks (skip empty content)
