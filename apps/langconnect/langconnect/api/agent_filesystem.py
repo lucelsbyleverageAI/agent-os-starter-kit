@@ -9,7 +9,7 @@ from uuid import UUID
 from fastapi import APIRouter, Depends, HTTPException, Query, status
 from pydantic import BaseModel, Field
 
-from langconnect.auth import resolve_user_or_service, AuthenticatedActor
+from langconnect.auth import resolve_user_or_service, AuthenticatedActor, ServiceAccount
 from langconnect.database.collections import CollectionsManager, Collection
 from langconnect.database.document import DocumentManager
 from langconnect.database.permissions import (
@@ -177,6 +177,36 @@ class DeleteFileResponse(BaseModel):
 
 # ==================== Helper Functions ====================
 
+def get_user_id_from_actor(actor: AuthenticatedActor, user_id_override: Optional[str] = None) -> str:
+    """
+    Extract user ID from authenticated actor.
+    
+    For service accounts (n8n, Zapier, etc.), a user_id must be provided in the request
+    to specify which user's permissions to check. For regular users, uses the authenticated
+    user's ID.
+    
+    Args:
+        actor: The authenticated actor (user or service account)
+        user_id_override: Optional user_id from request (required for service accounts)
+        
+    Returns:
+        str: The user ID to use for permissions checks
+        
+    Raises:
+        HTTPException: If service account doesn't provide user_id
+    """
+    if isinstance(actor, ServiceAccount):
+        if not user_id_override:
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail="Service accounts must provide 'user_id' parameter to specify the user context"
+            )
+        return user_id_override
+    else:
+        # Regular authenticated user
+        return actor.user_id
+
+
 def generate_unified_diff(old_content: str, new_content: str, filename: str) -> str:
     """Generate git-style unified diff."""
     old_lines = old_content.splitlines(keepends=True)
@@ -199,19 +229,21 @@ def generate_unified_diff(old_content: str, new_content: str, filename: str) -> 
 async def list_collections(
     actor: Annotated[AuthenticatedActor, Depends(resolve_user_or_service)],
     scoped_collections: Optional[str] = Query(None, description="Comma-separated list of collection IDs from agent config"),
+    user_id: Optional[str] = Query(None, description="User ID (required for service accounts)"),
 ):
     """List all accessible collections with metadata.
     
     Returns collections the user has access to along with document counts,
     sizes, and permission levels. If scoped_collections is provided, filters
     to only those collections (intersection of agent config and user permissions).
+    
+    For service accounts (n8n, Zapier), user_id must be provided in query parameters.
     """
-    user_id = actor.user_id
-    logger.info(f"[FS_LIST_COLLECTIONS] user_id={user_id}, scoped_collections={scoped_collections}")
+    resolved_user_id = get_user_id_from_actor(actor, user_id)
     
     try:
         # Get all accessible collections (user-level permissions)
-        accessible_collections = await get_user_accessible_collections(user_id, "viewer")
+        accessible_collections = await get_user_accessible_collections(resolved_user_id, "viewer")
         
         if not accessible_collections:
             return CollectionListResponse(collections=[])
@@ -227,13 +259,12 @@ async def list_collections(
                 cid: perm for cid, perm in accessible_collections.items()
                 if cid in scoped_collection_ids
             }
-            logger.info(f"[FS_LIST_COLLECTIONS] Filtered to {len(accessible_collections)} scoped collections")
-        
+
         if not accessible_collections:
             return CollectionListResponse(collections=[])
         
         # Fetch collection details
-        collections_manager = CollectionsManager(user_id)
+        collections_manager = CollectionsManager(resolved_user_id)
         all_collections = await collections_manager.list()
         
         result_collections = []
@@ -270,11 +301,9 @@ async def list_collections(
             )
             result_collections.append(collection_info)
         
-        logger.info(f"[FS_LIST_COLLECTIONS] Returned {len(result_collections)} collections")
         return CollectionListResponse(collections=result_collections)
         
     except Exception as e:
-        logger.exception(f"[FS_LIST_COLLECTIONS] Error: {e}")
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
             detail=f"Failed to list collections: {str(e)}"
@@ -291,18 +320,21 @@ async def list_files(
     order: str = Query("desc", description="Sort order (asc/desc)"),
     source_type: Optional[str] = Query(None, description="Filter by source type"),
     scoped_collections: Optional[str] = Query(None, description="Comma-separated list of collection IDs from agent config"),
+    user_id: Optional[str] = Query(None, description="User ID (required for service accounts)"),
 ):
     """List documents across accessible collections.
     
     Returns paginated list of documents with metadata like size, line count, and chunk count.
     If scoped_collections is provided, filters to only those collections.
+    
+    For service accounts (n8n, Zapier), user_id must be provided in query parameters.
     """
-    user_id = actor.user_id
-    logger.info(f"[FS_LIST_FILES] user_id={user_id}, collection_id={collection_id}, scoped_collections={scoped_collections}, limit={limit}, offset={offset}")
+    
+    resolved_user_id = get_user_id_from_actor(actor, user_id)
     
     try:
         # Get accessible collections (user-level permissions)
-        accessible_collections = await get_user_accessible_collections(user_id, "viewer")
+        accessible_collections = await get_user_accessible_collections(resolved_user_id, "viewer")
         
         if not accessible_collections:
             return FileListResponse(files=[], total=0, limit=limit, offset=offset)
@@ -311,14 +343,14 @@ async def list_files(
         scoped_collection_ids = set()
         if scoped_collections:
             scoped_collection_ids = {cid.strip() for cid in scoped_collections.split(",") if cid.strip()}
-        
+        else:
+            logger.info(f"[FS_LIST_FILES] No scoped_collections provided, using all accessible collections")
         # Filter to intersection of agent config and user permissions
         if scoped_collection_ids:
             accessible_collections = {
                 cid: perm for cid, perm in accessible_collections.items()
                 if cid in scoped_collection_ids
             }
-            logger.info(f"[FS_LIST_FILES] Filtered to {len(accessible_collections)} scoped collections")
         
         if not accessible_collections:
             return FileListResponse(files=[], total=0, limit=limit, offset=offset)
@@ -423,7 +455,6 @@ async def list_files(
                 source_type=row["source_type"]
             ))
         
-        logger.info(f"[FS_LIST_FILES] Returned {len(files)}/{total} files")
         return FileListResponse(
             files=files,
             total=total,
@@ -434,7 +465,6 @@ async def list_files(
     except HTTPException:
         raise
     except Exception as e:
-        logger.exception(f"[FS_LIST_FILES] Error: {e}")
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
             detail=f"Failed to list files: {str(e)}"
@@ -450,14 +480,16 @@ async def read_file(
     limit: int = Query(2000, ge=1, le=5000, description="Number of lines to return"),
     include_line_numbers: bool = Query(True, description="Include line numbers in output"),
     scoped_collections: Optional[str] = Query(None, description="Comma-separated list of collection IDs from agent config"),
+    user_id: Optional[str] = Query(None, description="User ID (required for service accounts)"),
 ):
     """Read document content with line numbers.
     
     Returns formatted document content with optional line numbers and pagination support.
     If scoped_collections is provided, enforces that the document belongs to a scoped collection.
+    
+    For service accounts (n8n, Zapier), user_id must be provided in query parameters.
     """
-    user_id = actor.user_id
-    logger.info(f"[FS_READ_FILE] user_id={user_id}, document_id={document_id}, scoped_collections={scoped_collections}, offset={offset}, limit={limit}")
+    resolved_user_id = get_user_id_from_actor(actor, user_id)
     
     try:
         # First get the document to find its collection
@@ -494,7 +526,7 @@ async def read_file(
                 detail="Document does not belong to specified collection"
             )
         
-        has_permission = await verify_collection_permission(user_id, actual_collection_id, "viewer")
+        has_permission = await verify_collection_permission(resolved_user_id, actual_collection_id, "viewer")
         if not has_permission:
             raise HTTPException(
                 status_code=status.HTTP_403_FORBIDDEN,
@@ -502,7 +534,7 @@ async def read_file(
             )
         
         # Get document content with lines
-        doc_manager = DocumentManager(actual_collection_id, user_id)
+        doc_manager = DocumentManager(actual_collection_id, resolved_user_id)
         result = await doc_manager.get_document_with_lines(
             document_id,
             offset=offset,
@@ -517,7 +549,7 @@ async def read_file(
             )
         
         # Get collection name
-        collections_manager = CollectionsManager(user_id)
+        collections_manager = CollectionsManager(resolved_user_id)
         collection = await collections_manager.get(actual_collection_id)
         collection_name = collection["name"] if collection else "Unknown"
         
@@ -534,7 +566,6 @@ async def read_file(
             format="line_numbered" if include_line_numbers else "plain"
         )
         
-        logger.info(f"[FS_READ_FILE] Returned {result['total_lines']} lines from document")
         return response
         
     except HTTPException:
@@ -551,18 +582,20 @@ async def read_file(
 async def search_files(
     request: SearchRequest,
     actor: Annotated[AuthenticatedActor, Depends(resolve_user_or_service)],
+    user_id: Optional[str] = Query(None, description="User ID (required for service accounts)"),
 ):
     """Search for patterns across files using regex (grep-like functionality).
     
     Searches document content for regex patterns and returns matching lines with context.
     If scoped_collections is provided in request, filters to only those collections.
+    
+    For service accounts (n8n, Zapier), user_id must be provided in query parameters.
     """
-    user_id = actor.user_id
-    logger.info(f"[FS_GREP] user_id={user_id}, pattern={request.pattern}, collection_id={request.collection_id}, scoped={request.scoped_collections}")
+    resolved_user_id = get_user_id_from_actor(actor, user_id)
     
     try:
         # Get accessible collections (user-level permissions)
-        accessible_collections = await get_user_accessible_collections(user_id, "viewer")
+        accessible_collections = await get_user_accessible_collections(resolved_user_id, "viewer")
         
         if not accessible_collections:
             return SearchResponse(
@@ -605,7 +638,7 @@ async def search_files(
         files_searched = 0
         
         for coll_id in target_collections:
-            doc_manager = DocumentManager(coll_id, user_id)
+            doc_manager = DocumentManager(coll_id, resolved_user_id)
             matches = await doc_manager.search_documents_by_pattern(
                 pattern=request.pattern,
                 case_sensitive=request.case_sensitive,
@@ -615,7 +648,7 @@ async def search_files(
             )
             
             # Get collection name
-            collections_manager = CollectionsManager(user_id)
+            collections_manager = CollectionsManager(resolved_user_id)
             collection = await collections_manager.get(coll_id)
             collection_name = collection["name"] if collection else "Unknown"
             
@@ -663,19 +696,22 @@ async def search_files(
 async def hybrid_search(
     request: HybridSearchRequest,
     actor: Annotated[AuthenticatedActor, Depends(resolve_user_or_service)],
+    user_id: Optional[str] = Query(None, description="User ID (required for service accounts)"),
 ):
     """Hybrid search across collections using semantic + keyword search.
     
     Performs hybrid search combining semantic similarity and keyword matching.
     Returns LLM-formatted results with document citations.
     Enforces scoped_collections from agent config.
+    
+    For service accounts (n8n, Zapier), user_id must be provided in query parameters.
     """
-    user_id = actor.user_id
-    logger.info(f"[HYBRID_SEARCH] user_id={user_id}, query={request.query[:50]}, collection_id={request.collection_id}, scoped={len(request.scoped_collections)}")
+    resolved_user_id = get_user_id_from_actor(actor, user_id)
+    logger.info(f"[HYBRID_SEARCH] user_id={resolved_user_id}, query={request.query[:50]}, collection_id={request.collection_id}, scoped={len(request.scoped_collections)}")
     
     try:
         # Get accessible collections (user-level permissions)
-        accessible_collections = await get_user_accessible_collections(user_id, "viewer")
+        accessible_collections = await get_user_accessible_collections(resolved_user_id, "viewer")
         
         if not accessible_collections:
             return {
@@ -718,10 +754,10 @@ async def hybrid_search(
         for coll_id in target_collections:
             try:
                 # Create collection instance
-                collection = Collection(coll_id, user_id)
+                collection = Collection(coll_id, resolved_user_id)
                 
                 # Get collection name
-                collections_manager = CollectionsManager(user_id)
+                collections_manager = CollectionsManager(resolved_user_id)
                 collection_data = await collections_manager.get(coll_id)
                 collection_name = collection_data["name"] if collection_data else "Unknown"
                 
@@ -794,15 +830,18 @@ async def create_file(
     collection_id: str,
     request: CreateFileRequest,
     actor: Annotated[AuthenticatedActor, Depends(resolve_user_or_service)],
+    user_id: Optional[str] = Query(None, description="User ID (required for service accounts)"),
 ):
     """Create a new document in a collection.
     
     Creates a new document and queues it for chunking and embedding.
     Requires editor or owner permission on the collection.
     If scoped_collections is provided, verifies the collection is in scope.
+    
+    For service accounts (n8n, Zapier), user_id must be provided in query parameters.
     """
-    user_id = actor.user_id
-    logger.info(f"[FS_CREATE_FILE] user_id={user_id}, collection_id={collection_id}, scoped={request.scoped_collections}, name={request.name}")
+    resolved_user_id = get_user_id_from_actor(actor, user_id)
+    logger.info(f"[FS_CREATE_FILE] user_id={resolved_user_id}, collection_id={collection_id}, scoped={request.scoped_collections}, name={request.name}")
     
     try:
         # Check scoped collections from agent config
@@ -813,7 +852,7 @@ async def create_file(
             )
         
         # Verify editor or owner permission
-        has_permission = await verify_collection_permission(user_id, collection_id, "editor")
+        has_permission = await verify_collection_permission(resolved_user_id, collection_id, "editor")
         if not has_permission:
             raise HTTPException(
                 status_code=status.HTTP_403_FORBIDDEN,
@@ -821,11 +860,11 @@ async def create_file(
             )
         
         # Create document
-        doc_manager = DocumentManager(collection_id, user_id)
+        doc_manager = DocumentManager(collection_id, resolved_user_id)
         metadata = {
             "title": request.name,
             "source_type": "agent_created",
-            "created_by": user_id,
+            "created_by": resolved_user_id,
             "processing_status": "pending",
             **request.metadata
         }
@@ -844,7 +883,7 @@ async def create_file(
             job_id = await job_service.queue_document_reprocessing(
                 document_id=document_id,
                 collection_id=collection_id,
-                user_id=user_id
+                user_id=resolved_user_id
             )
             logger.info(f"[FS_CREATE_FILE] Queued processing job {job_id} for new document {document_id}")
         except Exception as e:
@@ -877,15 +916,18 @@ async def edit_file(
     document_id: str,
     request: EditFileRequest,
     actor: Annotated[AuthenticatedActor, Depends(resolve_user_or_service)],
+    user_id: Optional[str] = Query(None, description="User ID (required for service accounts)"),
 ):
     """Edit document content using string replacement.
     
     Replaces old_string with new_string in the document content.
     Requires editor or owner permission on the collection.
     If scoped_collections is provided, verifies the document's collection is in scope.
+    
+    For service accounts (n8n, Zapier), user_id must be provided in query parameters.
     """
-    user_id = actor.user_id
-    logger.info(f"[FS_EDIT_FILE] user_id={user_id}, document_id={document_id}, scoped={request.scoped_collections}, replace_all={request.replace_all}")
+    resolved_user_id = get_user_id_from_actor(actor, user_id)
+    logger.info(f"[FS_EDIT_FILE] user_id={resolved_user_id}, document_id={document_id}, scoped={request.scoped_collections}, replace_all={request.replace_all}")
     
     try:
         # Get document to find its collection
@@ -921,7 +963,7 @@ async def edit_file(
             )
         
         # Verify editor permission
-        has_permission = await verify_collection_permission(user_id, actual_collection_id, "editor")
+        has_permission = await verify_collection_permission(resolved_user_id, actual_collection_id, "editor")
         if not has_permission:
             raise HTTPException(
                 status_code=status.HTTP_403_FORBIDDEN,
@@ -929,7 +971,7 @@ async def edit_file(
             )
         
         # Get current document
-        doc_manager = DocumentManager(actual_collection_id, user_id)
+        doc_manager = DocumentManager(actual_collection_id, resolved_user_id)
         doc = await doc_manager.get_document(document_id)
         
         if not doc:
@@ -995,7 +1037,7 @@ async def edit_file(
             job_id = await job_service.queue_document_reprocessing(
                 document_id=document_id,
                 collection_id=actual_collection_id,
-                user_id=user_id
+                user_id=resolved_user_id
             )
             logger.info(f"[FS_EDIT_FILE] Queued reprocessing job {job_id} for updated document {document_id}")
         except Exception as e:
@@ -1029,15 +1071,18 @@ async def delete_file(
     actor: Annotated[AuthenticatedActor, Depends(resolve_user_or_service)],
     collection_id: Optional[str] = Query(None, description="Optional collection ID for validation"),
     scoped_collections: Optional[str] = Query(None, description="Comma-separated list of collection IDs from agent config"),
+    user_id: Optional[str] = Query(None, description="User ID (required for service accounts)"),
 ):
     """Delete a document from a collection.
     
     Permanently deletes the document and all associated chunks/embeddings.
     Requires owner permission on the collection.
     If scoped_collections is provided, verifies the document's collection is in scope.
+    
+    For service accounts (n8n, Zapier), user_id must be provided in query parameters.
     """
-    user_id = actor.user_id
-    logger.info(f"[FS_DELETE_FILE] user_id={user_id}, document_id={document_id}, scoped={scoped_collections}")
+    resolved_user_id = get_user_id_from_actor(actor, user_id)
+    logger.info(f"[FS_DELETE_FILE] user_id={resolved_user_id}, document_id={document_id}, scoped={scoped_collections}")
     
     try:
         # Get document to find its collection
@@ -1076,7 +1121,7 @@ async def delete_file(
             )
         
         # Verify owner permission (delete requires owner)
-        has_permission = await verify_collection_permission(user_id, actual_collection_id, "owner")
+        has_permission = await verify_collection_permission(resolved_user_id, actual_collection_id, "owner")
         if not has_permission:
             raise HTTPException(
                 status_code=status.HTTP_403_FORBIDDEN,
@@ -1084,7 +1129,7 @@ async def delete_file(
             )
         
         # Count chunks before deletion
-        doc_manager = DocumentManager(actual_collection_id, user_id)
+        doc_manager = DocumentManager(actual_collection_id, resolved_user_id)
         async with get_db_connection() as conn:
             chunk_query = """
                 SELECT COUNT(*) as count
