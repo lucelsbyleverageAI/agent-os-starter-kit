@@ -87,3 +87,9 @@ temp/*
 docs/
 
 .cursor/
+
+.claude/
+
+node_modules/
+
+.mcp.json
