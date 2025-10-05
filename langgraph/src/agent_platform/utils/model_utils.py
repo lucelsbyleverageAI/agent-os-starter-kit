@@ -913,7 +913,7 @@ def init_model_simple(
         model_name=model_name,
         temperature=temperature,
         max_tokens=max_tokens,
-        retry=RetryConfig(max_retries=3), 
+        retry=RetryConfig(max_retries=0),
         fallback=FallbackConfig(enabled=False),
     )
     

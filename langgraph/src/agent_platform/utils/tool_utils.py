@@ -1363,10 +1363,17 @@ async def create_fs_write_file_tool(
         collection_id: Annotated[str, "Target collection UUID"],
         name: Annotated[str, "Document name/title"],
         content: Annotated[str, "Document content (markdown format unless otherwise specified)"],
+        description: Annotated[Optional[str], "Brief 1-2 line description of document content and use case. Highly recommended for future retrieval - helps understand content without reading full file"] = None,
         metadata: Annotated[Optional[dict], "Optional extra metadata"] = None
     ) -> str:
         """Create a new document in a collection using markdown format unless otherwise specified.
+
         Provide a clear title and well‑formatted content for best retrieval quality.
+
+        IMPORTANT: Including a description is highly encouraged - it allows quick understanding
+        of what the document contains and when it's useful, without needing to read the entire file.
+        This significantly improves future retrieval and helps other agents (or yourself later)
+        understand the document's purpose at a glance.
         """
         import json
         import httpx
@@ -1383,6 +1390,7 @@ async def create_fs_write_file_tool(
         payload = {
             "name": name,
             "content": content,
+            "description": description,
             "metadata": metadata or {},
             "scoped_collections": scoped_collections
         }
@@ -1407,32 +1415,52 @@ async def create_fs_edit_file_tool(
     @tool
     async def fs_edit_file(
         document_id: Annotated[str, "Document UUID"],
-        old_string: Annotated[str, "Exact text to replace; include unique surrounding context"],
-        new_string: Annotated[str, "Replacement text (empty to delete)"],
-        replace_all: Annotated[bool, "Replace all occurrences instead of a single unique match"] = False
+        new_string: Annotated[str, "Replacement text (or entire new document content if replace_entire_document=true)"],
+        old_string: Annotated[Optional[str], "Exact text to replace; include unique surrounding context (required unless replace_entire_document=true)"] = None,
+        replace_all: Annotated[bool, "Replace all occurrences of old_string"] = False,
+        replace_entire_document: Annotated[bool, "Replace entire document content with new_string (ignores old_string and replace_all)"] = False,
+        description: Annotated[Optional[str], "Updated description if content changes warrant it. Recommended when edits significantly change document purpose or content"] = None
     ) -> str:
-        """Replace exact text in a document using markdown format unless otherwise specified.
+        """Edit a document using targeted string replacement OR complete document replacement.
 
-        Read the file first and include unique surrounding context in `old_string`
-        to avoid ambiguous matches. Returns a diff preview and change counts.
+        Two modes:
+        1. Targeted Replacement (default): Replace specific text in the document
+           - Set replace_entire_document=false (default)
+           - Provide old_string (exact text to find) and new_string (replacement)
+           - Read the file first and include unique surrounding context in old_string
+           - Set replace_all=true to replace all occurrences
+
+        2. Complete Replacement: Replace entire document content
+           - Set replace_entire_document=true
+           - Provide only new_string (becomes the entire new document)
+           - old_string and replace_all are ignored
+           - Use this for major rewrites or when recreating the entire document
+
+        Consider updating the description when your edits significantly change what
+        the document contains or when it's useful - this helps maintain accurate
+        document discovery and understanding for future retrieval.
+
+        Returns a minimal success/error response (no diff preview to save tokens).
         """
         import json
         import httpx
-        
+
         url = f"{langconnect_api_url}/agent-filesystem/files/{document_id}"
         headers = {"Authorization": f"Bearer {access_token}"}
         payload = {
-            "old_string": old_string,
             "new_string": new_string,
+            "old_string": old_string,
             "replace_all": replace_all,
+            "replace_entire_document": replace_entire_document,
+            "description": description,
             "scoped_collections": scoped_collections
         }
-        
+
         async with httpx.AsyncClient() as client:
             response = await client.patch(url, headers=headers, json=payload, timeout=30.0)
             response.raise_for_status()
             data = response.json()
-        
+
         return json.dumps(data, indent=2)
     
     return fs_edit_file

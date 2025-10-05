@@ -1,6 +1,7 @@
 """n8n Agent Graph - Bridges LangGraph to n8n workflows with streaming support."""
 
 import json
+import logging
 import uuid
 from typing import Any, Dict
 
@@ -12,32 +13,41 @@ from langgraph.graph import MessagesState, StateGraph, START, END
 
 from agent_platform.agents.n8n_agent.configuration import GraphConfigPydantic
 
+logger = logging.getLogger(__name__)
 
-def parse_n8n_streaming_chunk(chunk_text: str) -> str | None:
+
+def parse_n8n_streaming_chunk(chunk_text: str) -> Dict[str, Any] | None:
     """
-    Parse n8n streaming chunk and extract content, filtering out metadata.
-    
+    Parse n8n streaming chunk and extract structured metadata.
+
     Args:
         chunk_text: Raw chunk text from n8n stream
-        
+
     Returns:
-        Extracted content string or None if chunk should be filtered out
+        Structured chunk data:
+        - {"type": "begin"} for message start
+        - {"type": "end"} for message end
+        - {"type": "content", "value": "..."} for actual content
+        - {"type": "empty"} for empty item chunks (tool calls)
+        - None if chunk should be filtered out
     """
     if not chunk_text.strip():
         return None
 
     try:
         data = json.loads(chunk_text.strip())
-        
+
         if isinstance(data, dict):
             chunk_type = data.get("type", "")
             metadata = data.get("metadata", {}) or {}
             node_name = metadata.get("nodeName")
-            
-            # Filter out n8n metadata chunks
-            if chunk_type in ["begin", "end"]:
-                return None
-                
+
+            # Return message boundary markers
+            if chunk_type == "begin":
+                return {"type": "begin"}
+            elif chunk_type == "end":
+                return {"type": "end"}
+
             # Extract content from item chunks
             if chunk_type == "item":
                 # Skip the final echoed payload from the Respond to Webhook node to avoid duplication
@@ -49,17 +59,20 @@ def parse_n8n_streaming_chunk(chunk_text: str) -> str | None:
                     if content.startswith('{"output":'):
                         try:
                             output_data = json.loads(content)
-                            return output_data.get("output", content)
+                            return {"type": "content", "value": output_data.get("output", content)}
                         except json.JSONDecodeError:
-                            return content
-                    return content
-                    
+                            return {"type": "content", "value": content}
+                    return {"type": "content", "value": content}
+                else:
+                    # Empty content indicates tool call activity
+                    return {"type": "empty"}
+
         return None
-        
+
     except json.JSONDecodeError:
         # Ignore incomplete/invalid fragments; we'll reassemble at the stream layer
         return None
-    
+
     return None
 
 
@@ -148,10 +161,13 @@ async def n8n_bridge_node(state: MessagesState, config: RunnableConfig) -> Dict[
     
     # Get stream writer for custom streaming
     writer = get_stream_writer()
-    
+
     # Collect full response for final message
     full_response = ""
-    
+
+    # Track empty chunks to detect tool calls
+    seen_empty_chunks = False
+
     try:
         async with aiohttp.ClientSession() as session:
             async with session.post(
@@ -159,11 +175,11 @@ async def n8n_bridge_node(state: MessagesState, config: RunnableConfig) -> Dict[
                 json=payload,
                 headers={"Content-Type": "application/json"}
             ) as response:
-                
+
                 if response.status != 200:
                     error_text = await response.text()
                     raise Exception(f"n8n webhook returned HTTP {response.status}: {error_text}")
-                
+
                 # Stream the response using brace-matching to extract complete JSON objects
                 buffer = ""
                 async for chunk in response.content.iter_any():
@@ -201,12 +217,39 @@ async def n8n_bridge_node(state: MessagesState, config: RunnableConfig) -> Dict[
                         
                         json_obj = buffer[start_idx : end_idx + 1]
                         buffer = buffer[end_idx + 1 :]
-                        
-                        content = parse_n8n_streaming_chunk(json_obj)
-                        if content:
-                            full_response += content
-                            if writer:
-                                writer({"n8n_chunk": content})
+
+                        chunk = parse_n8n_streaming_chunk(json_obj)
+                        if chunk:
+                            chunk_type = chunk.get("type")
+                            logger.info(f"[N8N_STREAM] Received chunk type: {chunk_type}, has_previous_content: {bool(full_response)}, seen_empty: {seen_empty_chunks}")
+
+                            # Track empty chunks (tool calls) - but only if we've seen content before
+                            if chunk_type == "empty":
+                                if full_response:  # Only track empties after we've seen content
+                                    seen_empty_chunks = True
+                                    logger.info("[N8N_STREAM] Detected empty chunk (tool activity)")
+                                else:
+                                    logger.info("[N8N_STREAM] Ignoring pre-message empty chunk")
+
+                            # Stream content chunks
+                            elif chunk_type == "content":
+                                content = chunk.get("value", "")
+
+                                # If we have previous content AND we've seen empty chunks, add spacing
+                                if full_response and seen_empty_chunks:
+                                    logger.info("[N8N_STREAM] Adding separator after tool calls")
+                                    separator = "\n\n"
+                                    full_response += separator
+                                    if writer:
+                                        writer({"n8n_chunk": separator})
+                                    seen_empty_chunks = False
+
+                                logger.info(f"[N8N_STREAM] Streaming content: {content[:50]}...")
+                                full_response += content
+                                if writer:
+                                    writer({"n8n_chunk": content})
+                        else:
+                            logger.info(f"[N8N_STREAM] Filtered/ignored chunk: {json_obj[:100]}...")
     
     except Exception as e:
         error_msg = f"Error calling n8n webhook: {str(e)}"

@@ -3,11 +3,11 @@
 import difflib
 import json
 import logging
-from typing import Annotated, List, Optional
+from typing import Annotated, List, Optional, Union
 from uuid import UUID
 
 from fastapi import APIRouter, Depends, HTTPException, Query, status
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, field_validator, model_validator
 
 from langconnect.auth import resolve_user_or_service, AuthenticatedActor, ServiceAccount
 from langconnect.database.collections import CollectionsManager, Collection
@@ -21,6 +21,36 @@ from langconnect.services.job_service import job_service
 
 logger = logging.getLogger(__name__)
 router = APIRouter(prefix="/agent-filesystem", tags=["Agent File System"])
+
+
+# ==================== Helper Functions ====================
+
+def sanitize_document_id(document_id: str) -> str:
+    """
+    Sanitize document ID by removing common invalid prefixes.
+
+    LLMs sometimes generate UUIDs with descriptive prefixes like:
+    - docs-db669f36-fd2f-4f9e-a052-c0a12c41f3d3
+    - doc-db669f36-fd2f-4f9e-a052-c0a12c41f3d3
+    - file-db669f36-fd2f-4f9e-a052-c0a12c41f3d3
+    - document-db669f36-fd2f-4f9e-a052-c0a12c41f3d3
+
+    This function strips these prefixes to get the valid UUID.
+
+    Args:
+        document_id: Document ID string (may contain invalid prefix)
+
+    Returns:
+        Sanitized UUID string
+    """
+    # Common prefixes to strip
+    prefixes = ["docs-", "doc-", "file-", "files-", "document-", "documents-"]
+
+    for prefix in prefixes:
+        if document_id.lower().startswith(prefix):
+            return document_id[len(prefix):]
+
+    return document_id
 
 
 # ==================== Request/Response Models ====================
@@ -99,7 +129,17 @@ class SearchRequest(BaseModel):
     case_sensitive: bool = Field(False, description="Case sensitive search")
     max_results: int = Field(100, ge=1, le=500, description="Maximum results")
     context_lines: int = Field(2, ge=0, le=10, description="Context lines before/after")
-    scoped_collections: Optional[List[str]] = Field(None, description="Collection IDs from agent config")
+    scoped_collections: Optional[Union[str, List[str]]] = Field(None, description="Collection IDs from agent config (comma-separated string or array)")
+
+    @field_validator('scoped_collections', mode='before')
+    @classmethod
+    def parse_scoped_collections(cls, v):
+        """Parse scoped_collections from comma-separated string or array."""
+        if v is None:
+            return None
+        if isinstance(v, str):
+            return [c.strip() for c in v.split(',') if c.strip()]
+        return v
 
 
 class HybridSearchRequest(BaseModel):
@@ -112,7 +152,17 @@ class HybridSearchRequest(BaseModel):
     max_context_characters: int = Field(2500, ge=0, le=10000, description="Max context characters")
     format_chunks_for_llm: bool = Field(True, description="Format results for LLM consumption")
     semantic_weight: float = Field(0.6, ge=0.0, le=1.0, description="Weight for semantic search (0-1)")
-    scoped_collections: List[str] = Field(..., description="Collection IDs from agent config")
+    scoped_collections: Optional[Union[str, List[str]]] = Field(None, description="Collection IDs from agent config (comma-separated string or array)")
+
+    @field_validator('scoped_collections', mode='before')
+    @classmethod
+    def parse_scoped_collections(cls, v):
+        """Parse scoped_collections from comma-separated string or array."""
+        if v is None:
+            return None
+        if isinstance(v, str):
+            return [c.strip() for c in v.split(',') if c.strip()]
+        return v
 
 
 class SearchResponse(BaseModel):
@@ -127,8 +177,19 @@ class CreateFileRequest(BaseModel):
     """Request model for creating a new file."""
     name: str = Field(..., description="File name")
     content: str = Field(..., description="File content")
+    description: Optional[str] = Field(None, description="Brief 1-2 line summary of what this document contains and when it's useful (helps future retrieval without reading full content)")
     metadata: Optional[dict] = Field(default_factory=dict, description="Additional metadata")
-    scoped_collections: Optional[List[str]] = Field(None, description="Collection IDs from agent config")
+    scoped_collections: Optional[Union[str, List[str]]] = Field(None, description="Collection IDs from agent config (comma-separated string or array)")
+
+    @field_validator('scoped_collections', mode='before')
+    @classmethod
+    def parse_scoped_collections(cls, v):
+        """Parse scoped_collections from comma-separated string or array."""
+        if v is None:
+            return None
+        if isinstance(v, str):
+            return [c.strip() for c in v.split(',') if c.strip()]
+        return v
 
 
 class CreateFileResponse(BaseModel):
@@ -145,23 +206,37 @@ class CreateFileResponse(BaseModel):
 class EditFileRequest(BaseModel):
     """Request model for editing a file."""
     collection_id: Optional[str] = Field(None, description="Optional collection ID for validation")
-    old_string: str = Field(..., description="Exact text to find and replace")
-    new_string: str = Field(..., description="Replacement text")
-    replace_all: bool = Field(False, description="Replace all occurrences")
-    scoped_collections: Optional[List[str]] = Field(None, description="Collection IDs from agent config")
+    old_string: Optional[str] = Field(None, description="Exact text to find and replace (required unless replace_entire_document=true)")
+    new_string: str = Field(..., description="Replacement text (or entire new document content if replace_entire_document=true)")
+    replace_all: bool = Field(False, description="Replace all occurrences of old_string")
+    replace_entire_document: bool = Field(False, description="Replace entire document content with new_string (ignores old_string and replace_all)")
+    description: Optional[str] = Field(None, description="Updated description reflecting content changes (optional but recommended to keep descriptions current)")
+    scoped_collections: Optional[Union[str, List[str]]] = Field(None, description="Collection IDs from agent config (comma-separated string or array)")
+
+    @field_validator('scoped_collections', mode='before')
+    @classmethod
+    def parse_scoped_collections(cls, v):
+        """Parse scoped_collections from comma-separated string or array."""
+        if v is None:
+            return None
+        if isinstance(v, str):
+            return [c.strip() for c in v.split(',') if c.strip()]
+        return v
+
+    @model_validator(mode='after')
+    def validate_old_string_requirement(self):
+        """Validate that old_string is provided when not doing full replacement."""
+        if not self.replace_entire_document and not self.old_string:
+            raise ValueError("old_string is required when replace_entire_document is false")
+        return self
 
 
 class EditFileResponse(BaseModel):
     """Response model for file edit."""
     success: bool
-    changes_made: Optional[int] = None
-    document_id: str
-    collection_id: str
-    preview: Optional[str] = None
-    processing_status: Optional[str] = None
     message: str
+    processing_status: Optional[str] = None
     error: Optional[str] = None
-    occurrences: Optional[int] = None
     suggestion: Optional[str] = None
 
 
@@ -483,14 +558,18 @@ async def read_file(
     user_id: Optional[str] = Query(None, description="User ID (required for service accounts)"),
 ):
     """Read document content with line numbers.
-    
+
     Returns formatted document content with optional line numbers and pagination support.
     If scoped_collections is provided, enforces that the document belongs to a scoped collection.
-    
+
     For service accounts (n8n, Zapier), user_id must be provided in query parameters.
     """
     resolved_user_id = get_user_id_from_actor(actor, user_id)
-    
+
+    # Sanitize document_id to handle LLM-generated prefixes
+    document_id = sanitize_document_id(document_id)
+    logger.info(f"[FS_READ_FILE] user_id={resolved_user_id}, document_id={document_id}")
+
     try:
         # First get the document to find its collection
         from langconnect.database.connection import get_db_connection
@@ -833,15 +912,26 @@ async def create_file(
     user_id: Optional[str] = Query(None, description="User ID (required for service accounts)"),
 ):
     """Create a new document in a collection.
-    
+
     Creates a new document and queues it for chunking and embedding.
     Requires editor or owner permission on the collection.
     If scoped_collections is provided, verifies the collection is in scope.
-    
+
     For service accounts (n8n, Zapier), user_id must be provided in query parameters.
     """
+    # Detailed logging for debugging
+    logger.info(f"[FS_CREATE_FILE] === REQUEST START ===")
+    logger.info(f"[FS_CREATE_FILE] collection_id={collection_id}")
+    logger.info(f"[FS_CREATE_FILE] actor type={type(actor).__name__}")
+    logger.info(f"[FS_CREATE_FILE] user_id query param={user_id}")
+    logger.info(f"[FS_CREATE_FILE] request.name={request.name}")
+    logger.info(f"[FS_CREATE_FILE] request.description={request.description}")
+    logger.info(f"[FS_CREATE_FILE] request.content length={len(request.content) if request.content else 0}")
+    logger.info(f"[FS_CREATE_FILE] request.metadata={request.metadata}")
+    logger.info(f"[FS_CREATE_FILE] request.scoped_collections={request.scoped_collections}")
+
     resolved_user_id = get_user_id_from_actor(actor, user_id)
-    logger.info(f"[FS_CREATE_FILE] user_id={resolved_user_id}, collection_id={collection_id}, scoped={request.scoped_collections}, name={request.name}")
+    logger.info(f"[FS_CREATE_FILE] resolved_user_id={resolved_user_id}")
     
     try:
         # Check scoped collections from agent config
@@ -868,6 +958,10 @@ async def create_file(
             "processing_status": "pending",
             **request.metadata
         }
+
+        # Add description if provided
+        if request.description:
+            metadata["description"] = request.description
         
         document_id = await doc_manager.create_document(
             content=request.content,
@@ -919,16 +1013,19 @@ async def edit_file(
     user_id: Optional[str] = Query(None, description="User ID (required for service accounts)"),
 ):
     """Edit document content using string replacement.
-    
+
     Replaces old_string with new_string in the document content.
     Requires editor or owner permission on the collection.
     If scoped_collections is provided, verifies the document's collection is in scope.
-    
+
     For service accounts (n8n, Zapier), user_id must be provided in query parameters.
     """
     resolved_user_id = get_user_id_from_actor(actor, user_id)
-    logger.info(f"[FS_EDIT_FILE] user_id={resolved_user_id}, document_id={document_id}, scoped={request.scoped_collections}, replace_all={request.replace_all}")
-    
+
+    # Sanitize document_id to handle LLM-generated prefixes
+    document_id = sanitize_document_id(document_id)
+    logger.info(f"[FS_EDIT_FILE] user_id={resolved_user_id}, document_id={document_id}, scoped={request.scoped_collections}, replace_all={request.replace_all}, replace_entire={request.replace_entire_document}")
+
     try:
         # Get document to find its collection
         from langconnect.database.connection import get_db_connection
@@ -981,57 +1078,54 @@ async def edit_file(
             )
         
         content = doc["content"]
-        
-        # Validate old_string exists
-        if request.old_string not in content:
-            return EditFileResponse(
-                success=False,
-                document_id=document_id,
-                collection_id=actual_collection_id,
-                message="The specified text was not found in the document",
-                error="string_not_found",
-                suggestion="Use fs_read_file to view current content, then try again with exact text"
-            )
-        
-        # Check for ambiguity if not replace_all
-        if not request.replace_all:
-            count = content.count(request.old_string)
-            if count > 1:
+
+        # Update description if provided
+        if request.description:
+            current_metadata = doc.get("metadata", {})
+            current_metadata["description"] = request.description
+            await doc_manager.update_document_metadata(document_id, current_metadata)
+
+        # Handle full document replacement vs targeted string replacement
+        if request.replace_entire_document:
+            # Replace entire document content
+            new_content = request.new_string
+            logger.info(f"[FS_EDIT_FILE] Replacing entire document {document_id}")
+        else:
+            # Validate old_string exists
+            if request.old_string not in content:
                 return EditFileResponse(
                     success=False,
-                    document_id=document_id,
-                    collection_id=actual_collection_id,
-                    message=f"Text appears {count} times in document",
-                    error="ambiguous_match",
-                    occurrences=count,
-                    suggestion="Include more surrounding context in old_string, or set replace_all=true"
+                    message="The specified text was not found in the document",
+                    error="string_not_found",
+                    suggestion="Use fs_read_file to view current content, then try again with exact text"
                 )
-        
-        # Perform replacement
-        if request.replace_all:
-            new_content = content.replace(request.old_string, request.new_string)
-            changes = content.count(request.old_string)
-        else:
-            new_content = content.replace(request.old_string, request.new_string, 1)
-            changes = 1
-        
-        # Generate diff preview
-        document_name = (
-            doc.get("metadata", {}).get("title") or 
-            doc.get("metadata", {}).get("original_filename") or 
-            "document"
-        )
-        preview = generate_unified_diff(content, new_content, document_name)
-        
+
+            # Check for ambiguity if not replace_all
+            if not request.replace_all:
+                count = content.count(request.old_string)
+                if count > 1:
+                    return EditFileResponse(
+                        success=False,
+                        message=f"Text appears {count} times in document",
+                        error="ambiguous_match",
+                        suggestion="Include more surrounding context in old_string, or set replace_all=true"
+                    )
+
+            # Perform targeted replacement
+            if request.replace_all:
+                new_content = content.replace(request.old_string, request.new_string)
+            else:
+                new_content = content.replace(request.old_string, request.new_string, 1)
+
         # Update document
         success = await doc_manager.update_document_content(document_id, new_content)
-        
+
         if not success:
             raise HTTPException(
                 status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
                 detail="Failed to update document"
             )
-        
+
         # Queue re-processing job to update embeddings
         try:
             job_id = await job_service.queue_document_reprocessing(
@@ -1039,20 +1133,16 @@ async def edit_file(
                 collection_id=actual_collection_id,
                 user_id=resolved_user_id
             )
-            logger.info(f"[FS_EDIT_FILE] Queued reprocessing job {job_id} for updated document {document_id}")
+            logger.info(f"[FS_EDIT_FILE] Queued reprocessing job {job_id} for document {document_id}")
         except Exception as e:
             logger.error(f"[FS_EDIT_FILE] Failed to queue reprocessing job: {e}")
             # Don't fail the request if job queuing fails - document is still updated
-        
-        logger.info(f"[FS_EDIT_FILE] Updated document {document_id} with {changes} changes")
+
+        logger.info(f"[FS_EDIT_FILE] Successfully updated document {document_id}")
         return EditFileResponse(
             success=True,
-            changes_made=changes,
-            document_id=document_id,
-            collection_id=actual_collection_id,
-            preview=preview,
-            processing_status="processing",
-            message="Document updated."
+            message="Document updated successfully",
+            processing_status="processing"
         )
         
     except HTTPException:
@@ -1074,16 +1164,19 @@ async def delete_file(
     user_id: Optional[str] = Query(None, description="User ID (required for service accounts)"),
 ):
     """Delete a document from a collection.
-    
+
     Permanently deletes the document and all associated chunks/embeddings.
     Requires owner permission on the collection.
     If scoped_collections is provided, verifies the document's collection is in scope.
-    
+
     For service accounts (n8n, Zapier), user_id must be provided in query parameters.
     """
     resolved_user_id = get_user_id_from_actor(actor, user_id)
+
+    # Sanitize document_id to handle LLM-generated prefixes
+    document_id = sanitize_document_id(document_id)
     logger.info(f"[FS_DELETE_FILE] user_id={resolved_user_id}, document_id={document_id}, scoped={scoped_collections}")
-    
+
     try:
         # Get document to find its collection
         from langconnect.database.connection import get_db_connection
