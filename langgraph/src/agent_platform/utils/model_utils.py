@@ -219,7 +219,7 @@ def get_model_info(model_name: str) -> ModelInfo:
     Get information about a model from the registry.
     
     Args:
-        model_name: Full model identifier (e.g., "anthropic:claude-3-7-sonnet-latest")
+        model_name: Full model identifier
         
     Returns:
         ModelInfo object with model capabilities and limits
@@ -373,7 +373,7 @@ class ModelConfig(BaseModel):
     This is the main configuration class that combines all model settings,
     retry/fallback logic, and provider-specific optimizations.
     """
-    model_name: str = Field(default="anthropic:claude-3-7-sonnet-latest")
+    model_name: str = Field(default="anthropic:claude-sonnet-4-5-20250929")
     """Primary model to use"""
     
     temperature: float = Field(default=0.7, ge=0.0, le=2.0)
@@ -573,13 +573,13 @@ def init_model(config: ModelConfig) -> BaseChatModel:
         
         # Simple usage
         model = init_model(ModelConfig(
-            model_name="anthropic:claude-3-7-sonnet-latest",
+            model_name="anthropic:claude-sonnet-4-5-20250929",
             temperature=0.7
         ))
         
         # With fallback and retry
         model = init_model(ModelConfig(
-            model_name="anthropic:claude-3-7-sonnet-latest",
+            model_name="anthropic:claude-sonnet-4-5-20250929",
             retry=RetryConfig(max_retries=3),
             fallback=FallbackConfig(
                 enabled=True,
