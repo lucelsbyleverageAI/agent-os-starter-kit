@@ -9,6 +9,45 @@ import { Button } from "@/components/ui/button";
 import { cn } from "@/lib/utils";
 import { getScrollbarClasses } from "@/lib/scrollbar-styles";
 import { extractImagesFromResponse, type ExtractedImage } from "@/lib/image-utils";
+import { AuthorizationPrompt } from "./authorization-prompt";
+
+/**
+ * Detects if a response contains an authorization required message
+ * and extracts the auth URL if present.
+ */
+function detectAuthorizationMessage(response: any): string | null {
+  if (!response) return null;
+
+  // Check if response has content array (MCP format)
+  if (response.content && Array.isArray(response.content)) {
+    for (const item of response.content) {
+      if (item.type === "text" && item.text) {
+        const match = item.text.match(/Authorization required\.\s*Please visit:\s*(https?:\/\/[^\s]+)/i);
+        if (match && match[1]) {
+          return match[1];
+        }
+      }
+    }
+  }
+
+  // Check if response is a string
+  if (typeof response === "string") {
+    const match = response.match(/Authorization required\.\s*Please visit:\s*(https?:\/\/[^\s]+)/i);
+    if (match && match[1]) {
+      return match[1];
+    }
+  }
+
+  // Check if response has a text property
+  if (response.text && typeof response.text === "string") {
+    const match = response.text.match(/Authorization required\.\s*Please visit:\s*(https?:\/\/[^\s]+)/i);
+    if (match && match[1]) {
+      return match[1];
+    }
+  }
+
+  return null;
+}
 
 interface ResponseViewerProps {
   response: any;
@@ -25,6 +64,11 @@ export function ResponseViewer({
 }: ResponseViewerProps) {
   const [viewMode, setViewMode] = useState<"pretty" | "raw" | "images">("pretty");
 
+  // Detect authorization message in response
+  const authUrl = useMemo(() => {
+    return detectAuthorizationMessage(response);
+  }, [response]);
+
   // Extract images from response
   const extractedImages = useMemo(() => {
     if (!response) return [];
@@ -33,6 +77,11 @@ export function ResponseViewer({
 
   // Show images tab only if images are detected
   const hasImages = extractedImages.length > 0;
+
+  // Show authorization prompt if detected in response
+  if (authUrl) {
+    return <AuthorizationPrompt authUrl={authUrl} />;
+  }
 
   if (authRequiredMessage) {
     return <div className="w-full max-w-full">{authRequiredMessage}</div>;

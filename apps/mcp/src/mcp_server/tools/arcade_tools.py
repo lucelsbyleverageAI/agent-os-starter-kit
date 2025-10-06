@@ -17,7 +17,11 @@ class ArcadeToolsManager:
     def __init__(self) -> None:
         self._tools_cache: Dict[str, ArcadeTool] = {}
         self._cache_timestamp: Optional[float] = None
-        self._enabled_services = set(settings.enabled_services_list)
+
+        # Check if 'all' is specified to load all available tools
+        enabled_services_list = settings.enabled_services_list
+        self._load_all_services = 'all' in [s.lower() for s in enabled_services_list]
+        self._enabled_services = set(enabled_services_list) if not self._load_all_services else set()
 
     async def get_available_tools(self, force_refresh: bool = False) -> List[BaseTool]:
         """Get available Arcade tools.
@@ -106,7 +110,8 @@ class ArcadeToolsManager:
                 total_tools=len(response.items),
                 included_tools=len(new_cache),
                 filtered_tools=filtered_count,
-                enabled_services=list(self._enabled_services)
+                load_all_services=self._load_all_services,
+                enabled_services=list(self._enabled_services) if not self._load_all_services else "all"
             )
             
         except Exception as e:
@@ -115,32 +120,39 @@ class ArcadeToolsManager:
 
     def _should_include_tool(self, arcade_tool) -> bool:
         """Check if a tool should be included based on configuration.
-        
+
         Args:
             arcade_tool: The Arcade tool definition
-            
+
         Returns:
             True if the tool should be included
         """
+        # If loading all services, include all tools with a toolkit
+        if self._load_all_services:
+            if not hasattr(arcade_tool, 'toolkit') or not arcade_tool.toolkit:
+                logger.debug("Skipping tool without toolkit", tool=arcade_tool.name)
+                return False
+            return True
+
         # Check if tool has a toolkit
         if not hasattr(arcade_tool, 'toolkit') or not arcade_tool.toolkit:
             logger.debug("Skipping tool without toolkit", tool=arcade_tool.name)
             return False
-        
+
         toolkit_name = arcade_tool.toolkit.name.lower()
-        
+
         # Check against enabled services
         if self._enabled_services and toolkit_name not in self._enabled_services:
             logger.debug(
-                "Skipping tool from disabled service", 
+                "Skipping tool from disabled service",
                 tool=arcade_tool.name,
                 toolkit=toolkit_name
             )
             return False
-        
+
         # Additional filtering logic can be added here
         # For example, skip tools that require specific permissions
-        
+
         return True
 
     def get_tools_by_service(self, service_name: str) -> List[BaseTool]:
@@ -207,13 +219,19 @@ class ArcadeToolsManager:
 
     def update_enabled_services(self, services: List[str]) -> None:
         """Update enabled services and invalidate cache.
-        
+
         Args:
             services: List of service names to enable
         """
-        self._enabled_services = set(service.lower() for service in services)
+        # Check if 'all' is specified
+        self._load_all_services = 'all' in [s.lower() for s in services]
+        self._enabled_services = set(service.lower() for service in services) if not self._load_all_services else set()
         self.invalidate_cache()
-        logger.info("Updated enabled services", services=list(self._enabled_services))
+        logger.info(
+            "Updated enabled services",
+            load_all_services=self._load_all_services,
+            services=list(self._enabled_services) if not self._load_all_services else "all"
+        )
 
 
 # Global Arcade tools manager instance
