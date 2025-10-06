@@ -12,6 +12,7 @@ import {
 } from "@/components/ui/tooltip";
 import { useAuthContext } from "@/providers/Auth";
 import { useAgentsContext } from "@/providers/Agents";
+import { fetchWithAuth } from "@/lib/auth/fetch-with-auth";
 // import { createClient } from "@/lib/client"; // Removed unused import
 import { toast } from "sonner";
 
@@ -236,12 +237,10 @@ export function ChatHistory() {
         if (versionToUse != null) url.searchParams.set('v', String(versionToUse));
         
         Sentry.logger.info('[threads:main-history] fetch all', { url: url.toString() });
-        const resp = await fetch(url.toString(), {
-          headers: {
-            Authorization: `Bearer ${session.accessToken}`,
-          },
+        const resp = await fetchWithAuth(url.toString(), {
           signal: controller.signal,
-        });
+          cache: 'no-store',
+        }, session);
         
         if (!resp.ok) {
           // If 404, it's a valid case for a new user with no threads
@@ -275,13 +274,11 @@ export function ChatHistory() {
         url.searchParams.set('limit', '100');
         url.searchParams.set('offset', currentOffset.toString());
         if (versionToUse != null) url.searchParams.set('v', String(versionToUse));
-        
-        const resp = await fetch(url.toString(), {
-          headers: {
-            Authorization: `Bearer ${session.accessToken}`,
-          },
+
+        const resp = await fetchWithAuth(url.toString(), {
           signal: controller.signal,
-        });
+          cache: 'no-store',
+        }, session);
         
         if (!resp.ok) {
           // If 404, it's a valid case for a new user with no threads
@@ -348,9 +345,9 @@ export function ChatHistory() {
       url.searchParams.set('limit', '100');
       url.searchParams.set('offset', '0');
       if (versionToUse != null) url.searchParams.set('v', String(versionToUse));
-      const resp = await fetch(url.toString(), {
-        headers: { Authorization: `Bearer ${session.accessToken}` },
-      });
+      const resp = await fetchWithAuth(url.toString(), {
+        cache: 'no-store',
+      }, session);
       if (!resp.ok) return null;
       const data = await resp.json();
       const mapped: Thread[] = (data.threads || []).map((t: any) => ({
@@ -558,11 +555,27 @@ export function ChatHistory() {
     }
 
     const result = await deleteThread(threadToDelete.thread_id, deploymentId);
-    
+
     if (result.ok) {
+      // Update version ref to force cache bust on next fetch
+      if (result.threadsVersion != null) {
+        latestThreadsVersionRef.current = result.threadsVersion;
+      }
+
       // Remove thread from local state
       setThreads(prev => prev.filter(t => t.thread_id !== threadToDelete.thread_id));
-      
+
+      // Also remove from "All Agents" cache to prevent stale data when switching filters
+      if (allThreadsCacheRef.current) {
+        allThreadsCacheRef.current = allThreadsCacheRef.current.filter(
+          t => t.thread_id !== threadToDelete.thread_id
+        );
+      }
+
+      // Force immediate refetch with new version to bypass browser cache
+      const currentFilter = selectedAgentValue === "all" ? undefined : selectedAgentValue;
+      fetchThreads(currentFilter, false, result.threadsVersion);
+
       // Check if we need to navigate away from the current thread
       const currentUrl = new URL(window.location.href);
       const currentThreadId = currentUrl.searchParams.get('threadId');

@@ -135,13 +135,9 @@ function CreateAgentFormContent(props: {
       });
     }
 
-    // Show registration warning if needed
-    if (newAgent.registrationWarning) {
-      const message = agentMessages.create.registrationWarning();
-      notify.warning(message.title, {
-        description: message.description,
-      });
-    }
+    // Note: We no longer show registration warnings to users as they can be confusing.
+    // The agent is fully functional even if registration temporarily fails, and the
+    // background sync process will handle any permission system updates automatically.
 
     // Background validation to ensure consistency (non-blocking)
     // Wait for backend mirroring to complete, then validate

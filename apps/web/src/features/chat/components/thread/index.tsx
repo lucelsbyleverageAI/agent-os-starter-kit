@@ -27,6 +27,7 @@ import { DO_NOT_RENDER_ID_PREFIX } from "@/constants";
 import { useConfigStore } from "../../hooks/use-config-store";
 import { useAuthContext } from "@/providers/Auth";
 import { useAgentsContext } from "@/providers/Agents";
+import { fetchWithAuth } from "@/lib/auth/fetch-with-auth";
 
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
 import { useFileUpload } from "@/hooks/use-file-upload";
@@ -156,14 +157,13 @@ export function Thread({ historyOpen = false, configOpen = false }: ThreadProps)
       };
 
 
-      fetch('/api/langconnect/agents/mirror/threads/touch', {
+      fetchWithAuth('/api/langconnect/agents/mirror/threads/touch', {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
-          Authorization: `Bearer ${session.accessToken}`,
         },
         body: JSON.stringify(touchPayload),
-      })
+      }, session)
       .then(response => response.json())
       .then(result => {
         // Clear the pending touch
@@ -274,11 +274,10 @@ export function Thread({ historyOpen = false, configOpen = false }: ThreadProps)
           const currentAgent = agents.find(a => a.assistant_id === agentId);
           const graphId = currentAgent?.graph_id;
           
-          fetch('/api/langconnect/agents/mirror/threads/touch', {
+          fetchWithAuth('/api/langconnect/agents/mirror/threads/touch', {
             method: 'POST',
             headers: {
               'Content-Type': 'application/json',
-              Authorization: `Bearer ${session.accessToken}`,
             },
             body: JSON.stringify({
               thread_id: threadId,
@@ -287,7 +286,7 @@ export function Thread({ historyOpen = false, configOpen = false }: ThreadProps)
               status: 'idle',
               last_message_at: new Date().toISOString(),
             }),
-          }).then(() => {
+          }, session).then(() => {
             // Stream completion doesn't need to refresh sidebar - just updates status
           }).catch(() => {});
         }
@@ -381,14 +380,13 @@ export function Thread({ historyOpen = false, configOpen = false }: ThreadProps)
         
        
         
-        fetch('/api/langconnect/agents/mirror/threads/touch', {
+        fetchWithAuth('/api/langconnect/agents/mirror/threads/touch', {
           method: 'POST',
           headers: {
             'Content-Type': 'application/json',
-            Authorization: `Bearer ${session.accessToken}`,
           },
           body: JSON.stringify(touchPayload),
-        })
+        }, session)
         .then(response => response.json())
         .then(result => {
           

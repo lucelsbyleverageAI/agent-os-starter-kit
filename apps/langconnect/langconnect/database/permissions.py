@@ -279,14 +279,24 @@ class AssistantPermissionsManager:
         async with get_db_connection() as conn:
             row = await conn.fetchrow(
                 """
-                SELECT 
+                SELECT
                   am.assistant_id::text AS assistant_id,
                   am.graph_id,
                   am.name AS display_name,
                   am.description,
                   am.langgraph_created_at AS created_at,
-                  am.langgraph_updated_at AS updated_at
+                  am.langgraph_updated_at AS updated_at,
+                  owner_perm.user_id AS owner_id,
+                  ur.display_name AS owner_display_name
                 FROM langconnect.assistants_mirror am
+                LEFT JOIN LATERAL (
+                  SELECT user_id
+                  FROM langconnect.assistant_permissions p
+                  WHERE p.assistant_id = am.assistant_id AND p.permission_level = 'owner'
+                  ORDER BY p.created_at ASC
+                  LIMIT 1
+                ) AS owner_perm ON TRUE
+                LEFT JOIN langconnect.user_roles ur ON owner_perm.user_id = ur.user_id
                 WHERE am.assistant_id = $1::uuid
                 """,
                 assistant_id,
