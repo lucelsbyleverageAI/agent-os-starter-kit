@@ -338,7 +338,7 @@ export const AdminDashboard = () => {
             Public Collections
           </TabsTrigger>
           <TabsTrigger value="retired">
-            Retired Graphs
+            Retired Agents
           </TabsTrigger>
         </TabsList>
         
@@ -439,9 +439,9 @@ export const AdminDashboard = () => {
           <Card>
             <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
               <div>
-                <CardTitle>Retired Graphs</CardTitle>
+                <CardTitle>Retired Agents</CardTitle>
                 <CardDescription>
-                  Manually prune or unretire graphs marked as unavailable
+                  Manually prune or unretire agents/graphs marked as unavailable
                 </CardDescription>
               </div>
             </CardHeader>

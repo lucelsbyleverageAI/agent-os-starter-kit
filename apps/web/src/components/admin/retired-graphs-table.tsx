@@ -54,7 +54,7 @@ export function RetiredGraphsTable() {
       const data = await res.json();
       setRows(data.retired_graphs || []);
     } catch (_e) {
-      toast.error("Failed to load retired graphs");
+      toast.error("Failed to load retired agents");
     } finally {
       setLoading(false);
     }
@@ -193,7 +193,7 @@ export function RetiredGraphsTable() {
         {loading ? (
           <div className="text-sm text-muted-foreground">Loading…</div>
         ) : rows.length === 0 ? (
-          <div className="text-sm text-muted-foreground">No retired graphs</div>
+          <div className="text-sm text-muted-foreground">No retired agents</div>
         ) : (
           <div className="space-y-4">
             {rows.map((r) => (
