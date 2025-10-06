@@ -88,7 +88,7 @@ export default function MemoriesInterface() {
           initialSearchExecuted && (
             <MinimalistBadgeWithText
               icon={Brain}
-              text={`${memories.length} memory${memories.length !== 1 ? 'ies' : ''}`}
+              text={`${memories.length} ${memories.length === 1 ? 'memory' : 'memories'}`}
               tooltip={`You have ${memories.length} memories stored`}
             />
           )
