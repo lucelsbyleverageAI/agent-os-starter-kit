@@ -20,6 +20,7 @@ import {
 } from "./utils";
 import { logger } from "@/components/agent-inbox/utils/logger";
 import { useAuthContext } from "@/providers/Auth";
+import { fetchWithAuth } from "@/lib/auth/fetch-with-auth";
 
 type ThreadContentType<
   ThreadValues extends Record<string, any> = Record<string, any>,
@@ -432,11 +433,10 @@ function ThreadsProviderInternal<
           .map((c: any) => c.text)
           .join(' ')
           .slice(0, 80);
-        fetch('/api/langconnect/agents/mirror/threads/touch', {
+        fetchWithAuth('/api/langconnect/agents/mirror/threads/touch', {
           method: 'POST',
           headers: {
             'Content-Type': 'application/json',
-            Authorization: `Bearer ${session.accessToken}`,
           },
           body: JSON.stringify({
             thread_id: threadId,
@@ -445,7 +445,7 @@ function ThreadsProviderInternal<
             name_if_absent: contentTexts,
             last_message_at: new Date().toISOString(),
           }),
-        }).catch(() => {});
+        }, session).catch(() => {});
               } catch {
           // Ignore touch errors
         }

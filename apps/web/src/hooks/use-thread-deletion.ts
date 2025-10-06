@@ -5,6 +5,7 @@ import { createClient } from "@/lib/client";
 // Result types for consistent error handling
 interface SuccessResult {
   ok: true;
+  threadsVersion?: number;
 }
 
 interface ErrorResult {
@@ -41,9 +42,12 @@ export function useThreadDeletion() {
         // Fallback to direct SDK delete if mirror route is unavailable
         const client = createClient(deploymentId, session.accessToken);
         await client.threads.delete(threadId);
+        return { ok: true };
       }
-      
-      return { ok: true };
+
+      // Parse response to get threads_version for cache invalidation
+      const data = await resp.json();
+      return { ok: true, threadsVersion: data.threads_version };
     } catch (error) {
       console.error("Failed to delete thread:", error);
       return {
