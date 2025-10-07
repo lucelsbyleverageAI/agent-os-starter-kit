@@ -1,0 +1,55 @@
+# Configuration for additional columns to display for linked items from specific boards
+# Format: board_id -> list of column configurations
+
+"1653909648":  # Process Master
+  name: "Process Master"
+  columns:
+    - id: "department__1"
+      label: "Department"
+      type: "dropdown"
+    - id: "sub_department__1"
+      label: "Sub-Department"
+      type: "text"
+    - id: "text_mkmjfer7"
+      label: "Hours Saved per annum"
+      type: "text"
+    - id: "text_mkn39r6z"
+      label: "Metrics comment"
+      type: "text"
+    - id: "long_text__1"
+      label: "Process Description"
+      type: "long_text"
+
+"1644881752":  # Customer Master
+  name: "Customer Master"
+  columns:
+    - id: "comments__1"
+      label: "Comments"
+      type: "long_text"
+
+"1694049876":  # Deal Master
+  name: "Deal Master"
+  columns:
+    - id: "vendor_partner0__1"
+      label: "Partner"
+      type: "dropdown"
+    - id: "dropdown__1"
+      label: "Vendor"
+      type: "dropdown"
+
+"1653883216":  # Contacts
+  name: "Contacts"
+  columns:
+    - id: "text__1"
+      label: "Job Title"
+      type: "text"
+
+"1723128552":  # Workshops
+  name: "Workshops"
+  columns:
+    - id: "long_text7__1"
+      label: "Workshop Notes"
+      type: "long_text"
+    - id: "dropdown_mknbreqy"
+      label: "Customer/Prospect"
+      type: "dropdown"
