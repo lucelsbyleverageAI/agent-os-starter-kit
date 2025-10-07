@@ -21,6 +21,16 @@ from .memory import (
     DeleteMemoryTool
 )
 
+from .monday import (
+    ListBoardsTool,
+    GetBoardColumnsTool,
+    ListBoardItemsTool,
+    GetItemTool,
+    GetCustomersTool,
+    GetCustomerInfoTool,
+    GetProcessesTool,
+)
+
 # Registry of available custom tools
 CUSTOM_TOOLS = [
     
@@ -39,6 +49,15 @@ CUSTOM_TOOLS = [
     GetMemoryTool(),
     GetAllMemoriesTool(),
     UpdateMemoryTool(),
-    DeleteMemoryTool()
+    DeleteMemoryTool(),
+    
+    # Monday Tools
+    ListBoardsTool(),
+    GetBoardColumnsTool(),
+    ListBoardItemsTool(),
+    GetItemTool(),
+    GetCustomersTool(),
+    GetCustomerInfoTool(),
+    GetProcessesTool(),
     
 ] 
