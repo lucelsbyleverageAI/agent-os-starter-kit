@@ -195,6 +195,10 @@ export function ChatHistory() {
   const latestThreadsVersionRef = useRef<number | undefined>(undefined);
   // Background cache of "All Agents" results to avoid stale UI when switching filters
   const allThreadsCacheRef = useRef<Thread[] | null>(null);
+  // Track if component is mounted to prevent cleanup from aborting during re-renders
+  const isMountedRef = useRef(true);
+  // Store session in ref to avoid fetchThreads recreation on token changes
+  const sessionRef = useRef(session);
   
   // Agent filter popover state
   const [filterOpen, setFilterOpen] = useState(false);
@@ -209,9 +213,16 @@ export function ChatHistory() {
   const [renameValue, setRenameValue] = useState<string>("");
   const [isRenaming, setIsRenaming] = useState(false);
 
+  // Keep sessionRef in sync with latest session
+  useEffect(() => {
+    sessionRef.current = session;
+  }, [session]);
+
   // Fetch threads for all agents or filtered by agent using mirror endpoints
   const fetchThreads = useCallback(async (agentFilter?: string, append = false, threadsVersion?: number) => {
-    if (authLoading || !session?.accessToken) return;
+    // Use sessionRef.current to get latest session without recreating this callback
+    const currentSession = sessionRef.current;
+    if (authLoading || !currentSession?.accessToken) return;
 
     setLoading(true);
     try {
@@ -240,7 +251,7 @@ export function ChatHistory() {
         const resp = await fetchWithAuth(url.toString(), {
           signal: controller.signal,
           cache: 'no-store',
-        }, session);
+        }, currentSession);
         
         if (!resp.ok) {
           // If 404, it's a valid case for a new user with no threads
@@ -278,8 +289,8 @@ export function ChatHistory() {
         const resp = await fetchWithAuth(url.toString(), {
           signal: controller.signal,
           cache: 'no-store',
-        }, session);
-        
+        }, currentSession);
+
         if (!resp.ok) {
           // If 404, it's a valid case for a new user with no threads
           if (resp.status === 404) {
@@ -326,7 +337,16 @@ export function ChatHistory() {
       }
     } catch (e: any) {
       // Silently ignore intentional aborts
-      if (e?.name === 'AbortError' || e === 'unmount') {
+      // Check for abort errors in multiple ways:
+      // 1. Standard DOMException with AbortError name
+      // 2. DOMException with ABORT_ERR code
+      // 3. Check if the abort controller's signal has a reason of 'unmount'
+      const isAbortError =
+        e?.name === 'AbortError' ||
+        (e instanceof DOMException && e.code === DOMException.ABORT_ERR) ||
+        abortControllerRef.current?.signal?.reason === 'unmount';
+
+      if (isAbortError) {
         return;
       }
       console.error("Failed to fetch threads", e);
@@ -334,11 +354,12 @@ export function ChatHistory() {
     } finally {
       setLoading(false);
     }
-  }, [authLoading, session?.accessToken, offset]);
+  }, [authLoading, offset]); // Removed session?.accessToken - using sessionRef instead
 
   // Helper: Fetch "All Agents" list without mutating UI state (used to warm background cache)
   const fetchAllThreadsSilently = useCallback(async (threadsVersion?: number): Promise<Thread[] | null> => {
-    if (authLoading || !session?.accessToken) return null;
+    const currentSession = sessionRef.current;
+    if (authLoading || !currentSession?.accessToken) return null;
     try {
       const versionToUse = threadsVersion ?? latestThreadsVersionRef.current;
       const url = new URL(`/api/langconnect/agents/mirror/threads`, window.location.origin);
@@ -347,7 +368,7 @@ export function ChatHistory() {
       if (versionToUse != null) url.searchParams.set('v', String(versionToUse));
       const resp = await fetchWithAuth(url.toString(), {
         cache: 'no-store',
-      }, session);
+      }, currentSession);
       if (!resp.ok) return null;
       const data = await resp.json();
       const mapped: Thread[] = (data.threads || []).map((t: any) => ({
@@ -363,17 +384,19 @@ export function ChatHistory() {
     } catch {
       return null;
     }
-  }, [authLoading, session?.accessToken]);
+  }, [authLoading]); // Removed session?.accessToken - using sessionRef instead
 
-  // Initial load
+  // Initial load - only runs once on mount
   useEffect(() => {
     fetchThreads("all");
+    // Cleanup only on actual unmount, not on dependency changes
     return () => {
+      isMountedRef.current = false;
       if (abortControllerRef.current) {
         try { abortControllerRef.current.abort('unmount'); } catch { void 0; }
       }
     };
-  }, [fetchThreads]);
+  }, []); // Empty deps - only run on mount/unmount
 
   // Listen for custom refresh events triggered after thread creation
   useEffect(() => {
@@ -408,15 +431,16 @@ export function ChatHistory() {
   useEffect(() => {
     selectedAgentRef.current = selectedAgentValue;
   }, [selectedAgentValue]);
-  
-  // Separate effect to fetch when selection/auth changes (always refetch)
+
+  // Separate effect to fetch when selection changes (not on every session update)
+  // Only refetch when selectedAgentValue changes, not when session token refreshes
   useEffect(() => {
-    if (session?.accessToken) {
+    if (sessionRef.current?.accessToken) {
       const agentFilter = selectedAgentValue === "all" ? undefined : selectedAgentValue;
       // When toggling filters, carry forward the latest threads version to avoid stale results across filters
       fetchThreads(agentFilter, false, latestThreadsVersionRef.current);
     }
-  }, [selectedAgentValue, session?.accessToken, fetchThreads]);
+  }, [selectedAgentValue, fetchThreads]); // Removed session?.accessToken dependency
 
   // Handle agent filter change
   const handleAgentFilterChange = (value: string) => {
