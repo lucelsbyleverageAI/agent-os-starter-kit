@@ -139,16 +139,20 @@ export async function GET(req: NextRequest) {
 
     // STEP 3: Discovery Complete - No Enhancement Logic
     // The simplified /graphs/scan endpoint no longer provides enhancement detection
-    
+
     const currentUserId = accessToken ? extractUserIdFromToken(accessToken) : null;
+
+    // Get user role from LangConnect API response (Fix for hardcoded values)
+    const userRole = graphsResults.user_role || 'user';
+    const isDevAdmin = userRole === 'dev_admin';
 
     // Build response
     const responseData = {
       valid_graphs: graphsResults.graphs || [],
       invalid_graphs: [],
       assistants: assistantsData.assistants || [],
-      user_role: 'user',
-      is_dev_admin: false,
+      user_role: userRole,
+      is_dev_admin: isDevAdmin,
       scan_metadata: {
         langgraph_graphs_found: graphsResults.graphs?.length || 0,
         valid_graphs: graphsResults.graphs?.length || 0,

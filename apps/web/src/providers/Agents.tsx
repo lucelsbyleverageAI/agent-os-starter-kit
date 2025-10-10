@@ -501,7 +501,13 @@ export const AgentsProvider: React.FC<{ children: ReactNode }> = ({
       
       // If we have both core layers cached, we can use them
       if (graphData && assistantData) {
-        
+        console.log('[AgentsProvider] Using cached data', {
+          graphsCount: graphData.valid_graphs?.length || 0,
+          assistantsCount: assistantData.assistants?.length || 0,
+          graphData: graphData.valid_graphs,
+          cacheVersion: versionKey
+        });
+
         // Reconstruct discovery response from cached layers
         const reconstructedResponse: DiscoveryResponse = {
           valid_graphs: graphData.valid_graphs,
@@ -514,7 +520,12 @@ export const AgentsProvider: React.FC<{ children: ReactNode }> = ({
           deployment_id: assistantData.deployment_id,
           deployment_name: assistantData.deployment_name
         };
-        
+
+        console.log('[AgentsProvider] Reconstructed discovery response', {
+          valid_graphs_count: reconstructedResponse.valid_graphs?.length || 0,
+          valid_graphs: reconstructedResponse.valid_graphs
+        });
+
         // Set discovery data
         setDiscoveryData(reconstructedResponse);
         
@@ -532,24 +543,41 @@ export const AgentsProvider: React.FC<{ children: ReactNode }> = ({
     }
 
     // ✅ FRESH DATA FETCHING WITH LAYERED CACHING
-    
+
     // Fetch fresh discovery data
     const discoveryResponse = await fetchDiscoveryResponse(deployment.id);
     const response = discoveryResponse.response;
-    
+
+    console.log('[AgentsProvider] Fresh API response received', {
+      valid_graphs_count: response.valid_graphs?.length || 0,
+      valid_graphs: response.valid_graphs,
+      assistants_count: response.assistants?.length || 0,
+      deployment: deployment.id,
+      duration: discoveryResponse.duration
+    });
+
     // Recompute version key post-fetch in case versions changed during request
     await fetchCacheState();
     const freshVersionKey = computeVersionKey();
 
     // ✅ CACHE IN LAYERS
     // Layer 1: Cache graph discovery data (2 hours)
+    console.log('[AgentsProvider] Caching graph discovery data', {
+      graphsCount: response.valid_graphs?.length || 0,
+      versionKey: freshVersionKey,
+      graphIds: response.valid_graphs?.map(g => g.graph_id) || []
+    });
     setGraphDiscoveryCache(userId, {
       valid_graphs: response.valid_graphs,
       invalid_graphs: response.invalid_graphs,
       scan_metadata: response.scan_metadata
     }, freshVersionKey);
-    
+
     // Layer 2: Cache assistant list data (30 minutes)
+    console.log('[AgentsProvider] Caching assistant list data', {
+      assistantsCount: response.assistants?.length || 0,
+      versionKey: freshVersionKey
+    });
     setAssistantListCache(userId, {
       assistants: response.assistants,
       assistant_counts: response.assistant_counts,

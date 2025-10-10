@@ -147,11 +147,17 @@ async def list_graphs_from_mirror(
                 })
             
             log.info(f"Listed {len(graphs_list)} graphs from mirror for {actor.actor_type}:{actor.identity}")
-            
+
+            # Include user role in response for frontend permission logic
+            user_role = None
+            if actor.actor_type == "user":
+                user_role = await GraphPermissionsManager.get_user_role(actor.identity)
+
             return {
                 "graphs": graphs_list,
                 "total_count": len(graphs_list),
-                "graphs_version": graphs_version
+                "graphs_version": graphs_version,
+                "user_role": user_role or "user"
             }
             
     except Exception as e:
