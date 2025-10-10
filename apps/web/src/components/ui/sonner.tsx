@@ -12,6 +12,7 @@ const Toaster = ({ ...props }: ToasterProps) => {
       className="toaster group"
       closeButton
       richColors
+      position="bottom-right"
       style={
         {
           "--normal-bg": "hsl(var(--popover))",
@@ -32,9 +33,13 @@ const Toaster = ({ ...props }: ToasterProps) => {
           background: "hsl(var(--popover))",
           border: "1px solid hsl(var(--border))",
           color: "hsl(var(--popover-foreground))",
+          backdropFilter: "blur(12px)",
+          WebkitBackdropFilter: "blur(12px)",
+          opacity: 1,
+          boxShadow: "0 8px 32px rgba(0, 0, 0, 0.12), 0 2px 8px rgba(0, 0, 0, 0.08)",
         },
-        className: "group toast group-[.toaster]:bg-popover group-[.toaster]:text-popover-foreground group-[.toaster]:border-border group-[.toaster]:shadow-lg",
-        descriptionClassName: "group-[.toast]:text-muted-foreground",
+        className: "group toast group-[.toaster]:bg-popover group-[.toaster]:text-popover-foreground group-[.toaster]:border-border group-[.toaster]:shadow-xl group-[.toaster]:backdrop-blur-xl",
+        descriptionClassName: "group-[.toast]:text-muted-foreground group-[.toast]:opacity-90",
       }}
       {...props}
     />

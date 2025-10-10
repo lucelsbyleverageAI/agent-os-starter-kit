@@ -350,4 +350,75 @@
   .runbook-preview th {
     @apply bg-muted font-semibold;
   }
+
+  /* Toast Notifications - Modern, Solid, Non-transparent */
+  [data-sonner-toast] {
+    opacity: 1 !important;
+    backdrop-filter: blur(12px) !important;
+    -webkit-backdrop-filter: blur(12px) !important;
+  }
+
+  [data-sonner-toast][data-styled="true"] {
+    padding: 16px !important;
+    gap: 12px !important;
+    border-radius: 12px !important;
+  }
+
+  /* Ensure toast backgrounds are fully opaque */
+  [data-sonner-toast][data-type="success"] {
+    background: hsl(var(--primary)) !important;
+    color: hsl(var(--primary-foreground)) !important;
+    border-color: hsl(var(--primary)) !important;
+  }
+
+  [data-sonner-toast][data-type="error"] {
+    background: hsl(var(--destructive)) !important;
+    color: hsl(var(--destructive-foreground)) !important;
+    border-color: hsl(var(--destructive)) !important;
+  }
+
+  [data-sonner-toast][data-type="warning"] {
+    background: hsl(var(--muted)) !important;
+    color: hsl(var(--muted-foreground)) !important;
+    border-color: hsl(var(--border)) !important;
+  }
+
+  [data-sonner-toast][data-type="info"] {
+    background: hsl(var(--secondary)) !important;
+    color: hsl(var(--secondary-foreground)) !important;
+    border-color: hsl(var(--border)) !important;
+  }
+
+  /* Default/normal toast styling */
+  [data-sonner-toast]:not([data-type]) {
+    background: hsl(var(--popover)) !important;
+    color: hsl(var(--popover-foreground)) !important;
+    border-color: hsl(var(--border)) !important;
+  }
+
+  /* Toast description text */
+  [data-sonner-toast] [data-description] {
+    opacity: 0.9;
+    font-size: 0.875rem;
+    line-height: 1.25rem;
+  }
+
+  /* Toast close button */
+  [data-sonner-toast] [data-button] {
+    opacity: 0.7;
+    transition: opacity 0.2s ease;
+  }
+
+  [data-sonner-toast] [data-button]:hover {
+    opacity: 1;
+  }
+
+  /* Smooth toast animations */
+  [data-sonner-toaster] {
+    pointer-events: none;
+  }
+
+  [data-sonner-toast] {
+    pointer-events: auto;
+  }
 }
