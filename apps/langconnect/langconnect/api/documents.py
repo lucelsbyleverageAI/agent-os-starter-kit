@@ -358,12 +358,16 @@ async def upload_documents(
     ocr_enabled: bool = Form(default=True),
     extract_tables: bool = Form(default=True),
     extract_figures: bool = Form(default=True),
+    use_ai_metadata: bool = Form(default=False, description="Use AI to generate document names and descriptions"),
 ):
     """Upload and process documents using enhanced processing pipeline.
-    
+
     Processing Modes:
     - **fast**: Standard processing with table extraction but no OCR (faster, for digital documents)
     - **balanced**: OCR processing for scanned documents with table extraction (recommended for mixed document types)
+
+    AI Metadata:
+    - **use_ai_metadata**: When enabled, uses OpenAI to generate descriptive names and summaries for documents based on their content
     """
     
     sentry_sdk.add_breadcrumb(
@@ -422,6 +426,7 @@ async def upload_documents(
             ocr_enabled=ocr_enabled,
             extract_tables=extract_tables,
             extract_figures=extract_figures,
+            use_ai_metadata=use_ai_metadata,
         )
         
         # Generate smart defaults for job title and description if not provided

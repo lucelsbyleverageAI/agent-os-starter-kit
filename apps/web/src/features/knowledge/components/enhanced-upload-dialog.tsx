@@ -5,6 +5,8 @@ import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from "
 import { Button } from "@/components/ui/button";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Badge } from "@/components/ui/badge";
+import { Checkbox } from "@/components/ui/checkbox";
+import { Label } from "@/components/ui/label";
 import { 
   Upload, 
   Link, 
@@ -40,6 +42,7 @@ export interface UploadData {
   urls: URLItem[];
   textContent: string;
   processingMode: ProcessingMode;
+  useAIMetadata: boolean;
 }
 
 export function EnhancedUploadDialog({ 
@@ -51,11 +54,14 @@ export function EnhancedUploadDialog({
   const [activeTab, setActiveTab] = useState<'files' | 'urls' | 'text'>('files');
   const [processingMode] = useState<ProcessingMode>('fast'); // Always use 'fast' mode
   const [submitting, setSubmitting] = useState(false);
-  
+
   // Content state
   const [files, setFiles] = useState<File[]>([]);
   const [urls, setURLs] = useState<URLItem[]>([]);
   const [textContent, setTextContent] = useState('');
+
+  // AI metadata option
+  const [useAIMetadata, setUseAIMetadata] = useState(true);
 
   // Calculate total items for submit button
   const totalItems = files.length + urls.length + (textContent.trim() ? 1 : 0);
@@ -88,6 +94,7 @@ export function EnhancedUploadDialog({
     setFiles([]);
     setURLs([]);
     setTextContent('');
+    setUseAIMetadata(true);
     setActiveTab('files');
   }, []);
 
@@ -115,7 +122,8 @@ export function EnhancedUploadDialog({
         files,
         urls,
         textContent,
-        processingMode
+        processingMode,
+        useAIMetadata
       });
 
       // Reset and close - completion toast will be handled by job tracking
@@ -127,7 +135,7 @@ export function EnhancedUploadDialog({
     } finally {
       setSubmitting(false);
     }
-  }, [files, urls, textContent, processingMode, isValidForSubmission, totalItems, onSubmit, resetForm, onOpenChange]);
+  }, [files, urls, textContent, processingMode, useAIMetadata, isValidForSubmission, totalItems, onSubmit, resetForm, onOpenChange]);
 
   // Handle dialog close
   const handleClose = useCallback(() => {
@@ -198,24 +206,43 @@ export function EnhancedUploadDialog({
           </Tabs>
         </div>
 
-        <DialogFooter className="flex items-center justify-between pt-6 mt-6 border-t">
-          <Button variant="outline" onClick={handleClose} disabled={submitting}>
-            Cancel
-          </Button>
-          <Button 
-            onClick={handleSubmit} 
-            disabled={!isValidForSubmission || submitting}
-            className="min-w-[140px]"
-          >
-            {submitting ? (
-              <div className="flex items-center space-x-2">
-                <div className="h-4 w-4 border-2 border-white border-t-transparent rounded-full animate-spin" />
-                <span>Starting...</span>
-              </div>
-            ) : (
-              `Start Processing ${totalItems > 0 ? `(${totalItems})` : ''}`
-            )}
-          </Button>
+        <DialogFooter className="flex flex-col gap-4 pt-6 mt-6 border-t">
+          {/* AI Metadata Option */}
+          <div className="flex items-center space-x-2">
+            <Checkbox
+              id="use-ai-metadata"
+              checked={useAIMetadata}
+              onCheckedChange={(checked) => setUseAIMetadata(checked === true)}
+              disabled={submitting}
+            />
+            <Label
+              htmlFor="use-ai-metadata"
+              className="text-sm font-normal cursor-pointer"
+            >
+              Use AI to generate document names and descriptions automatically
+            </Label>
+          </div>
+
+          {/* Action Buttons */}
+          <div className="flex items-center justify-between">
+            <Button variant="outline" onClick={handleClose} disabled={submitting}>
+              Cancel
+            </Button>
+            <Button
+              onClick={handleSubmit}
+              disabled={!isValidForSubmission || submitting}
+              className="min-w-[140px]"
+            >
+              {submitting ? (
+                <div className="flex items-center space-x-2">
+                  <div className="h-4 w-4 border-2 border-white border-t-transparent rounded-full animate-spin" />
+                  <span>Starting...</span>
+                </div>
+              ) : (
+                `Start Processing ${totalItems > 0 ? `(${totalItems})` : ''}`
+              )}
+            </Button>
+          </div>
         </DialogFooter>
       </DialogContent>
     </Dialog>
