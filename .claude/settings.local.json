@@ -4,7 +4,9 @@
       "mcp__n8n-mcp__search_nodes",
       "mcp__n8n-mcp__get_node_documentation",
       "mcp__n8n-mcp__get_node_essentials",
-      "mcp__n8n-mcp__search_node_properties"
+      "mcp__n8n-mcp__search_node_properties",
+      "mcp__context7__resolve-library-id",
+      "mcp__context7__get-library-docs"
     ]
   },
   "enableAllProjectMcpServers": true,
