@@ -2,83 +2,144 @@
 
 @plugin "tailwindcss-animate";
 
+/* Tell Tailwind v4 where to scan for utility classes */
+@source "../";
+
 @custom-variant dark (&:is(.dark *));
 
 :root {
-  /* Core colours - ChatGPT Light Theme */
-  --background: oklch(0.99 0 0);
-  --foreground: oklch(0.15 0 0);
-  --card: oklch(0.985 0 0);
-  --card-foreground: oklch(0.15 0 0);
-  --popover: oklch(0.99 0 0);
-  --popover-foreground: oklch(0.15 0 0);
-  --primary: oklch(0.15 0.15 270);
+  /* 🎨 BRAND COLOR CUSTOMIZATION
+   * Change these to rebrand the entire app for different clients:
+   * --brand-primary-light: Main color for light mode
+   * --brand-primary-dark: Main color for dark mode (lighter/desaturated version)
+   *
+   * Examples:
+   * Navy (default):  oklch(0.25 0.15 270) / oklch(0.65 0.12 270)
+   * Blue:            oklch(0.45 0.15 250) / oklch(0.65 0.15 250)
+   * Green:           oklch(0.35 0.15 150) / oklch(0.65 0.15 150)
+   * Teal:            oklch(0.40 0.12 200) / oklch(0.60 0.12 200)
+   * Red:             oklch(0.45 0.20 25)  / oklch(0.65 0.18 25)
+   */
+  --brand-primary-light: oklch(0.25 0.15 270); /* Navy #040056 */
+
+  /* Brand glow effect for light mode - subtle branded shadow */
+  --glow-shadow-light: 0 0 20px oklch(0.25 0.15 270 / 0.05), 0 0 40px oklch(0.25 0.15 270 / 0.03), 0 0 60px oklch(0.25 0.15 270 / 0.01);
+
+  /* Spacing Scale - Consistent rhythm throughout app */
+  --spacing-xs: 0.25rem;   /* 4px  - tight spacing */
+  --spacing-sm: 0.5rem;    /* 8px  - compact spacing */
+  --spacing-md: 0.75rem;   /* 12px - default spacing */
+  --spacing-lg: 1rem;      /* 16px - comfortable spacing */
+  --spacing-xl: 1.5rem;    /* 24px - generous spacing */
+  --spacing-2xl: 2rem;     /* 32px - section spacing */
+  --spacing-3xl: 3rem;     /* 48px - page spacing */
+
+  /* Layout Constraints */
+  --content-max-width: 48rem;   /* 768px - ChatGPT style */
+  --page-max-width: 90rem;      /* 1440px - full page */
+  --card-max-width: 32rem;      /* 512px - card content */
+
+  /* Shadow System - Minimal elevation */
+  --shadow-xs: 0 1px 2px rgba(0, 0, 0, 0.02);
+  --shadow-sm: 0 1px 2px rgba(0, 0, 0, 0.03), 0 1px 4px rgba(0, 0, 0, 0.02);
+  --shadow-md: 0 2px 4px rgba(0, 0, 0, 0.04), 0 4px 8px rgba(0, 0, 0, 0.03);
+  --shadow-lg: 0 4px 8px rgba(0, 0, 0, 0.06), 0 8px 16px rgba(0, 0, 0, 0.04);
+  --shadow-xl: 0 8px 16px rgba(0, 0, 0, 0.08), 0 16px 32px rgba(0, 0, 0, 0.06);
+
+  /* Transition Timing - Consistent animations */
+  --transition-fast: 100ms cubic-bezier(0.4, 0, 0.2, 1);
+  --transition-base: 150ms cubic-bezier(0.4, 0, 0.2, 1);
+  --transition-slow: 200ms cubic-bezier(0.4, 0, 0.2, 1);
+  --transition-slower: 300ms cubic-bezier(0.4, 0, 0.2, 1);
+
+  /* Core colors - Ultra Minimal Light Theme */
+  --canvas: oklch(0.98 0 0); /* Very light grey - viewport background visible in gaps */
+  --background: oklch(1 0 0); /* Pure white - main content panels */
+  --foreground: oklch(0.40 0 0); /* Softer black - less harsh */
+  --card: oklch(1 0 0); /* Pure white - matches background */
+  --card-foreground: oklch(0.40 0 0);
+  --popover: oklch(1 0 0);
+  --popover-foreground: oklch(0.40 0 0);
+  --primary: var(--brand-primary-light);
   --primary-foreground: oklch(0.98 0 0);
-  --secondary: oklch(0.95 0 0);
-  --secondary-foreground: oklch(0.2 0 0);
-  --muted: oklch(0.95 0 0);
-  --muted-foreground: oklch(0.5 0 0);
-  /* Subtle Light Grey Accent */
-  --accent: oklch(0.94 0 0);
-  --accent-foreground: oklch(0.2 0 0);
+  --secondary: oklch(0.97 0 0); /* Very subtle */
+  --secondary-foreground: oklch(0.35 0 0);
+  --muted: oklch(0.96 0 0); /* Barely visible */
+  --muted-foreground: oklch(0.50 0 0); /* Medium grey for hierarchy */
+  --accent: oklch(0.97 0 0); /* Nearly invisible hover states */
+  --accent-foreground: oklch(0.35 0 0);
   --destructive: oklch(0.577 0.245 27.325);
   --destructive-foreground: oklch(0.98 0 0);
-  --border: oklch(0.9 0 0);
+  --border: oklch(0.94 0 0); /* Barely visible borders */
   --input: oklch(0.96 0 0);
-  --ring: oklch(0.7 0 0);
+  --ring: oklch(0.70 0 0);
   --chart-1: oklch(0.646 0.222 41.116);
   --chart-2: oklch(0.6 0.118 184.704);
   --chart-3: oklch(0.398 0.07 227.392);
   --chart-4: oklch(0.828 0.189 84.429);
   --chart-5: oklch(0.769 0.188 70.08);
   --radius: 1.25rem;
-  /* Sidebar - Very Light Grey */
-  --sidebar: oklch(0.97 0.005 240);
-  --sidebar-foreground: oklch(0.25 0 0);
-  --sidebar-primary: oklch(0.2 0 0);
+
+  /* Sidebar - Clean minimal */
+  --sidebar: oklch(0.995 0 0); /* Near-white - floating panel */
+  --sidebar-foreground: oklch(0.45 0 0); /* BeeBot's subtle grey */
+  --sidebar-primary: oklch(0.35 0 0);
   --sidebar-primary-foreground: oklch(0.98 0 0);
-  --sidebar-accent: oklch(0.94 0.005 240);
-  --sidebar-accent-foreground: oklch(0.25 0 0);
-  --sidebar-border: oklch(0.88 0.01 240);
-  --sidebar-ring: oklch(0.7 0 0);
+  --sidebar-accent: oklch(0.97 0 0); /* Ultra-subtle hover */
+  --sidebar-accent-foreground: oklch(0.35 0 0);
+  --sidebar-border: oklch(0.94 0 0); /* Minimal separation */
+  --sidebar-ring: oklch(0.70 0 0);
 }
 
 .dark {
-  /* Core colours - ChatGPT Dark Theme */
-  --background: oklch(0.12 0 0);
-  --foreground: oklch(0.9 0 0);
-  --card: oklch(0.15 0 0);
-  --card-foreground: oklch(0.9 0 0);
-  --popover: oklch(0.12 0 0);
-  --popover-foreground: oklch(0.9 0 0);
-  --primary: oklch(0.25 0.15 270);
+  --brand-primary-dark: oklch(0.55 0.32 350); /* Bright magenta #DA0EAA for dark mode */
+
+  /* Brand glow effect for dark mode - subtle branded shadow */
+  --glow-shadow-dark: 0 0 20px oklch(0.55 0.32 350 / 0.08), 0 0 40px oklch(0.55 0.32 350 / 0.05), 0 0 60px oklch(0.55 0.32 350 / 0.02);
+
+  /* Dark mode shadows - More pronounced */
+  --shadow-xs: 0 1px 2px rgba(0, 0, 0, 0.2);
+  --shadow-sm: 0 1px 2px rgba(0, 0, 0, 0.3), 0 1px 4px rgba(0, 0, 0, 0.2);
+  --shadow-md: 0 2px 4px rgba(0, 0, 0, 0.4), 0 4px 8px rgba(0, 0, 0, 0.3);
+  --shadow-lg: 0 4px 8px rgba(0, 0, 0, 0.5), 0 8px 16px rgba(0, 0, 0, 0.4);
+  --shadow-xl: 0 8px 16px rgba(0, 0, 0, 0.6), 0 16px 32px rgba(0, 0, 0, 0.5);
+
+  /* Core colors - Clean Dark Theme */
+  --canvas: oklch(0.08 0 0); /* Very dark - viewport background */
+  --background: oklch(0.09 0 0); /* Dark grey - main content panels, lighter than canvas */
+  --foreground: oklch(0.95 0 0); /* Brighter white for better visibility */
+  --card: oklch(0.09 0 0); /* Match background */
+  --card-foreground: oklch(0.95 0 0);
+  --popover: oklch(0.10 0 0);
+  --popover-foreground: oklch(0.95 0 0);
+  --primary: var(--brand-primary-dark);
   --primary-foreground: oklch(0.98 0 0);
-  --secondary: oklch(0.2 0 0);
-  --secondary-foreground: oklch(0.9 0 0);
-  --muted: oklch(0.2 0 0);
-  --muted-foreground: oklch(0.6 0 0);
-  /* Subtle Dark Grey Accent for dark mode */
-  --accent: oklch(0.25 0 0);
-  --accent-foreground: oklch(0.9 0 0);
-  --destructive: oklch(0.396 0.141 25.723);
+  --secondary: oklch(0.13 0 0); /* Subtle elevation */
+  --secondary-foreground: oklch(0.95 0 0);
+  --muted: oklch(0.13 0 0);
+  --muted-foreground: oklch(0.50 0 0); /* Medium grey for hierarchy */
+  --accent: oklch(0.12 0 0); /* Very subtle hover */
+  --accent-foreground: oklch(0.95 0 0);
+  --destructive: oklch(0.50 0.20 25);
   --destructive-foreground: oklch(0.95 0 0);
-  --border: oklch(0.25 0 0);
+  --border: oklch(0.22 0 0); /* Visible borders for better contrast */
   --input: oklch(0.18 0 0);
-  --ring: oklch(0.4 0 0);
+  --ring: oklch(0.40 0 0);
   --chart-1: oklch(0.488 0.243 264.376);
   --chart-2: oklch(0.696 0.17 162.48);
   --chart-3: oklch(0.769 0.188 70.08);
   --chart-4: oklch(0.627 0.265 303.9);
   --chart-5: oklch(0.645 0.246 16.439);
-  /* Sidebar - Dark ChatGPT Style */
-  --sidebar: oklch(0.1 0 0);
-  --sidebar-foreground: oklch(0.9 0 0);
-  --sidebar-primary: oklch(0.9 0 0);
-  --sidebar-primary-foreground: oklch(0.15 0 0);
-  --sidebar-accent: oklch(0.2 0 0);
-  --sidebar-accent-foreground: oklch(0.9 0 0);
-  --sidebar-border: oklch(0.25 0 0);
-  --sidebar-ring: oklch(0.4 0 0);
+
+  /* Sidebar - Same as canvas (border provides separation) */
+  --sidebar: oklch(0.06 0 0); /* Matches canvas - border provides separation */
+  --sidebar-foreground: oklch(0.75 0 0); /* Brighter grey text for visibility */
+  --sidebar-primary: oklch(0.95 0 0);
+  --sidebar-primary-foreground: oklch(0.10 0 0);
+  --sidebar-accent: oklch(0.12 0 0); /* Subtle hover */
+  --sidebar-accent-foreground: oklch(0.95 0 0);
+  --sidebar-border: oklch(0.22 0 0);
+  --sidebar-ring: oklch(0.40 0 0);
 }
 
 @theme inline {
@@ -122,16 +183,51 @@
 
 @layer base {
   * {
-    @apply border-border outline-ring/50;
+    @apply border-border;
+  }
+
+  /* Universal Interactive States */
+  *:focus-visible {
+    outline: 2px solid hsl(var(--ring));
+    outline-offset: 2px;
+  }
+
+  /* Text selection */
+  ::selection {
+    background-color: hsl(var(--primary) / 0.15);
+    color: inherit;
+  }
+
+  /* Disabled state */
+  :disabled, [disabled], [aria-disabled="true"] {
+    opacity: 0.5;
+    cursor: not-allowed;
+    pointer-events: none;
+  }
+
+  /* Smooth scrolling */
+  html {
+    scroll-behavior: smooth;
+    -webkit-overflow-scrolling: touch;
+  }
+
+  html,
+  body {
+    height: 100%;
   }
 
   body {
-    @apply bg-background text-foreground;
+    background-color: oklch(0.98 0 0); /* Very light grey canvas - visible in gaps */
+    @apply text-foreground;
     font-family: ui-sans-serif, -apple-system, system-ui, "Segoe UI", Helvetica, "Apple Color Emoji", Arial, sans-serif, "Segoe UI Emoji", "Segoe UI Symbol";
     -webkit-font-smoothing: antialiased;
     -moz-osx-font-smoothing: grayscale;
     font-feature-settings: "cv02", "cv03", "cv04", "cv11";
     font-variant-ligatures: common-ligatures;
+  }
+
+  .dark body {
+    background-color: oklch(0.08 0 0); /* Very dark canvas for dark mode */
   }
 
   /* Ensure consistent font rendering across all text elements */
@@ -174,12 +270,6 @@
   }
 }
 
-@layer base {
-  html,
-  body {
-    height: 100%;
-  }
-}
 
 @layer utilities {
   .shadow-inner-right {
@@ -232,6 +322,60 @@
 
   [data-sidebar="trigger"]:hover {
     cursor: pointer !important;
+  }
+
+  /* Premium Sidebar Hover Animations */
+  .hover-expand-sidebar {
+    transition-property: all;
+    transition-duration: 300ms;
+    transition-timing-function: cubic-bezier(0.4, 0, 0.2, 1);
+  }
+
+  /* Ensure smooth text transitions in sidebar */
+  [data-sidebar="menu-button"] span {
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+  }
+
+  /* Progressive label reveal with smooth fade and slide */
+  [data-sidebar="menu-button"] span:last-child {
+    transition: opacity 300ms cubic-bezier(0.4, 0, 0.2, 1),
+                transform 300ms cubic-bezier(0.4, 0, 0.2, 1);
+  }
+
+  /* Staggered animation for menu items - creates premium progressive effect */
+  [data-sidebar="menu-item"]:nth-child(1) [data-sidebar="menu-button"] span:last-child {
+    transition-delay: 0ms;
+  }
+
+  [data-sidebar="menu-item"]:nth-child(2) [data-sidebar="menu-button"] span:last-child {
+    transition-delay: 20ms;
+  }
+
+  [data-sidebar="menu-item"]:nth-child(3) [data-sidebar="menu-button"] span:last-child {
+    transition-delay: 40ms;
+  }
+
+  [data-sidebar="menu-item"]:nth-child(4) [data-sidebar="menu-button"] span:last-child {
+    transition-delay: 60ms;
+  }
+
+  [data-sidebar="menu-item"]:nth-child(5) [data-sidebar="menu-button"] span:last-child {
+    transition-delay: 80ms;
+  }
+
+  [data-sidebar="menu-item"]:nth-child(6) [data-sidebar="menu-button"] span:last-child {
+    transition-delay: 100ms;
+  }
+
+  /* Sidebar container smooth expansion */
+  [data-slot="sidebar-container"] {
+    will-change: width;
+  }
+
+  [data-slot="sidebar-gap"] {
+    will-change: width;
   }
 
   /* Card hover vibration animation */
@@ -420,5 +564,95 @@
 
   [data-sonner-toast] {
     pointer-events: auto;
+  }
+
+  /* Note: Transition utilities now use built-in Tailwind classes:
+   * - Use `transition-colors duration-150` instead of custom utilities
+   * - Built-in classes are compatible with Tailwind v4
+   */
+
+  /* Layout utilities */
+  .container-page {
+    @apply mx-auto w-full max-w-(--page-max-width) px-6;
+  }
+
+  .container-content {
+    @apply mx-auto w-full max-w-(--content-max-width) px-4;
+  }
+
+  .section-spacing {
+    @apply py-8 space-y-6;
+  }
+
+  .card-grid {
+    @apply grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6;
+  }
+
+  .stack-tight {
+    @apply space-y-2;
+  }
+
+  .stack-normal {
+    @apply space-y-4;
+  }
+
+  .stack-relaxed {
+    @apply space-y-6;
+  }
+
+  .inline-tight {
+    @apply flex items-center gap-2;
+  }
+
+  .inline-normal {
+    @apply flex items-center gap-4;
+  }
+
+  /* Typography utilities */
+  .text-subtle {
+    @apply text-muted-foreground;
+  }
+
+  /* Border utilities */
+  .border-subtle {
+    @apply border-border/30;
+  }
+
+  /* Card utilities */
+  .card-minimal {
+    @apply bg-card border-border/30 rounded-xl shadow-[var(--shadow-sm)];
+  }
+
+  /* Hover effects */
+  .hover-minimal {
+    @apply transition-colors duration-150 hover:bg-accent/30;
+  }
+
+  .hover-standard {
+    @apply transition-colors duration-150 hover:bg-accent hover:text-accent-foreground;
+  }
+
+  .hover-lift {
+    @apply transition-transform duration-200 hover:shadow-[var(--shadow-lg)] hover:-translate-y-0.5;
+  }
+
+  .hover-scale {
+    @apply transition-transform hover:scale-[1.02] active:scale-[0.98];
+  }
+
+  /* Theme-aware shadows */
+  .shadow-minimal {
+    @apply shadow-[var(--shadow-sm)];
+  }
+
+  /* Brand glow effects - subtle branded borders */
+  .brand-glow {
+    border: 1px solid hsl(var(--border));
+    box-shadow: var(--glow-shadow-light);
+  }
+
+  .dark .brand-glow {
+    border: 1px solid hsl(var(--border));
+    box-shadow: var(--glow-shadow-dark);
   }
 }

@@ -33,7 +33,7 @@ export function MinimalistBadge({
         <TooltipTrigger asChild>
           <div
             className={cn(
-              "inline-flex items-center justify-center h-6 w-6 rounded-md bg-muted/50 text-muted-foreground/70",
+              "inline-flex items-center justify-center h-6 w-6 rounded-md bg-muted/30 text-muted-foreground hover:bg-muted/50 transition-colors duration-150",
               className
             )}
           >
@@ -57,7 +57,7 @@ export function MinimalistBadgeWithText({
   const badgeContent = (
     <div
       className={cn(
-        "inline-flex items-center gap-1.5 h-6 px-2 rounded-md bg-muted/50 text-muted-foreground/70 text-xs font-medium",
+        "inline-flex items-center gap-1.5 h-6 px-2 rounded-md bg-muted/30 text-muted-foreground hover:bg-muted/50 text-xs font-medium transition-colors duration-150",
         className
       )}
     >

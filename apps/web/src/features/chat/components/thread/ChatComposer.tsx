@@ -171,9 +171,9 @@ export function ChatComposer({
             }
           }}
           placeholder="Type your message..."
-          style={{ 
-            minHeight: '2.5rem', 
-            maxHeight: '15rem', 
+          style={{
+            minHeight: hasMessages ? '2.5rem' : '5rem',
+            maxHeight: '15rem',
             height: 'auto',
             fieldSizing: 'content'
           } as React.CSSProperties & { fieldSizing?: string }}

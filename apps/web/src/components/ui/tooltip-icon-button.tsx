@@ -57,7 +57,7 @@ export const TooltipIconButton = forwardRef<
               variant={variant}
               size="icon"
               {...rest}
-              className={cn("size-6 p-1", className)}
+              className={cn("size-7 p-1 hover:bg-accent/30 transition-colors duration-150", className)}
               ref={ref}
             >
               {children}

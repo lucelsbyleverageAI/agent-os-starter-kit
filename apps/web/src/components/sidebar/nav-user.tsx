@@ -25,6 +25,7 @@ import {
   SidebarMenuItem,
   useSidebar,
 } from "@/components/ui/sidebar";
+import { ThemeToggle } from "@/components/theme-toggle";
 import { useAuthContext } from "@/providers/Auth";
 import { useRouter } from "next/navigation";
 import { notify } from "@/utils/toast";
@@ -117,7 +118,7 @@ export function NavUser() {
                   <span suppressHydrationWarning>{initials}</span>
                 </AvatarFallback>
               </Avatar>
-              <div className="grid flex-1 text-left text-sm leading-tight">
+              <div className="grid flex-1 text-left text-sm leading-tight group-data-[collapsible=icon]:hidden">
                 <span className="truncate font-semibold" suppressHydrationWarning>
                   {showUserText ? displayUser.name : ""}
                 </span>
@@ -133,7 +134,7 @@ export function NavUser() {
                   </span>
                 )}
               </div>
-              <ChevronsUpDown className="ml-auto size-4" />
+              <ChevronsUpDown className="ml-auto size-4 group-data-[collapsible=icon]:hidden" />
             </SidebarMenuButton>
           </DropdownMenuTrigger>
           <DropdownMenuContent
@@ -171,6 +172,13 @@ export function NavUser() {
                 </div>
               </div>
             </DropdownMenuLabel>
+            <DropdownMenuSeparator />
+
+            <DropdownMenuLabel className="text-xs text-muted-foreground px-2 py-1.5">
+              Theme
+            </DropdownMenuLabel>
+            <ThemeToggle />
+
             <DropdownMenuSeparator />
 
             {isAuthenticated ? (
