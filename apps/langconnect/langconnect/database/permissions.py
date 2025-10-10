@@ -173,6 +173,21 @@ class GraphPermissionsManager:
 
     @staticmethod
     async def get_user_accessible_graphs(user_id: str) -> List[Dict[str, Any]]:
+        # Check if user is dev_admin - they have implicit access to all graphs
+        role = await GraphPermissionsManager.get_user_role(user_id)
+        if role == "dev_admin":
+            # Dev admins have implicit admin access to all graphs in the mirror
+            async with get_db_connection() as conn:
+                rows = await conn.fetch(
+                    """
+                    SELECT graph_id, 'admin' as permission_level
+                    FROM langconnect.graphs_mirror
+                    ORDER BY graph_id
+                    """
+                )
+                return [dict(r) for r in rows]
+
+        # Regular users only see graphs they have explicit permissions for
         async with get_db_connection() as conn:
             rows = await conn.fetch(
                 """

@@ -165,6 +165,45 @@ export const AddPermissionModal = ({
 
   const availableOptions = getAvailableOptions();
 
+  // Debug logging when modal opens
+  useEffect(() => {
+    if (isOpen) {
+      console.log('[AddPermissionModal] Modal opened', {
+        type,
+        discoveryData: {
+          hasData: !!discoveryData,
+          validGraphs: discoveryData?.valid_graphs?.length || 0,
+          graphIds: discoveryData?.valid_graphs?.map(g => g.graph_id) || [],
+          graphNames: discoveryData?.valid_graphs?.map(g => ({ id: g.graph_id, name: g.name })) || [],
+        },
+        existingPermissions: {
+          graphs: existingGraphPermissions.length,
+          graphIds: existingGraphPermissions.map(p => p.graph_id),
+          assistants: existingAssistantPermissions.length,
+          collections: existingCollectionPermissions.length,
+        },
+        filtering: {
+          type,
+          availableOptionsCount: type === 'assistant' ? Object.keys(groupedAssistantOptions).length : availableOptions.length,
+          availableOptions: type === 'graph' ? availableOptions : type === 'assistant' ? Object.keys(groupedAssistantOptions) : availableOptions.map(o => o.id),
+        }
+      });
+
+      if (type === 'graph') {
+        console.log('[AddPermissionModal] Graph filtering details:', {
+          totalGraphsInDiscovery: discoveryData?.valid_graphs?.length || 0,
+          graphsWithPublicPermissions: existingGraphIds.size,
+          graphsAfterFiltering: availableOptions.length,
+          allGraphs: discoveryData?.valid_graphs?.map(g => ({
+            id: g.graph_id,
+            name: g.name || 'unnamed',
+            hasPublicPermission: existingGraphIds.has(g.graph_id)
+          })) || []
+        });
+      }
+    }
+  }, [isOpen, type, discoveryData, existingGraphPermissions, existingAssistantPermissions, existingCollectionPermissions, availableOptions, groupedAssistantOptions, existingGraphIds]);
+
   return (
     <Dialog open={isOpen} onOpenChange={handleClose}>
       <DialogContent className="sm:max-w-[425px]">
