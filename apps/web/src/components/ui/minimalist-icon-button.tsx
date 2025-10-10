@@ -35,8 +35,8 @@ export function MinimalistIconButton({
             onClick={onClick}
             disabled={disabled}
             className={cn(
-              "h-8 w-8 p-0 text-muted-foreground/60 hover:text-foreground hover:bg-transparent transition-colors",
-              disabled && "opacity-50 cursor-not-allowed",
+              "h-7 w-7 p-0 text-muted-foreground hover:text-foreground hover:bg-accent/30 transition-colors duration-150 rounded-md",
+              disabled && "opacity-40 cursor-not-allowed",
               className
             )}
           >
