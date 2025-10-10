@@ -185,6 +185,7 @@ export function ChatHistory() {
 
   const [threads, setThreads] = useState<Thread[]>([]);
   const [loading, setLoading] = useState(false);
+  const [isBackgroundRefresh, setIsBackgroundRefresh] = useState(false);
   const [selectedAgentValue, setSelectedAgentValue] = useState<string>("all");
   const [expandedGroups, setExpandedGroups] = usePersistedExpandedGroups();
   const [hasMore, setHasMore] = useState(true);
@@ -219,12 +220,17 @@ export function ChatHistory() {
   }, [session]);
 
   // Fetch threads for all agents or filtered by agent using mirror endpoints
-  const fetchThreads = useCallback(async (agentFilter?: string, append = false, threadsVersion?: number) => {
+  const fetchThreads = useCallback(async (agentFilter?: string, append = false, threadsVersion?: number, backgroundRefresh = false) => {
     // Use sessionRef.current to get latest session without recreating this callback
     const currentSession = sessionRef.current;
     if (authLoading || !currentSession?.accessToken) return;
 
-    setLoading(true);
+    // Only show loading skeleton for initial loads, not background refreshes
+    if (backgroundRefresh) {
+      setIsBackgroundRefresh(true);
+    } else {
+      setLoading(true);
+    }
     try {
       // Abort any in-flight request and start a new one
       if (abortControllerRef.current) {
@@ -353,6 +359,7 @@ export function ChatHistory() {
       toast.error("Failed to fetch thread history");
     } finally {
       setLoading(false);
+      setIsBackgroundRefresh(false);
     }
   }, [authLoading, offset]); // Removed session?.accessToken - using sessionRef instead
 
@@ -401,10 +408,10 @@ export function ChatHistory() {
   // Listen for custom refresh events triggered after thread creation
   useEffect(() => {
     const handleRefreshThreads = (e: any) => {
-      // Simple approach: reset pagination state and trigger a re-fetch
+      // Reset pagination state and trigger a background re-fetch
+      // Keep existing threads visible during refresh for smooth UX
       setOffset(0);
       setHasMore(true);
-      setThreads([]);
       try {
         const v = e?.detail?.threadsVersion as number | undefined;
         // Persist latest version so future fetches (including after filter toggles) carry it
@@ -413,7 +420,8 @@ export function ChatHistory() {
         }
         const currentFilter = selectedAgentRef.current;
         const agentFilter = currentFilter === "all" ? undefined : currentFilter;
-        fetchThreads(agentFilter, false, v);
+        // Use background refresh to keep threads visible during update
+        fetchThreads(agentFilter, false, v, true);
         // Also warm the "All Agents" cache in the background so switching filters shows fresh data
         fetchAllThreadsSilently(v).then((all) => {
           if (all) {
@@ -596,9 +604,9 @@ export function ChatHistory() {
         );
       }
 
-      // Force immediate refetch with new version to bypass browser cache
+      // Refetch in background to ensure consistency without showing loading skeleton
       const currentFilter = selectedAgentValue === "all" ? undefined : selectedAgentValue;
-      fetchThreads(currentFilter, false, result.threadsVersion);
+      fetchThreads(currentFilter, false, result.threadsVersion, true);
 
       // Check if we need to navigate away from the current thread
       const currentUrl = new URL(window.location.href);
@@ -827,7 +835,7 @@ export function ChatHistory() {
         </SidebarMenuItem>
 
         {/* Thread History */}
-          {loading ? (
+          {loading && !isBackgroundRefresh ? (
             <div className="space-y-2 px-2">
               {Array.from({ length: 5 }).map((_, i) => (
                 <Skeleton key={i} className="h-8 w-full" />
