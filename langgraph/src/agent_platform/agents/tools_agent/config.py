@@ -3,6 +3,10 @@ from pydantic import BaseModel, Field
 from agent_platform.utils.model_utils import get_model_options_for_ui
 
 
+# Graph metadata
+GRAPH_NAME = "Tools Agent"
+GRAPH_DESCRIPTION = "A versatile AI assistant with access to various tools for general tasks and productivity"
+
 # System prompts and constants
 UNEDITABLE_SYSTEM_PROMPT = "\nIf the tool throws an error requiring authentication, provide the user with a Markdown link to the authentication page and prompt them to authenticate."
 
@@ -170,6 +174,28 @@ class GraphConfigPydantic(BaseModel):
         mcp_config: MCP server integration settings
         rag: RAG document search settings
     """
+    
+    template_name: Optional[str] = Field(
+        default=GRAPH_NAME,
+        metadata={
+            "x_oap_ui_config": {
+                "type": "agent_name",
+                "description": "The name of the agent template.",
+            }
+        },
+    )
+    """The name of the agent template"""
+    
+    template_description: Optional[str] = Field(
+        default=GRAPH_DESCRIPTION,
+        metadata={
+            "x_oap_ui_config": {
+                "type": "agent_description",
+                "description": "The description of the agent template.",
+            }
+        },
+    )
+    """The description of the agent template""" 
     
     model_name: Optional[str] = Field(
         default="anthropic:claude-sonnet-4-5-20250929",  # Registry key for Claude Sonnet 4.5

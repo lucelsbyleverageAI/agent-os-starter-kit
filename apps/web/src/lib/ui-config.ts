@@ -64,7 +64,7 @@ export function configSchemaToConfigurableFields(
   const fields: ConfigurableFieldUIMetadata[] = [];
   for (const [key, value] of Object.entries(schema.properties)) {
     const uiConfig = getUiConfig(value);
-    if (uiConfig && ["mcp", "rag", "hidden"].includes(uiConfig.type)) {
+    if (uiConfig && ["mcp", "rag", "hidden", "agent_name", "agent_description"].includes(uiConfig.type)) {
       continue;
     }
 

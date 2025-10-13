@@ -61,10 +61,24 @@ function extractUserIdFromToken(accessToken: string): string | null {
 
 /**
  * Permission-aware graph and assistant discovery endpoint.
- * 
+ *
+ * ARCHITECTURE NOTE: This is an aggregation proxy that calls two separate backend endpoints:
+ * - GET /agents/mirror/graphs - Returns permission-filtered graphs
+ * - GET /agents/mirror/assistants - Returns permission-filtered assistants
+ *
+ * WHY SEPARATE ENDPOINTS?
+ * 1. Independent Caching: Graphs (5min TTL) vs Assistants (3min TTL) with ETags
+ * 2. Admin Flexibility: Admin UI can query graphs directly without assistant overhead
+ * 3. Service Independence: Services can query specific resources without unnecessary data
+ * 4. Performance: Parallel fetching reduces overall discovery latency
+ *
+ * This proxy provides a convenient aggregated response for UI components that need both
+ * resources, while maintaining the flexibility and performance benefits of independent
+ * backend endpoints.
+ *
  * Replaces the complex /api/langgraph/defaults endpoint with a clean,
  * permission-aware system that uses our LangConnect backend.
- * 
+ *
  * Returns only graphs and assistants the user has permission to access.
  */
 export async function GET(req: NextRequest) {
@@ -113,23 +127,40 @@ export async function GET(req: NextRequest) {
       "Content-Type": "application/json",
     };
 
+    // ==================================================================================
+    // AGGREGATION PATTERN: Two Independent Backend Calls
+    // ==================================================================================
+    // We call /mirror/graphs and /mirror/assistants separately rather than having a
+    // single combined endpoint because:
+    //
+    // 1. ADMIN UI DEPENDENCY: The retired-graphs-table admin component calls
+    //    /mirror/graphs directly to get graph lists without needing assistant data.
+    //    See: apps/web/src/components/admin/retired-graphs-table.tsx:113
+    //
+    // 2. INDEPENDENT CACHING: Each endpoint uses ETag-based HTTP caching with different
+    //    TTLs (graphs: 5min, assistants: 3min) optimized for their update frequencies.
+    //
+    // 3. PERFORMANCE: Sequential calls here are acceptable for UI flows that need both
+    //    resources, while allowing independent queries to avoid unnecessary data transfer.
+    // ==================================================================================
+
     // STEP 1: Get user-accessible graphs with permissions (mirror-backed)
     const graphsStart = Date.now();
     const graphsResponse = await fetch(`${baseApiUrl}/agents/mirror/graphs`, { headers });
     timer.measure("accessible_graphs", graphsStart);
-    
+
     if (!graphsResponse.ok) {
       const errorText = await graphsResponse.text();
       throw new Error(`Accessible graphs fetch failed: ${graphsResponse.status} ${errorText}`);
     }
 
     const graphsResults = await graphsResponse.json();
-                
+
     // STEP 2: Fetch current assistants (mirror-backed)
     const assistantsStart = Date.now();
     const assistantsResponse = await fetch(`${baseApiUrl}/agents/mirror/assistants`, { headers });
     timer.measure("fetch_assistants_initial", assistantsStart);
-    
+
     if (!assistantsResponse.ok) {
       const errorText = await assistantsResponse.text();
       throw new Error(`Assistants fetch failed: ${assistantsResponse.status} ${errorText}`);

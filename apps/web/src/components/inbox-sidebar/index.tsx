@@ -23,7 +23,7 @@ import {
 } from "@/components/ui/tooltip";
 import {
   groupAgentsByGraphs,
-  isUserCreatedDefaultAssistant,
+  isUserDefaultAssistant,
 } from "@/lib/agent-utils";
 import { getDeployments } from "@/lib/environment/deployments";
 import { Deployment } from "@/types/deployment";
@@ -136,7 +136,7 @@ function InboxSidebarInternal() {
                                   const label =
                                     agent.name || prettifyText(agent.graph_id);
                                   const isDefault =
-                                    isUserCreatedDefaultAssistant(agent);
+                                    isUserDefaultAssistant(agent);
                                   // Check if this agent is selected
                                   const agentId = `${agent.assistant_id}:${agent.deploymentId}`;
                                   const isSelected = agentInboxId === agentId;

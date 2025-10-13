@@ -1,6 +1,6 @@
 "use client";
 
-import React from "react";
+import React, { useMemo } from "react";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { MinimalistBadge, MinimalistBadgeWithText } from "@/components/ui/minimalist-badge";
@@ -123,20 +123,26 @@ const truncateTitle = (title: string, maxLength: number = 50): { truncated: stri
   return { truncated: `${title.substring(0, maxLength)}...`, isTruncated: true };
 };
 
-export function JobProgressCard({ 
-  jobs, 
-  collectionId, 
+export const JobProgressCard = React.memo(function JobProgressCard({
+  jobs,
+  collectionId,
   onCancelJob,
-  compact = false 
+  compact = false
 }: JobProgressCardProps) {
-  // Filter jobs by collection if specified
-  const filteredJobs = collectionId 
-    ? jobs.filter(job => job.collection_id === collectionId)
-    : jobs;
+  // Memoize filtered jobs to prevent unnecessary recalculations
+  const filteredJobs = useMemo(() =>
+    collectionId
+      ? jobs.filter(job => job.collection_id === collectionId)
+      : jobs,
+    [jobs, collectionId]
+  );
 
-  // Only show active jobs (pending/processing)
-  const activeJobs = filteredJobs.filter(job => 
-    ['pending', 'processing'].includes(job.status)
+  // Memoize active jobs calculation
+  const activeJobs = useMemo(() =>
+    filteredJobs.filter(job =>
+      ['pending', 'processing'].includes(job.status)
+    ),
+    [filteredJobs]
   );
 
   // Don't render the component if there are no active jobs
@@ -145,35 +151,36 @@ export function JobProgressCard({
   }
 
   return (
-    <Card className="w-full">
-      <CardHeader className="pb-1">
-        <div className="flex items-center justify-between">
-          <CardTitle className="text-base flex items-center gap-2">
-            <Loader2 className="h-4 w-4 animate-spin text-primary" />
-            Processing Jobs
-            <MinimalistBadgeWithText
-              icon={Loader2}
-              text={`${activeJobs.length} active`}
-              tooltip={`${activeJobs.length} job${activeJobs.length === 1 ? '' : 's'} currently processing`}
-              className="animate-pulse"
+    <TooltipProvider>
+      <Card className="w-full">
+        <CardHeader className="pb-1">
+          <div className="flex items-center justify-between">
+            <CardTitle className="text-base flex items-center gap-2">
+              <Loader2 className="h-4 w-4 animate-spin text-primary" />
+              Processing Jobs
+              <MinimalistBadgeWithText
+                icon={Loader2}
+                text={`${activeJobs.length} active`}
+                tooltip={`${activeJobs.length} job${activeJobs.length === 1 ? '' : 's'} currently processing`}
+              />
+            </CardTitle>
+          </div>
+        </CardHeader>
+        <CardContent className="space-y-2">
+          {/* Only Active Jobs */}
+          {activeJobs.map((job) => (
+            <JobProgressItem
+              key={job.id}
+              job={job}
+              compact={compact}
+              onCancelJob={onCancelJob}
             />
-          </CardTitle>
-        </div>
-      </CardHeader>
-      <CardContent className="space-y-2">
-        {/* Only Active Jobs */}
-        {activeJobs.map((job) => (
-          <JobProgressItem 
-            key={job.id} 
-            job={job} 
-            compact={compact}
-            onCancelJob={onCancelJob}
-          />
-        ))}
-      </CardContent>
-    </Card>
+          ))}
+        </CardContent>
+      </Card>
+    </TooltipProvider>
   );
-}
+});
 
 // Individual Job Progress Item
 interface JobProgressItemProps {
@@ -182,7 +189,7 @@ interface JobProgressItemProps {
   onCancelJob?: (jobId: string) => Promise<boolean>;
 }
 
-function JobProgressItem({ job, compact = false, onCancelJob }: JobProgressItemProps) {
+const JobProgressItem = React.memo(function JobProgressItem({ job, compact = false, onCancelJob }: JobProgressItemProps) {
   const JobTypeIcon = getJobTypeIcon(job.job_type);
   const ProcessingModeIcon = getProcessingModeIcon(job.processing_mode);
   const StatusIcon = getStatusIcon(job.status);
@@ -221,18 +228,16 @@ function JobProgressItem({ job, compact = false, onCancelJob }: JobProgressItemP
             <div className="flex-1 min-w-0">
               <div className="flex items-center space-x-2">
                 {isTruncated ? (
-                  <TooltipProvider>
-                    <Tooltip>
-                      <TooltipTrigger asChild>
-                        <p className="font-medium text-sm text-foreground truncate cursor-help">
-                          {displayTitle}
-                        </p>
-                      </TooltipTrigger>
-                      <TooltipContent>
-                        <p className="max-w-xs break-words">{job.title}</p>
-                      </TooltipContent>
-                    </Tooltip>
-                  </TooltipProvider>
+                  <Tooltip>
+                    <TooltipTrigger asChild>
+                      <p className="font-medium text-sm text-foreground truncate cursor-help">
+                        {displayTitle}
+                      </p>
+                    </TooltipTrigger>
+                    <TooltipContent>
+                      <p className="max-w-xs break-words">{job.title}</p>
+                    </TooltipContent>
+                  </Tooltip>
                 ) : (
                   <p className="font-medium text-sm text-foreground truncate">
                     {displayTitle}
@@ -323,47 +328,53 @@ function JobProgressItem({ job, compact = false, onCancelJob }: JobProgressItemP
           <div className="flex-shrink-0 ml-2 flex items-center">
             {isActive && (
               <div className="flex items-center gap-1">
-                <MinimalistBadge 
-                  icon={StatusIcon}
-                  tooltip={job.status === 'processing' ? 'Currently processing' : 'Pending'}
-                  className={cn(
-                    "h-5 w-5",
-                    job.status === 'processing' && "animate-spin text-primary"
-                  )}
-                />
+                <Tooltip>
+                  <TooltipTrigger asChild>
+                    <div
+                      className={cn(
+                        "inline-flex items-center justify-center h-6 w-6 rounded-md bg-muted/30 text-muted-foreground",
+                        "h-5 w-5",
+                        job.status === 'processing' && "animate-spin text-primary"
+                      )}
+                    >
+                      <StatusIcon className="h-4 w-4" />
+                    </div>
+                  </TooltipTrigger>
+                  <TooltipContent>
+                    <p>{job.status === 'processing' ? 'Currently processing' : 'Pending'}</p>
+                  </TooltipContent>
+                </Tooltip>
                 {onCancelJob && (
-                  <TooltipProvider>
-                    <Tooltip>
-                      <TooltipTrigger asChild>
-                        <div
-                          className={cn(
-                            "inline-flex items-center justify-center h-6 w-6 rounded-md bg-muted/50 cursor-pointer transition-colors",
-                            isCancelling 
-                              ? "text-primary pointer-events-none" 
-                              : "text-muted-foreground/70 hover:text-red-600 hover:bg-red-50"
-                          )}
-                          onClick={async () => {
-                            if (isCancelling) return;
-                            setIsCancelling(true);
-                            try {
-                              await onCancelJob(job.id);
-                            } finally {
-                              setIsCancelling(false);
-                            }
-                          }}
-                        >
-                          {isCancelling ? (
-                            <Loader2 className="h-4 w-4 animate-spin" />
-                          ) : (
-                            <X className="h-4 w-4" />
-                          )}
-                        </div>
-                      </TooltipTrigger>
-                      <TooltipContent>
-                        <p>Cancel Job</p>
-                      </TooltipContent>
-                    </Tooltip>
-                  </TooltipProvider>
+                  <Tooltip>
+                    <TooltipTrigger asChild>
+                      <div
+                        className={cn(
+                          "inline-flex items-center justify-center h-6 w-6 rounded-md bg-muted/50 cursor-pointer transition-colors",
+                          isCancelling
+                            ? "text-primary pointer-events-none"
+                            : "text-muted-foreground/70 hover:text-red-600 hover:bg-red-50"
+                        )}
+                        onClick={async () => {
+                          if (isCancelling) return;
+                          setIsCancelling(true);
+                          try {
+                            await onCancelJob(job.id);
+                          } finally {
+                            setIsCancelling(false);
+                          }
+                        }}
+                      >
+                        {isCancelling ? (
+                          <Loader2 className="h-4 w-4 animate-spin" />
+                        ) : (
+                          <X className="h-4 w-4" />
+                        )}
+                      </div>
+                    </TooltipTrigger>
+                    <TooltipContent>
+                      <p>Cancel Job</p>
+                    </TooltipContent>
+                  </Tooltip>
                 )}
               </div>
             )}
@@ -390,4 +401,25 @@ function JobProgressItem({ job, compact = false, onCancelJob }: JobProgressItemP
       </CardContent>
     </Card>
   );
-} 
+}, (prevProps, nextProps) => {
+  // Custom comparison function - only re-render when these specific fields change
+  const prevJob = prevProps.job;
+  const nextJob = nextProps.job;
+
+  // Return true if props are equal (prevent re-render), false if different (allow re-render)
+  return (
+    prevJob.id === nextJob.id &&
+    prevJob.status === nextJob.status &&
+    prevJob.title === nextJob.title &&
+    prevJob.current_step === nextJob.current_step &&
+    prevJob.documents_processed === nextJob.documents_processed &&
+    prevJob.chunks_created === nextJob.chunks_created &&
+    prevJob.error_message === nextJob.error_message &&
+    prevJob.processing_mode === nextJob.processing_mode &&
+    prevJob.job_type === nextJob.job_type &&
+    prevJob.duplicate_summary?.total_files_skipped === nextJob.duplicate_summary?.total_files_skipped &&
+    prevJob.duplicate_summary?.files_overwritten === nextJob.duplicate_summary?.files_overwritten &&
+    prevProps.compact === nextProps.compact &&
+    prevProps.onCancelJob === nextProps.onCancelJob
+  );
+}); 

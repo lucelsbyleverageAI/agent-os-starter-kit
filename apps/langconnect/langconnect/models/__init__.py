@@ -70,6 +70,11 @@ from langconnect.models.agent import (
     RevokeAssistantAccessResponse,
     AssistantPermissionsResponse
 )
+from langconnect.models.default_assistant import (
+    DefaultAssistantResponse,
+    SetDefaultAssistantRequest,
+    SetDefaultAssistantResponse,
+)
 
 __all__ = [
     "CollectionCreate",
@@ -133,5 +138,8 @@ __all__ = [
     "SharedUser",
     "ShareAssistantResponse",
     "RevokeAssistantAccessResponse",
-    "AssistantPermissionsResponse"
+    "AssistantPermissionsResponse",
+    "DefaultAssistantResponse",
+    "SetDefaultAssistantRequest",
+    "SetDefaultAssistantResponse",
 ]

@@ -215,6 +215,16 @@ async def register_assistant(
                     detail=f"You do not have access to graph {graph_id}"
                 )
         # Pre-step: Ensure assistant exists in mirror before adding FK-constrained permissions
+        #
+        # This sync is REQUIRED due to foreign key constraint in the database:
+        #   assistant_permissions.assistant_id -> assistants_mirror.assistant_id (FK constraint)
+        #
+        # Without this pre-sync, the permission registration below (Step 3) would fail with:
+        #   "violates foreign key constraint fk_assistant_permissions_assistant"
+        #
+        # The sync fetches the assistant from LangGraph and inserts it into assistants_mirror,
+        # allowing the permission system to reference it. This is an architectural requirement,
+        # not a performance optimization.
         try:
             sync_service = get_sync_service()
             user_token = getattr(actor, "access_token", None)
@@ -310,17 +320,15 @@ async def register_assistant(
         successful_shares = len([r for r in sharing_results if r["success"]])
         log.info(f"Assistant {request.assistant_id} registered successfully, shared with {successful_shares} users")
         
-        # Sync assistant to mirror after successful registration (user-scoped)
+        # Sync assistant schemas after successful registration (user-scoped)
+        # Note: Assistant metadata was already synced in pre-step (line 221) to satisfy FK constraint.
+        # We only need to sync schemas here, which may take a moment to become available.
         schemas_warming = False
         try:
             sync_service = get_sync_service()
             user_token = getattr(actor, "access_token", None)
-            
-            # Sync assistant first
-            await sync_service.sync_assistant(request.assistant_id, user_token=user_token)
-            log.info(f"Synced assistant {request.assistant_id} to mirror after registration (user-scoped)")
-            
-            # Immediately attempt schema sync with bounded retry
+
+            # Attempt schema sync with bounded retry
             schemas_synced = False
             for attempt, delay in enumerate([0.0, 0.2, 1.0, 2.0], 1):
                 if attempt > 1:

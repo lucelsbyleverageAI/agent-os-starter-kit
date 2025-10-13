@@ -18,7 +18,7 @@ import { toast } from "sonner";
 
 import { cn } from "@/lib/utils";
 import { getScrollbarClasses } from "@/lib/scrollbar-styles";
-import { isUserSpecifiedDefaultAgent, isPrimaryAssistant, groupAgentsByGraphs, isUserCreatedDefaultAssistant, sortAgentGroup } from "@/lib/agent-utils";
+import { isUserSpecifiedDefaultAgent, isPrimaryAssistant, isUserDefaultAssistant, sortAgentGroup } from "@/lib/agent-utils";
 import { usePersistedExpandedGroups } from "@/hooks/use-persisted-expanded-groups";
 import {
   Select as _Select,
@@ -60,13 +60,6 @@ import { useThreadDeletion } from "@/hooks/use-thread-deletion";
 import { notify } from "@/utils/toast";
 import { threadMessages } from "@/utils/toast-messages";
 import * as Sentry from "@sentry/nextjs";
-
-// Function to convert graph_id to human-readable name
-const getGraphDisplayName = (graphId: string): string => {
-  return graphId
-    .replace(/_/g, ' ') // replace all underscores
-    .replace(/\b\w/g, l => l.toUpperCase()); // capitalise each word
-};
 
 const getMessageStringContent = (
   content: MessageContent | undefined,
@@ -171,15 +164,7 @@ function groupThreadsByTime(threads: Thread[]) {
 
 export function ChatHistory() {
   const { session, isLoading: authLoading } = useAuthContext();
-  const { agents, discoveryData } = useAgentsContext();
-  const graphNameById = useMemo(() => {
-    const map: Record<string, string> = {};
-    const graphs = discoveryData?.valid_graphs || [];
-    for (const g of graphs) {
-      if (g?.name) map[g.graph_id] = g.name;
-    }
-    return map;
-  }, [discoveryData?.valid_graphs]);
+  const { agents } = useAgentsContext();
   const router = useRouter();
   const deployments = getDeployments();
 
@@ -760,65 +745,47 @@ export function ChatHistory() {
                           </div>
                         </CommandItem>
                         
-                        {/* Group all agents by graph type across all deployments */}
+                        {/* Flat list of all agents sorted by default status and updated date */}
                         {(() => {
-                          // Get all agents and group by graph_id
-                          const agentsGroupedByGraphs = groupAgentsByGraphs(agents);
-                          
-                          return agentsGroupedByGraphs.map((agentGroup) => {
-                            if (agentGroup.length === 0) return null;
-                            
-                            const graphId = agentGroup[0].graph_id;
-                            const sortedAgents = sortAgentGroup(agentGroup);
-                            
-                            return (
-                              <React.Fragment key={graphId}>
-                                {/* Graph Type Header */}
-                                <div className="px-3 py-1.5 text-xs font-medium text-foreground">
-                                  {graphNameById[graphId] || getGraphDisplayName(graphId)}
-                                </div>
-                              
-                                {/* Agents in this group */}
-                                {sortedAgents.map((item) => {
-                                  const itemValue = `${item.assistant_id}:${item.deploymentId}`;
-                                  const isSelected = selectedAgentValue === itemValue;
-                                  const isDefault = isUserCreatedDefaultAssistant(item);
-                                  const isPrimary = isPrimaryAssistant(item);
+                          const sortedAgents = sortAgentGroup(agents);
 
-                                  return (
-                                    <CommandItem
-                                      key={itemValue}
-                                      value={itemValue}
-                                      onSelect={handleAgentFilterChange}
-                                      className="flex w-full items-center justify-between px-4 py-1.5 text-muted-foreground hover:text-foreground hover:bg-accent cursor-pointer"
-                                    >
-                                      <div className="flex items-center gap-2 flex-1">
-                                        <Check
-                                          className={cn(
-                                            "h-3 w-3",
-                                            isSelected ? "opacity-100" : "opacity-0",
-                                          )}
-                                        />
-                                        
-                                        <span className="flex-1 truncate text-xs">
-                                          {item.name}
-                                        </span>
-                                      </div>
-                                      
-                                      <div className="flex items-center gap-1.5 flex-shrink-0">
-                                        {isPrimary && (
-                                          <Star className="h-3 w-3 text-yellow-500" />
-                                        )}
-                                        {isDefault && (
-                                          <span className="text-[10px] text-muted-foreground">
-                                            Default
-                                          </span>
-                                        )}
-                                      </div>
-                                    </CommandItem>
-                                  );
-                                })}
-                              </React.Fragment>
+                          return sortedAgents.map((item) => {
+                            const itemValue = `${item.assistant_id}:${item.deploymentId}`;
+                            const isSelected = selectedAgentValue === itemValue;
+                            const isDefault = isUserDefaultAssistant(item);
+                            const isPrimary = isPrimaryAssistant(item);
+
+                            return (
+                              <CommandItem
+                                key={itemValue}
+                                value={itemValue}
+                                onSelect={handleAgentFilterChange}
+                                className="flex w-full items-center justify-between px-4 py-1.5 text-muted-foreground hover:text-foreground hover:bg-accent cursor-pointer"
+                              >
+                                <div className="flex items-center gap-2 flex-1">
+                                  <Check
+                                    className={cn(
+                                      "h-3 w-3",
+                                      isSelected ? "opacity-100" : "opacity-0",
+                                    )}
+                                  />
+
+                                  <span className="flex-1 truncate text-xs">
+                                    {item.name}
+                                  </span>
+                                </div>
+
+                                <div className="flex items-center gap-1.5 flex-shrink-0">
+                                  {isPrimary && (
+                                    <Star className="h-3 w-3 text-yellow-500" />
+                                  )}
+                                  {isDefault && (
+                                    <span className="text-[10px] text-muted-foreground">
+                                      Default
+                                    </span>
+                                  )}
+                                </div>
+                              </CommandItem>
                             );
                           });
                         })()}

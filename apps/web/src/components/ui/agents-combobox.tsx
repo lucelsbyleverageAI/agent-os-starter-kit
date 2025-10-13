@@ -20,8 +20,7 @@ import {
 } from "@/components/ui/popover";
 import { Agent } from "@/types/agent";
 import {
-  groupAgentsByGraphs,
-  isUserCreatedDefaultAssistant,
+  isUserDefaultAssistant,
   sortAgentGroup,
   isPrimaryAssistant,
 } from "@/lib/agent-utils";
@@ -33,13 +32,6 @@ import {
   TooltipTrigger,
 } from "@/components/ui/tooltip";
 import { useAgentsContext } from "@/providers/Agents";
-
-// Function to convert graph_id to human-readable name
-const getGraphDisplayName = (graphId: string): string => {
-  return graphId
-    .replace(/_/g, ' ') // replace all underscores
-    .replace(/\b\w/g, l => l.toUpperCase()); // capitalise each word
-};
 
 export interface AgentsComboboxProps {
   agents: Agent[];
@@ -156,17 +148,6 @@ export function AgentsCombobox({
   agentsLoading,
   showBorder = false,
 }: AgentsComboboxProps) {
-  const { discoveryData } = useAgentsContext();
-  const graphNameById = React.useMemo(() => {
-    const map: Record<string, string> = {};
-    const graphs = discoveryData?.valid_graphs || [];
-    for (const g of graphs) {
-      if (g?.name) {
-        map[g.graph_id] = g.name;
-      }
-    }
-    return map;
-  }, [discoveryData?.valid_graphs]);
   // Convert value to array for internal handling
   const selectedValues = React.useMemo(() => {
     if (!value) return [];
@@ -267,66 +248,48 @@ export function AgentsCombobox({
             </CommandEmpty>
             
             {header}
-            
-            {/* Group all agents by graph type across all deployments */}
-            {(() => {
-              // Get all agents and group by graph_id
-              const agentsGroupedByGraphs = groupAgentsByGraphs(agents);
-              
-              return agentsGroupedByGraphs.map((agentGroup) => {
-                if (agentGroup.length === 0) return null;
-                
-                const graphId = agentGroup[0].graph_id;
-                const sortedAgents = sortAgentGroup(agentGroup);
-                
-                                  return (
-                    <React.Fragment key={graphId}>
-                      {/* Graph Type Header */}
-                      <div className="px-3 py-2 text-sm font-medium text-foreground">
-                        {graphNameById[graphId] || getGraphDisplayName(graphId)}
-                      </div>
-                    
-                    {/* Agents in this group */}
-                    {sortedAgents.map((item) => {
-                      const itemValue = `${item.assistant_id}:${item.deploymentId}`;
-                      const isSelected = selectedValues.includes(itemValue);
-                      const isDefault = isUserCreatedDefaultAssistant(item);
-                      const isPrimary = isPrimaryAssistant(item);
 
-                      return (
-                        <CommandItem
-                          key={itemValue}
-                          value={itemValue}
-                          onSelect={handleSelect}
-                          className="flex w-full items-center justify-between px-6 py-2 text-muted-foreground hover:text-foreground hover:bg-accent cursor-pointer"
-                        >
-                          <div className="flex items-center gap-3 flex-1">
-                            <Check
-                              className={cn(
-                                "h-4 w-4",
-                                isSelected ? "opacity-100" : "opacity-0",
-                              )}
-                            />
-                            
-                            <span className="flex-1 truncate text-sm">
-                              {item.name}
-                            </span>
-                          </div>
-                          
-                          <div className="flex items-center gap-2 flex-shrink-0">
-                            {isPrimary && (
-                              <Star className="h-4 w-4 text-yellow-500" />
-                            )}
-                            {isDefault && (
-                              <span className="text-xs text-muted-foreground">
-                                Default
-                              </span>
-                            )}
-                          </div>
-                        </CommandItem>
-                      );
-                    })}
-                  </React.Fragment>
+            {/* Flat list of all agents sorted by default status and updated date */}
+            {(() => {
+              const sortedAgents = sortAgentGroup(agents);
+
+              return sortedAgents.map((item) => {
+                const itemValue = `${item.assistant_id}:${item.deploymentId}`;
+                const isSelected = selectedValues.includes(itemValue);
+                const isDefault = isUserDefaultAssistant(item);
+                const isPrimary = isPrimaryAssistant(item);
+
+                return (
+                  <CommandItem
+                    key={itemValue}
+                    value={itemValue}
+                    onSelect={handleSelect}
+                    className="flex w-full items-center justify-between px-6 py-2 text-muted-foreground hover:text-foreground hover:bg-accent cursor-pointer"
+                  >
+                    <div className="flex items-center gap-3 flex-1">
+                      <Check
+                        className={cn(
+                          "h-4 w-4",
+                          isSelected ? "opacity-100" : "opacity-0",
+                        )}
+                      />
+
+                      <span className="flex-1 truncate text-sm">
+                        {item.name}
+                      </span>
+                    </div>
+
+                    <div className="flex items-center gap-2 flex-shrink-0">
+                      {isPrimary && (
+                        <Star className="h-4 w-4 text-yellow-500" />
+                      )}
+                      {isDefault && (
+                        <span className="text-xs text-muted-foreground">
+                          Default
+                        </span>
+                      )}
+                    </div>
+                  </CommandItem>
                 );
               });
             })()}

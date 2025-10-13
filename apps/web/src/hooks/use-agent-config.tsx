@@ -14,6 +14,7 @@ import { useConfigStore } from "@/features/chat/hooks/use-config-store";
 import { Agent, InputMode } from "@/types/agent";
 import { GraphSchema } from "@langchain/langgraph-sdk";
 import { useQueryState } from "nuqs";
+import { logger } from "@/lib/logger";
 
 /**
  * A custom hook for managing and accessing the configurable
@@ -36,7 +37,7 @@ const lastExtractedByAssistantId = new Map<
 >();
 
 export function useAgentConfig() {
-  const { getAgentConfigSchema, getAgent } = useAgents();
+  const { getAgentConfigSchema, getGraphConfigSchema, getAgent } = useAgents();
   const [chatWithCollectionId, setChatWithCollectionId] = useQueryState(
     "chatWithCollectionId",
   );
@@ -119,10 +120,10 @@ export function useAgentConfig() {
           if (agentResult.ok) {
             fullAgentDetails = agentResult.data;
           } else {
-            console.warn(`❌ [useAgentConfig] Failed to fetch agent details:`, agentResult.errorMessage);
+            logger.warn(`Failed to fetch agent details:`, agentResult.errorMessage);
           }
         } catch (error) {
-          console.warn(`❌ [useAgentConfig] Exception fetching full agent details for ${agent.assistant_id}:`, error);
+          logger.warn(`Exception fetching full agent details for ${agent.assistant_id}:`, error);
         }
 
         const schema = await getAgentConfigSchema(
@@ -135,12 +136,12 @@ export function useAgentConfig() {
           // Check if this might be a recently created agent
           const createdAt = agent.created_at ? new Date(agent.created_at) : null;
           const isRecent = createdAt && (Date.now() - createdAt.getTime()) < 5 * 60 * 1000; // 5 minutes
-          
+
           // Recently created agents might not have schema propagated yet; only warn when not recent
           if (!isRecent) {
-            console.warn(`Failed to fetch schema for agent ${agent.assistant_id} (${agent.name}) - falling back to chat mode`);
+            logger.warn(`Failed to fetch schema for agent ${agent.assistant_id} (${agent.name}) - falling back to chat mode`);
           }
-          
+
           setInputMode('chat'); // Default to chat mode if no schema
           return {
             name: agent.name,
@@ -320,9 +321,153 @@ export function useAgentConfig() {
     [clearState, getAgentConfigSchema, getAgent, chatWithCollectionId, setChatWithCollectionId],
   );
 
+  const getGraphSchemaAndUpdateConfig = useCallback(
+    async (
+      graphId: string,
+      graphName: string,
+      graphDescription: string,
+    ): Promise<{
+      name: string;
+      description: string;
+      config: Record<string, any>;
+    }> => {
+      setLoading(true);
+      clearState();
+
+      try {
+        // Fetch graph schema from the new endpoint
+        const schema = await getGraphConfigSchema(graphId);
+
+        if (!schema) {
+          logger.warn(`No schema returned for ${graphId} - falling back to chat mode`);
+          setInputMode('chat');
+          return {
+            name: graphName,
+            description: graphDescription,
+            config: {},
+          };
+        }
+
+        // Process input schema for mode detection
+        let effectiveInputSchema = schema.input_schema;
+
+        if (!effectiveInputSchema && schema.state_schema?.properties) {
+          const stateProps = schema.state_schema.properties;
+          const userInputFields = Object.keys(stateProps).filter(key =>
+            !key.includes('message') &&
+            !key.includes('progress') &&
+            !key.includes('section') &&
+            !key.includes('citation') &&
+            !key.includes('completed') &&
+            !key.includes('final') &&
+            !key.includes('search_') &&
+            !key.includes('source_') &&
+            !key.includes('report_') &&
+            ['topic', 'query', 'input', 'question'].some(field => key.toLowerCase().includes(field))
+          );
+
+          if (userInputFields.length > 0) {
+            effectiveInputSchema = {
+              type: 'object',
+              properties: Object.fromEntries(
+                userInputFields.map(key => [key, stateProps[key]])
+              ),
+              required: []
+            };
+          }
+        }
+
+        setInputSchema(effectiveInputSchema);
+
+        if (effectiveInputSchema?.properties?.messages) {
+          setInputMode('chat');
+        } else if (effectiveInputSchema) {
+          setInputMode('form');
+        } else {
+          setInputMode('chat');
+        }
+
+        // Extract config fields using empty config (since this is a template)
+        const { configFields, toolConfig, ragConfig, agentsConfig } =
+          extractConfigurationsFromAgent({
+            agent: { config: {} } as any,
+            schema: schema.config_schema,
+          });
+
+        // Use a temporary key for graph template config (won't persist between sessions)
+        const tempKey = `graph_template:${graphId}`;
+
+        setConfigurations(configFields);
+        setToolConfigurations(toolConfig);
+
+        const { setDefaultConfig } = useConfigStore.getState();
+        setDefaultConfig(tempKey, configFields);
+
+        const supportedConfigs: string[] = [];
+
+        if (toolConfig.length) {
+          setDefaultConfig(`${tempKey}:selected-tools`, toolConfig);
+          setToolConfigurations(toolConfig);
+          supportedConfigs.push("tools");
+        }
+        if (ragConfig.length) {
+          if (chatWithCollectionId) {
+            ragConfig[0].default = {
+              ...ragConfig[0].default,
+              collections: [chatWithCollectionId],
+            };
+            setChatWithCollectionId(null);
+          }
+          setDefaultConfig(`${tempKey}:rag`, ragConfig);
+          setRagConfigurations(ragConfig);
+          supportedConfigs.push("rag");
+        }
+        if (agentsConfig.length) {
+          setDefaultConfig(`${tempKey}:agents`, agentsConfig);
+          try {
+            const { updateConfig } = useConfigStore.getState();
+            updateConfig(tempKey, "__ui_meta", {
+              [agentsConfig[0].label]: { mode: agentsConfig[0].mode },
+            });
+          } catch (_e) {
+            void 0;
+          }
+          setAgentsConfigurations(agentsConfig);
+          supportedConfigs.push("supervisor");
+        }
+        setSupportedConfigs(supportedConfigs);
+
+        const configurableDefaults = getConfigurableDefaults(
+          configFields,
+          toolConfig,
+          ragConfig,
+          agentsConfig,
+        );
+
+        return {
+          name: graphName,
+          description: graphDescription,
+          config: configurableDefaults,
+        };
+      } catch (error) {
+        logger.error(`Error loading graph schema for ${graphId}:`, error);
+        setInputMode('chat');
+        return {
+          name: graphName,
+          description: graphDescription,
+          config: {},
+        };
+      } finally {
+        setLoading(false);
+      }
+    },
+    [clearState, getGraphConfigSchema, chatWithCollectionId, setChatWithCollectionId],
+  );
+
   return {
     clearState,
     getSchemaAndUpdateConfig,
+    getGraphSchemaAndUpdateConfig,
 
     configurations,
     toolConfigurations,
@@ -331,7 +476,7 @@ export function useAgentConfig() {
     supportedConfigs,
 
     loading,
-    
+
     // New input schema properties
     inputSchema,
     inputMode,

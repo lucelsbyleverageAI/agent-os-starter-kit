@@ -131,6 +131,20 @@ class GraphPermissionsManager:
             return [dict(r) for r in rows]
 
     @staticmethod
+    async def get_user_by_id(user_id: str) -> Optional[Dict[str, Any]]:
+        """Get user information by user ID."""
+        async with get_db_connection() as conn:
+            row = await conn.fetchrow(
+                """
+                SELECT user_id, email, display_name, role
+                FROM langconnect.user_roles
+                WHERE user_id = $1
+                """,
+                user_id,
+            )
+            return dict(row) if row else None
+
+    @staticmethod
     async def has_graph_permission(user_id: str, graph_id: str, required_level: str) -> bool:
         role = await GraphPermissionsManager.get_user_role(user_id)
         if role == "dev_admin":
@@ -205,7 +219,13 @@ class GraphPermissionsManager:
         async with get_db_connection() as conn:
             rows = await conn.fetch(
                 """
-                SELECT gp.user_id, gp.permission_level, ur.email
+                SELECT
+                    gp.user_id,
+                    gp.permission_level,
+                    gp.granted_by,
+                    gp.created_at,
+                    ur.email,
+                    ur.display_name
                 FROM langconnect.graph_permissions gp
                 LEFT JOIN langconnect.user_roles ur ON ur.user_id = gp.user_id
                 WHERE gp.graph_id = $1
@@ -214,6 +234,23 @@ class GraphPermissionsManager:
                 graph_id,
             )
             return [dict(r) for r in rows]
+
+    @staticmethod
+    async def revoke_graph_permission(graph_id: str, user_id: str) -> bool:
+        """Revoke a user's permission for a specific graph."""
+        async with get_db_connection() as conn:
+            result = await conn.execute(
+                """
+                DELETE FROM langconnect.graph_permissions
+                WHERE graph_id = $1 AND user_id = $2
+                """,
+                graph_id,
+                user_id,
+            )
+            # Check if any rows were deleted
+            if isinstance(result, str) and result.split()[-1].isdigit():
+                return int(result.split()[-1]) > 0
+            return False
 
     @staticmethod
     async def cleanup_graph_permissions(graph_id: str, dry_run: bool = True) -> int:
@@ -430,6 +467,23 @@ class AssistantPermissionsManager:
             """
             results = await conn.fetch(query, user_id)
             return [dict(result) for result in results]
+
+    @staticmethod
+    async def revoke_assistant_permission(assistant_id: str, user_id: str) -> bool:
+        """Revoke a specific user's permission for an assistant."""
+        async with get_db_connection() as conn:
+            result = await conn.execute(
+                """
+                DELETE FROM langconnect.assistant_permissions
+                WHERE assistant_id = $1::uuid AND user_id = $2
+                """,
+                assistant_id,
+                user_id
+            )
+            # Check if any rows were deleted
+            if isinstance(result, str) and result.split()[-1].isdigit():
+                return int(result.split()[-1]) > 0
+            return False
 
     @staticmethod
     async def delete_assistant_permissions(assistant_id: str) -> bool:

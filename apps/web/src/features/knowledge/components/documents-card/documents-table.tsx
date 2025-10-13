@@ -29,12 +29,11 @@ import {
   AlertDialogTitle,
   AlertDialogTrigger,
 } from "@/components/ui/alert-dialog";
-import { 
-  Trash2, 
-  MoreVertical, 
-  Eye, 
-  Loader2, 
-  X, 
+import {
+  Trash2,
+  MoreVertical,
+  Loader2,
+  X,
   Search,
   ChevronUp,
   ChevronDown,
@@ -47,10 +46,10 @@ import { useKnowledgeContext } from "../../providers/Knowledge";
 import { format } from "date-fns";
 import { Collection } from "@/types/collection";
 import { toast } from "sonner";
-import { ViewDocumentDialog } from "./view-document-dialog";
 import { EditDocumentDialog } from "./edit-document-dialog";
 import { cn } from "@/lib/utils";
 import { getScrollbarClasses } from "@/lib/scrollbar-styles";
+import { useRouter } from "next/navigation";
 
 // Truncate title helper
 const truncateTitle = (title: string, maxLength: number = 50): { truncated: string; isTruncated: boolean } => {
@@ -120,9 +119,9 @@ export function DocumentsTable({
   loading = false,
   totalDocumentCount,
 }: DocumentsTableProps) {
+  const router = useRouter();
   const { deleteDocument } = useKnowledgeContext();
   const [deletingDocumentId, setDeletingDocumentId] = useState<string | null>(null);
-  const [viewDocumentId, setViewDocumentId] = useState<string | null>(null);
   const [editDocumentId, setEditDocumentId] = useState<string | null>(null);
   const [loadingMore, setLoadingMore] = useState(false);
   
@@ -431,7 +430,7 @@ export function DocumentsTable({
   }, []);
 
   return (
-    <div className="space-y-4">
+    <div className="space-y-4 p-1">
       {/* Search Bar */}
       <div className="flex items-center gap-3">
         <div className="relative flex-1 max-w-sm">
@@ -576,9 +575,14 @@ export function DocumentsTable({
                 const { truncated: displayName, isTruncated } = truncateTitle(doc.metadata.name);
                 const isLastRow = index === processedDocuments.length - 1;
                 const isSelected = selectedDocuments.has(doc.metadata.file_id);
-                
+
+                // Handler for row click navigation
+                const handleRowClick = () => {
+                  router.push(`/knowledge/${selectedCollection.uuid}/document/${doc.metadata.file_id}`);
+                };
+
                 return (
-                  <div 
+                  <div
                     key={doc.id}
                     className={cn(
                       "grid grid-cols-12 gap-4 px-4 py-3 hover:bg-accent/50 transition-colors",
@@ -597,16 +601,17 @@ export function DocumentsTable({
                     </div>
 
                     {/* Document Name */}
-                    <div className="col-span-3 flex items-center">
+                    <div className="col-span-3 flex items-center cursor-pointer" onClick={handleRowClick}>
                       {(() => {
                         // Only treat as URL if it's from URL upload (has source_type of 'url')
                         const isUrl = doc.metadata.source_type === 'url' && isValidUrl(doc.metadata.name);
                         const commonClasses = "text-sm font-normal truncate";
-                        const linkClasses = isUrl 
-                          ? "text-blue-600 hover:text-blue-800 hover:underline cursor-pointer" 
+                        const linkClasses = isUrl
+                          ? "text-blue-600 hover:text-blue-800 hover:underline"
                           : "text-foreground";
-                        
-                        const handleClick = isUrl ? () => {
+
+                        const handleClick = isUrl ? (e: React.MouseEvent) => {
+                          e.stopPropagation(); // Prevent row click when opening URL
                           window.open(doc.metadata.name, '_blank', 'noopener,noreferrer');
                         } : undefined;
                         
@@ -615,8 +620,8 @@ export function DocumentsTable({
                             <TooltipProvider>
                               <Tooltip>
                                 <TooltipTrigger asChild>
-                                  <span 
-                                    className={cn(commonClasses, linkClasses, isUrl ? "" : "cursor-help")}
+                                  <span
+                                    className={cn(commonClasses, linkClasses)}
                                     onClick={handleClick}
                                   >
                                     {displayName}
@@ -626,7 +631,7 @@ export function DocumentsTable({
                                   <p className="max-w-xs break-words text-sm">
                                     {isUrl ? (
                                       <>
-                                        <span className="font-medium">Click to open:</span>
+                                        <span className="font-medium">Click to open URL</span>
                                         <br />
                                         {doc.metadata.name}
                                       </>
@@ -640,7 +645,7 @@ export function DocumentsTable({
                           );
                         } else {
                           return (
-                            <span 
+                            <span
                               className={cn(commonClasses, linkClasses)}
                               onClick={handleClick}
                               title={isUrl ? "Click to open URL in new tab" : undefined}
@@ -653,12 +658,12 @@ export function DocumentsTable({
                     </div>
 
                     {/* Description */}
-                    <div className="col-span-5 flex items-center">
+                    <div className="col-span-5 flex items-center cursor-pointer" onClick={handleRowClick}>
                       {doc.metadata.description ? (
                         <TooltipProvider>
                           <Tooltip delayDuration={300}>
                             <TooltipTrigger asChild>
-                              <p className="text-sm text-muted-foreground line-clamp-2 cursor-help">
+                              <p className="text-sm text-muted-foreground line-clamp-2">
                                 {doc.metadata.description}
                               </p>
                             </TooltipTrigger>
@@ -675,11 +680,11 @@ export function DocumentsTable({
                     </div>
 
                     {/* Date Uploaded */}
-                    <div className="col-span-1 flex items-center">
+                    <div className="col-span-1 flex items-center cursor-pointer" onClick={handleRowClick}>
                       <TooltipProvider>
                         <Tooltip delayDuration={300}>
                           <TooltipTrigger asChild>
-                            <span className="text-sm text-muted-foreground cursor-help">
+                            <span className="text-sm text-muted-foreground">
                               {format(new Date(doc.metadata.created_at), "MMM d")}
                             </span>
                           </TooltipTrigger>
@@ -707,13 +712,6 @@ export function DocumentsTable({
                             </Button>
                           </DropdownMenuTrigger>
                           <DropdownMenuContent align="end">
-                            <DropdownMenuItem
-                              onClick={() => setViewDocumentId(doc.metadata.file_id)}
-                              disabled={deletingDocumentId === doc.metadata.file_id || batchDeleting}
-                            >
-                              <Eye className="mr-2 h-4 w-4" />
-                              View Document
-                            </DropdownMenuItem>
                             <DropdownMenuItem
                               onClick={() => setEditDocumentId(doc.metadata.file_id)}
                               disabled={deletingDocumentId === doc.metadata.file_id || batchDeleting}
@@ -856,14 +854,6 @@ export function DocumentsTable({
             </AlertDialogFooter>
           </AlertDialogContent>
         </AlertDialog>
-
-        {/* View Document Dialog */}
-        <ViewDocumentDialog
-          documentId={viewDocumentId}
-          collectionId={selectedCollection.uuid}
-          open={!!viewDocumentId}
-          onOpenChange={(open: boolean) => !open && setViewDocumentId(null)}
-        />
 
         {/* Edit Document Dialog */}
         {editDocumentId && (() => {

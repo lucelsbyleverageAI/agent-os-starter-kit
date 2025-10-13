@@ -14,6 +14,7 @@ import { useUsers } from "@/hooks/use-users";
 import { useGraphPermissions } from "@/hooks/use-graph-permissions";
 import { ConfirmationDialog } from "@/components/ui/confirmation-dialog";
 import { Separator } from "@/components/ui/separator";
+import { logger } from "@/lib/logger";
 
 interface GraphPermissionsDialogProps {
   open: boolean;
@@ -97,10 +98,10 @@ export function GraphPermissionsDialog({ open, onOpenChange, graphId, graphName 
         // Warn if we didn't get all user details
         if (fetchedUserDetails.length < userIds.length) {
           const missingIds = userIds.filter(id => !fetchedUserDetails.find(u => u.id === id));
-          console.warn(`⚠️ Missing user details for:`, missingIds);
+          logger.warn(`Missing user details for:`, missingIds);
         }
       } catch (error) {
-        console.error('Failed to load user details:', error);
+        logger.error('Failed to load user details:', error);
         // Keep existing user details on error rather than clearing
         // setUserDetails([]);
       } finally {
@@ -183,7 +184,7 @@ export function GraphPermissionsDialog({ open, onOpenChange, graphId, graphName 
         toast.error(`Some grants failed: ${result.errors.join(', ')}`);
       }
     } catch (error) {
-      console.error('Error granting graph permissions:', error);
+      logger.error('Error granting graph permissions:', error);
       toast.error('Failed to grant permissions');
     } finally {
       setSubmitting(false);
@@ -207,7 +208,7 @@ export function GraphPermissionsDialog({ open, onOpenChange, graphId, graphName 
       // Permissions will be refreshed by the revokePermission function
       // User details will be automatically reloaded via the useEffect above
     } catch (error) {
-      console.error('Error removing user:', error);
+      logger.error('Error removing user:', error);
       toast.error('Failed to remove user access');
     } finally {
       setUserToRemove(null);
@@ -273,17 +274,18 @@ export function GraphPermissionsDialog({ open, onOpenChange, graphId, graphName 
                       {loading ? "Loading permissions..." : "Loading user details..."}
                     </span>
                   </div>
-                ) : permissions.length === 0 ? (
-                  <div className="text-center py-8 text-sm text-muted-foreground">
-                    <Users className="h-8 w-8 mx-auto mb-3 opacity-50" />
-                    <p>No users have access to this template</p>
-                    <p className="text-xs mt-1">Add team members to start collaborating</p>
-                  </div>
                 ) : (
                   <UserPermissionsTable
                     users={transformedUsers}
                     onRemoveUser={handleRemoveUser}
                     className="border rounded-lg p-2"
+                    emptyState={
+                      <div className="text-center py-8 text-sm text-muted-foreground">
+                        <Users className="h-8 w-8 mx-auto mb-3 opacity-50" />
+                        <p>No users have access to this template</p>
+                        <p className="text-xs mt-1">Add team members to start collaborating</p>
+                      </div>
+                    }
                   />
                 )}
               </div>

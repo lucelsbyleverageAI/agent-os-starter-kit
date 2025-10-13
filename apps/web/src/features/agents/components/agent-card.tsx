@@ -2,17 +2,18 @@
 
 import { useState } from "react";
 import {
+  Bot,
   Edit,
   MessageSquare,
   MoreVertical,
   Users,
-  Crown,
-  Shield,
   Trash2,
   UserMinus,
+  Star,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
-import { Card, CardFooter, CardHeader, CardTitle } from "@/components/ui/card";
+import { Badge } from "@/components/ui/badge";
+import { Card } from "@/components/ui/card";
 import {
   DropdownMenu,
   DropdownMenuContent,
@@ -31,42 +32,14 @@ import {
   TooltipProvider,
   TooltipTrigger,
 } from "@/components/ui/tooltip";
-import { isUserCreatedDefaultAssistant, canUserDeleteAssistant, canUserEditAssistant, canUserRevokeOwnAccess } from "@/lib/agent-utils";
+import { isUserDefaultAssistant, canUserDeleteAssistant, canUserEditAssistant, canUserRevokeOwnAccess } from "@/lib/agent-utils";
 import { useAgents } from "@/hooks/use-agents";
 import { useAgentsContext } from "@/providers/Agents";
 import { notify } from "@/utils/toast";
 import { agentMessages } from "@/utils/toast-messages";
-import { MinimalistIconButton } from "@/components/ui/minimalist-icon-button";
-import { MinimalistBadge } from "@/components/ui/minimalist-badge";
 import { ConfirmationDialog } from "@/components/ui/confirmation-dialog";
-
-// Function to convert graph_id to human-readable name
-const getGraphDisplayName = (graphId: string): string => {
-  return graphId
-    .replace(/_/g, ' ') // replace all underscores
-    .replace(/\b\w/g, l => l.toUpperCase()); // capitalise each word
-};
-
-// Helper function to get permission icon and tooltip
-function getPermissionIconAndTooltip(permissionLevel: 'owner' | 'editor' | 'viewer') {
-  switch (permissionLevel) {
-    case 'owner':
-      return { 
-        icon: Crown, 
-        tooltip: 'Owner - You own this agent and can edit, delete, share with others, and manage all user permissions'
-      };
-    case 'editor':
-      return { 
-        icon: Edit, 
-        tooltip: 'Editor - You can edit this agent but cannot delete it or manage sharing permissions' 
-      };
-    case 'viewer':
-      return { 
-        icon: Shield, 
-        tooltip: 'Viewer - You can use this agent but cannot edit, delete, or manage permissions' 
-      };
-  }
-}
+import { cn } from "@/lib/utils";
+import { getTagLabel } from "@/lib/agent-tags";
 
 interface AgentCardProps {
   agent: Agent;
@@ -79,9 +52,10 @@ export function AgentCard({ agent, showDeployment }: AgentCardProps) {
   const [showDeleteConfirmation, setShowDeleteConfirmation] = useState(false);
   const [showRevokeConfirmation, setShowRevokeConfirmation] = useState(false);
   const { deleteAgent, revokeMyAccess } = useAgents();
-  const { refreshAgents, invalidateAssistantListCache, invalidateAssistantCaches } = useAgentsContext();
+  const { refreshAgents, invalidateAssistantListCache, invalidateAssistantCaches, defaultAssistant, setDefaultAssistant, refreshDefaultAssistant } = useAgentsContext();
 
-  const isDefaultAgent = isUserCreatedDefaultAssistant(agent);
+  const isDefaultAgent = isUserDefaultAssistant(agent);
+  const isUserDefault = defaultAssistant?.assistant_id === agent.assistant_id;
   
   // Get permission information from agent metadata
   const permissionLevel = agent.permission_level as 'owner' | 'editor' | 'viewer' | undefined;
@@ -96,13 +70,16 @@ export function AgentCard({ agent, showDeployment }: AgentCardProps) {
         description: message.description,
         key: message.key,
       });
-  
+
       // Invalidate specific assistant caches
       invalidateAssistantCaches(agent.assistant_id);
-      
+
       // Invalidate assistant list cache (where the deleted agent would be listed)
       invalidateAssistantListCache();
-      
+
+      // Refresh default assistant (in case it was auto-reassigned)
+      await refreshDefaultAssistant();
+
       // Refresh agents list - silent since user already got success toast
       refreshAgents(true);
     } else {
@@ -123,13 +100,16 @@ export function AgentCard({ agent, showDeployment }: AgentCardProps) {
         description: message.description,
         key: message.key,
       });
-      
+
       // Invalidate specific assistant caches
       invalidateAssistantCaches(agent.assistant_id);
-      
+
       // Invalidate assistant list cache (where the revoked agent would be removed)
       invalidateAssistantListCache();
-      
+
+      // Refresh default assistant (in case it was auto-reassigned)
+      await refreshDefaultAssistant();
+
       // Refresh agents list - silent since user already got success toast
       refreshAgents(true);
     } else {
@@ -141,184 +121,190 @@ export function AgentCard({ agent, showDeployment }: AgentCardProps) {
     }
   };
 
+  const handleSetDefault = async () => {
+    const result = await setDefaultAssistant(agent.assistant_id);
+    if (result.ok) {
+      // Refresh default assistant state to ensure UI updates
+      await refreshDefaultAssistant();
+
+      notify.success("Default Assistant Set", {
+        description: `${agent.name} is now your default assistant`,
+      });
+    } else {
+      notify.error("Failed to Set Default", {
+        description: result.errorMessage || "Could not set default assistant",
+      });
+    }
+  };
+
   // Use shared utility functions for consistent permission checking
   const canEdit = canUserEditAssistant(agent);
   const canShare = isDefaultAgent ? false : isOwner;
   const canDelete = canUserDeleteAssistant(agent);
   const canRevokeOwnAccess = canUserRevokeOwnAccess(agent);
 
-  // Get permission icon and tooltip for display
-  const permissionDisplay = permissionLevel ? getPermissionIconAndTooltip(permissionLevel) : null;
-
   return (
     <>
       <Card
         key={agent.assistant_id}
-        className="overflow-hidden relative group h-44 flex flex-col transition-all duration-300 ease-out hover:border-primary hover:border-2 hover:shadow-lg hover:shadow-primary/10 vibrate-on-hover"
+        className="group relative flex flex-col items-start gap-3 p-6 transition-all hover:border-primary hover:shadow-md vibrate-on-hover"
       >
-        {/* Fixed Header - Small portion at top */}
-        <CardHeader className="px-6 h-3 flex-shrink-0 flex items-center">
-          <div className="flex items-center justify-between gap-3 w-full">
-            <CardTitle className="text-sm font-medium text-foreground min-w-0 flex-1">
-              {/* Agent Name - truncate with ellipses */}
-              <span className="truncate">{agent.name}</span>
-            </CardTitle>
-
-            {/* Three-dots menu - always in same position */}
-            {!isDefaultAgent && (canEdit || canShare || canDelete || canRevokeOwnAccess) && (
-              <div className="opacity-0 group-hover:opacity-100 transition-opacity flex-shrink-0">
-                <DropdownMenu>
-                  <DropdownMenuTrigger asChild>
-                    <Button
-                      variant="ghost"
-                      size="sm"
-                      className="h-8 w-8 p-0"
-                      onClick={(e) => {
-                        e.preventDefault();
-                        e.stopPropagation();
-                      }}
+        {/* Three-dots menu - absolute positioned in top-right */}
+        {!isDefaultAgent && (canEdit || canShare || canDelete || canRevokeOwnAccess) && (
+          <div className="absolute right-3 top-3 opacity-0 group-hover:opacity-100 transition-opacity">
+            <DropdownMenu>
+              <DropdownMenuTrigger asChild>
+                <Button
+                  variant="ghost"
+                  size="sm"
+                  className="h-8 w-8 p-0"
+                  onClick={(e) => {
+                    e.preventDefault();
+                    e.stopPropagation();
+                  }}
+                >
+                  <MoreVertical className="h-4 w-4" />
+                  <span className="sr-only">Assistant actions</span>
+                </Button>
+              </DropdownMenuTrigger>
+              <DropdownMenuContent align="end">
+                {canEdit && (
+                  <DropdownMenuItem onClick={() => setShowEditDialog(true)}>
+                    <Edit className="h-4 w-4 mr-2" />
+                    Edit Assistant
+                  </DropdownMenuItem>
+                )}
+                {canShare && (
+                  <DropdownMenuItem onClick={() => setShowSharingDialog(true)}>
+                    <Users className="h-4 w-4 mr-2" />
+                    Manage Access
+                  </DropdownMenuItem>
+                )}
+                {!isDefaultAgent && !isUserDefault && (
+                  <DropdownMenuItem onClick={handleSetDefault}>
+                    <Star className="h-4 w-4 mr-2" />
+                    Set as Default
+                  </DropdownMenuItem>
+                )}
+                {canDelete && (
+                  <>
+                    {(canEdit || canShare) && <DropdownMenuSeparator />}
+                    <DropdownMenuItem
+                      onClick={() => setShowDeleteConfirmation(true)}
+                      className="text-red-600 focus:text-red-600"
                     >
-                      <MoreVertical className="h-4 w-4" />
-                      <span className="sr-only">Assistant actions</span>
-                    </Button>
-                  </DropdownMenuTrigger>
-                  <DropdownMenuContent align="end">
-                    {canEdit && (
-                      <DropdownMenuItem onClick={() => setShowEditDialog(true)}>
-                        <Edit className="h-4 w-4 mr-2" />
-                        Edit Assistant
-                      </DropdownMenuItem>
-                    )}
-                    {canShare && (
-                      <DropdownMenuItem onClick={() => setShowSharingDialog(true)}>
-                        <Users className="h-4 w-4 mr-2" />
-                        Manage Access
-                      </DropdownMenuItem>
-                    )}
-                    {canDelete && (
-                      <>
-                        {(canEdit || canShare) && <DropdownMenuSeparator />}
-                        <DropdownMenuItem 
-                          onClick={() => setShowDeleteConfirmation(true)}
-                          className="text-red-600 focus:text-red-600"
-                        >
-                          <Trash2 className="h-4 w-4 mr-2" />
-                          Delete Assistant
-                        </DropdownMenuItem>
-                      </>
-                    )}
-                    {canRevokeOwnAccess && !canDelete && (
-                      <>
-                        {(canEdit || canShare) && <DropdownMenuSeparator />}
-                        <DropdownMenuItem 
-                          onClick={() => setShowRevokeConfirmation(true)}
-                          className="text-orange-600 focus:text-orange-600"
-                        >
-                          <UserMinus className="h-4 w-4 mr-2" />
-                          Revoke My Access
-                        </DropdownMenuItem>
-                      </>
-                    )}
-                  </DropdownMenuContent>
-                </DropdownMenu>
-              </div>
+                      <Trash2 className="h-4 w-4 mr-2" />
+                      Delete Assistant
+                    </DropdownMenuItem>
+                  </>
+                )}
+                {canRevokeOwnAccess && !canDelete && (
+                  <>
+                    {(canEdit || canShare) && <DropdownMenuSeparator />}
+                    <DropdownMenuItem
+                      onClick={() => setShowRevokeConfirmation(true)}
+                      className="text-orange-600 focus:text-orange-600"
+                    >
+                      <UserMinus className="h-4 w-4 mr-2" />
+                      Revoke My Access
+                    </DropdownMenuItem>
+                  </>
+                )}
+              </DropdownMenuContent>
+            </DropdownMenu>
+          </div>
+        )}
+
+        {/* Icon and title */}
+        <div className="flex items-center gap-3 w-full">
+          <div className="bg-muted flex h-10 w-10 shrink-0 items-center justify-center rounded-md">
+            <Bot className="text-muted-foreground h-5 w-5" />
+          </div>
+          <div className="min-w-0 flex-1 flex items-center gap-2">
+            <h4 className="font-semibold leading-none">{agent.name}</h4>
+            {isUserDefault && (
+              <TooltipProvider>
+                <Tooltip>
+                  <TooltipTrigger>
+                    <Star className="h-4 w-4 fill-yellow-400 text-yellow-400" />
+                  </TooltipTrigger>
+                  <TooltipContent>
+                    <span>Default Assistant - Auto-loads when you open chat</span>
+                  </TooltipContent>
+                </Tooltip>
+              </TooltipProvider>
             )}
           </div>
-        </CardHeader>
-        
-        {/* Description Area - Controlled middle space */}
-        <div className="px-6 flex-1 min-h-0 -mt-1">
-          {(() => {
-            const desc = (typeof agent.description === 'string' ? agent.description : undefined);
-            return desc ? (
-              <p className="text-muted-foreground text-sm leading-5 overflow-hidden text-ellipsis"
-                 style={{
-                   display: '-webkit-box',
-                   WebkitLineClamp: 3,
-                   WebkitBoxOrient: 'vertical'
-                 }}>
-                {desc}
-              </p>
-            ) : (
-              <p className="text-muted-foreground/50 text-sm italic">No description</p>
-            );
-          })()}
         </div>
-        
-        {/* Fixed Footer - Small portion at bottom */}
-        <CardFooter className="flex w-full justify-between items-center h-3 px-6 flex-shrink-0">
-          {/* Left side: Permission, Graph, and Default badges */}
-          <div className="flex items-center gap-2">
-            {/* Permission Badge */}
-            {permissionDisplay && (
-              <MinimalistBadge
-                icon={permissionDisplay.icon}
-                tooltip={permissionDisplay.tooltip}
-              />
-            )}
-            
-            {/* Graph badge - always shown */}
-            <TooltipProvider>
-              <Tooltip>
-                <TooltipTrigger>
-                  <span className="h-6 inline-flex items-center rounded-md bg-muted/50 px-2 text-xs text-muted-foreground/70 max-w-24">
-                    <span className="truncate">
-                      {getGraphDisplayName(agent.graph_id)}
-                    </span>
-                  </span>
-                </TooltipTrigger>
-                <TooltipContent>The template the agent belongs to: {getGraphDisplayName(agent.graph_id)}</TooltipContent>
-              </Tooltip>
-            </TooltipProvider>
-            
-            {/* Default badge */}
-            {isDefaultAgent && (
-              <TooltipProvider>
-                <Tooltip>
-                  <TooltipTrigger>
-                    <span className="h-6 inline-flex items-center rounded-md bg-muted/50 px-2 text-xs text-muted-foreground/70">
-                      Default
-                    </span>
-                  </TooltipTrigger>
-                  <TooltipContent>This is the default assistant for this graph</TooltipContent>
-                </Tooltip>
-              </TooltipProvider>
-            )}
-            
-            {/* Warming badge */}
-            {agent.schemas_warming && (
-              <TooltipProvider>
-                <Tooltip>
-                  <TooltipTrigger>
-                    <span className="h-6 inline-flex items-center rounded-md bg-orange-100 px-2 text-xs text-orange-600 animate-pulse">
-                      Preparing
-                    </span>
-                  </TooltipTrigger>
-                  <TooltipContent>Configuration options are being prepared and will be available shortly</TooltipContent>
-                </Tooltip>
-              </TooltipProvider>
+
+        {/* Description - Fixed 3 lines */}
+        <p className="text-muted-foreground line-clamp-3 text-sm w-full min-h-[3.75rem]">
+          {agent.description || "No description provided"}
+        </p>
+
+        {/* Divider */}
+        <div className="w-full border-t border-border" />
+
+        {/* Footer action bar */}
+        <div className="flex w-full items-center justify-between gap-3">
+          {/* Left side: Tags */}
+          <div className="flex items-center gap-2 flex-1 min-w-0">
+            {agent.tags && agent.tags.length > 0 ? (
+              <>
+                {agent.tags.slice(0, 1).map((tag) => (
+                  <Badge key={tag} variant="outline" className="text-xs">
+                    {getTagLabel(tag)}
+                  </Badge>
+                ))}
+                {agent.tags.length > 1 && (
+                  <TooltipProvider>
+                    <Tooltip>
+                      <TooltipTrigger>
+                        <Badge variant="secondary" className="text-xs">
+                          +{agent.tags.length - 1}
+                        </Badge>
+                      </TooltipTrigger>
+                      <TooltipContent>
+                        <div className="flex flex-col gap-1">
+                          {agent.tags.slice(1).map((tag) => (
+                            <span key={tag}>{getTagLabel(tag)}</span>
+                          ))}
+                        </div>
+                      </TooltipContent>
+                    </Tooltip>
+                  </TooltipProvider>
+                )}
+              </>
+            ) : (
+              <div className="text-xs text-muted-foreground">No tags</div>
             )}
           </div>
 
-          {/* Right side: Action Icons */}
-          <div className="flex items-center gap-1">
+          {/* Right side: Action buttons */}
+          <div className="flex items-center gap-2">
             {canEdit && (
-              <MinimalistIconButton
-                icon={Edit}
-                tooltip="Edit Agent"
+              <Button
+                variant="outline"
+                size="sm"
                 onClick={() => setShowEditDialog(true)}
-              />
+                className="h-8 cursor-pointer"
+              >
+                <Edit className="h-3.5 w-3.5 mr-1.5" />
+                Edit
+              </Button>
             )}
-            <NextLink
-              href={`/?agentId=${agent.assistant_id}&deploymentId=${agent.deploymentId}`}
-            >
-              <MinimalistIconButton
-                icon={MessageSquare}
-                tooltip="Chat to Agent"
-              />
+            <NextLink href={`/?agentId=${agent.assistant_id}&deploymentId=${agent.deploymentId}`} className="cursor-pointer">
+              <Button
+                variant="default"
+                size="sm"
+                className="h-8 cursor-pointer"
+              >
+                <MessageSquare className="h-3.5 w-3.5 mr-1.5" />
+                Chat
+              </Button>
             </NextLink>
           </div>
-        </CardFooter>
+        </div>
       </Card>
 
       {/* Edit Dialog */}

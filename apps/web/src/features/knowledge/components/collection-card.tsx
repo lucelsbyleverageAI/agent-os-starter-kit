@@ -1,9 +1,9 @@
 "use client";
 
-import React, { useState } from "react";
-import { Card, CardFooter, CardHeader, CardTitle } from "@/components/ui/card";
+import React from "react";
+import { Card } from "@/components/ui/card";
+import { Button } from "@/components/ui/button";
 import { MinimalistBadge, MinimalistBadgeWithText } from "@/components/ui/minimalist-badge";
-import { MinimalistIconButton } from "@/components/ui/minimalist-icon-button";
 import type { Collection } from "@/types/collection";
 import {
   DEFAULT_COLLECTION_NAME,
@@ -11,11 +11,11 @@ import {
 } from "../hooks/use-knowledge";
 import { useKnowledgeContext } from "../providers/Knowledge";
 import { CollectionActions } from "./collections-list/collection-actions";
-import { Crown, Edit, Eye, FileText, Files } from "lucide-react";
+import { Crown, Edit, Eye, BookOpen, Files } from "lucide-react";
 import { notify } from "@/utils/toast";
 import { knowledgeMessages } from "@/utils/toast-messages";
 import { Skeleton } from "@/components/ui/skeleton";
-import { DocumentsModal } from "./documents-modal";
+import { useRouter } from "next/navigation";
 
 // Permission icon mapping
 function getPermissionIconAndTooltip(permissionLevel?: string) {
@@ -48,14 +48,14 @@ interface CollectionCardProps {
 }
 
 export function CollectionCard({ collection }: CollectionCardProps) {
-  const [documentsModalOpen, setDocumentsModalOpen] = useState(false);
+  const router = useRouter();
   const { deleteCollection, updateCollection } = useKnowledgeContext();
-  
+
   const permissionDisplay = getPermissionIconAndTooltip(collection.permission_level);
 
   const handleDeleteCollection = async (collectionId: string) => {
     const result = await deleteCollection(collectionId);
-    
+
     if (result.ok) {
       const message = knowledgeMessages.collection.delete.success();
       notify.success(message.title, {
@@ -80,63 +80,56 @@ export function CollectionCard({ collection }: CollectionCardProps) {
   };
 
   const handleCardClick = () => {
-    setDocumentsModalOpen(true);
+    router.push(`/knowledge/${collection.uuid}`);
   };
 
   const handleManageDocumentsClick = () => {
-    setDocumentsModalOpen(true);
+    router.push(`/knowledge/${collection.uuid}`);
   };
   
   return (
     <>
-      <Card 
-        className="overflow-hidden relative group h-44 flex flex-col transition-all duration-300 ease-out vibrate-on-hover hover:border-primary hover:border-2 hover:shadow-lg hover:shadow-primary/10 cursor-pointer"
+      <Card
+        className="group relative flex flex-col items-start gap-3 p-6 transition-all hover:border-primary hover:shadow-md vibrate-on-hover cursor-pointer"
         onClick={handleCardClick}
       >
-        {/* Fixed Header - Small portion at top */}
-        <CardHeader className="px-6 h-3 flex-shrink-0 flex items-center">
-          <div className="flex items-center justify-between gap-3 w-full">
-            <CardTitle className="text-sm font-medium text-foreground min-w-0 flex-1">
-              {/* Collection Name - truncate with ellipses */}
-              <span className="truncate">{getCollectionName(collection.name)}</span>
-            </CardTitle>
-
-            {/* Three-dots menu - always in same position */}
-            {collection.name !== DEFAULT_COLLECTION_NAME && (
-              <div 
-                className="opacity-0 group-hover:opacity-100 transition-opacity flex-shrink-0"
-                onClick={(e) => e.stopPropagation()}
-              >
-                <CollectionActions
-                  collection={collection}
-                  onDelete={handleDeleteCollection}
-                  onEdit={handleEditCollection}
-                />
-              </div>
-            )}
+        {/* Three-dots menu - absolute positioned in top-right */}
+        {collection.name !== DEFAULT_COLLECTION_NAME && (
+          <div className="absolute right-3 top-3 opacity-0 group-hover:opacity-100 transition-opacity">
+            <div onClick={(e) => e.stopPropagation()}>
+              <CollectionActions
+                collection={collection}
+                onDelete={handleDeleteCollection}
+                onEdit={handleEditCollection}
+              />
+            </div>
           </div>
-        </CardHeader>
-        
-        {/* Description Area - Controlled middle space */}
-        <div className="px-6 flex-1 min-h-0 -mt-1">
-          {collection.metadata?.description &&
-          typeof collection.metadata.description === "string" ? (
-            <p className="text-muted-foreground text-sm leading-5 overflow-hidden text-ellipsis" 
-               style={{ 
-                 display: '-webkit-box', 
-                 WebkitLineClamp: 3, 
-                 WebkitBoxOrient: 'vertical' 
-               }}>
-              {collection.metadata.description}
-            </p>
-          ) : (
-            <p className="text-muted-foreground/50 text-sm italic">No description</p>
-          )}
+        )}
+
+        {/* Icon and title */}
+        <div className="flex items-center gap-3 w-full">
+          <div className="bg-muted flex h-10 w-10 shrink-0 items-center justify-center rounded-md">
+            <BookOpen className="text-muted-foreground h-5 w-5" />
+          </div>
+          <div className="min-w-0 flex-1">
+            <h4 className="font-semibold leading-none">{getCollectionName(collection.name)}</h4>
+          </div>
         </div>
-        
-        {/* Fixed Footer - Small portion at bottom */}
-        <CardFooter className="flex w-full justify-between items-center h-3 px-6 flex-shrink-0">
-          {/* Left side: Permission badge and document count */}
+
+        {/* Description - Fixed 3 lines */}
+        <p className="text-muted-foreground line-clamp-3 text-sm w-full min-h-[3.75rem]">
+          {collection.metadata?.description && typeof collection.metadata.description === "string"
+            ? collection.metadata.description
+            : "No description"}
+        </p>
+
+        {/* Divider */}
+        <div className="w-full border-t border-border" />
+
+        {/* Footer with buttons and badges */}
+        <div className="flex w-full items-center justify-between gap-3">
+
+          {/* Right side: Info badges */}
           <div className="flex items-center gap-2">
             <MinimalistBadge
               icon={permissionDisplay.icon}
@@ -148,54 +141,39 @@ export function CollectionCard({ collection }: CollectionCardProps) {
               text={`${collection.document_count || 0}`}
             />
           </div>
-
-          {/* Right side: Manage Documents button */}
-          <div 
-            className="flex items-center gap-1"
-            onClick={(e) => e.stopPropagation()}
-          >
-            <MinimalistIconButton
-              icon={FileText}
-              tooltip="Manage Documents"
-              onClick={handleManageDocumentsClick}
-            />
-          </div>
-        </CardFooter>
+        </div>
       </Card>
-
-      {/* Documents Modal */}
-      <DocumentsModal
-        open={documentsModalOpen}
-        onOpenChange={setDocumentsModalOpen}
-        collection={collection}
-      />
     </>
   );
 }
 
 export function CollectionCardLoading() {
   return (
-    <Card className="overflow-hidden h-44 flex flex-col">
-      <CardHeader className="px-6 h-3 flex-shrink-0 flex items-center">
-        <div className="flex items-center justify-between gap-3 w-full">
-          <Skeleton className="h-4 w-32" />
-          <Skeleton className="h-6 w-6" />
-        </div>
-      </CardHeader>
-      
-      <div className="px-6 flex-1 min-h-0 -mt-1 space-y-2">
-        <Skeleton className="h-3 w-full" />
-        <Skeleton className="h-3 w-3/4" />
-        <Skeleton className="h-3 w-1/2" />
+    <Card className="relative flex flex-col items-start gap-3 p-6">
+      {/* Icon and title */}
+      <div className="flex items-center gap-3 w-full">
+        <Skeleton className="h-10 w-10 rounded-md" />
+        <Skeleton className="h-5 w-3/4" />
       </div>
-      
-      <CardFooter className="flex w-full justify-between items-center h-3 px-6 flex-shrink-0">
+
+      {/* Description */}
+      <div className="w-full space-y-2">
+        <Skeleton className="h-4 w-full" />
+        <Skeleton className="h-4 w-full" />
+        <Skeleton className="h-4 w-2/3" />
+      </div>
+
+      {/* Divider */}
+      <div className="w-full border-t border-border" />
+
+      {/* Footer */}
+      <div className="flex w-full items-center justify-between gap-3">
+        <Skeleton className="h-8 w-40" />
         <div className="flex items-center gap-2">
           <Skeleton className="h-6 w-6" />
           <Skeleton className="h-6 w-12" />
         </div>
-        <Skeleton className="h-6 w-6" />
-      </CardFooter>
+      </div>
     </Card>
   );
 } 

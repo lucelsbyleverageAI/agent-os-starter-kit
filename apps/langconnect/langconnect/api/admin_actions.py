@@ -71,29 +71,29 @@ async def initialize_platform(
     langgraph_service: Annotated[LangGraphService, Depends(get_langgraph_service)],
 ) -> AdminInitializePlatformResponse:
     """
-    Admin endpoint to initialize the platform by performing all enhancement operations.
-    
-    This consolidated admin endpoint performs all three enhancement scenarios:
-    - Scenario 1: System-Wide Graph Setup (enhance system metadata)
-    - Scenario 2: User-Specific Permission Inheritance (apply inheritance)
-    - Scenario 3: New Dev Admin Catch-Up (sync dev admin permissions)
-    
-    **Phase 1 Consolidation**: All enhancement logic moved from discovery to this explicit admin action.
-    
+    Admin endpoint to initialize the platform.
+
+    This endpoint performs platform initialization:
+    - Discovers graphs from LangGraph
+    - Populates graph metadata (name, description) from config files
+    - Grants graph permissions to all dev_admin users
+
+    NOTE: This does NOT create or enhance any assistants. System assistants created
+    by LangGraph remain hidden. Only user-created assistants appear in the UI.
+
     **Authorization:**
     - **Dev Admins**: Can initialize platform
     - **Service Accounts**: Can initialize platform
     - **Regular Users**: 403 Forbidden
-    
+
     **Options:**
     - **Dry Run**: Preview operations without making changes
-    - **Target User**: Focus inheritance/sync on specific user (optional)
     """
     start_time = time.time()
     
     try:
         log.info(f"Admin platform initialization requested by {actor.actor_type}:{actor.identity} (dry_run={request.dry_run})")
-        
+
         # Step 1: Permission check - only dev_admins or service accounts
         if actor.actor_type == "user":
             user_role = await GraphPermissionsManager.get_user_role(actor.identity)
@@ -102,216 +102,168 @@ async def initialize_platform(
                     status_code=403,
                     detail="Only dev_admin users can initialize the platform"
                 )
-        
+
         operations_performed = []
         successful_operations = 0
         failed_operations = 0
         warnings = []
-        
-        # Step 2: Scenario 1 - System-Wide Graph Setup
-        log.info("Performing Scenario 1: System-Wide Graph Setup")
+
+        # Step 2: Discover and populate graph metadata
+        log.info("Step 1: Discovering graph metadata from LangGraph API")
         try:
+            from langconnect.api.graph_actions.discovery_utils import get_all_graph_metadata_from_api
+
+            all_metadata = await get_all_graph_metadata_from_api(langgraph_service)
+            log.info(f"Found metadata for {len(all_metadata)} graphs")
+
+            graphs_updated = 0
+            graphs_failed = 0
+            metadata_errors = []
+
             if not request.dry_run:
-                system_result = await enhance_system_metadata(langgraph_service, actor)
-            else:
-                # For dry run, simulate the operation
-                system_result = {
-                    "enhanced_assistants": [],
-                    "total_enhanced": 0,
-                    "failed": 0,
-                    "errors": [],
-                    "message": "DRY RUN: Would enhance system assistants with proper metadata"
-                }
-            
-            operations_performed.append(EnhancementResult(
-                operation="system_metadata_enhancement",
-                success=system_result["failed"] == 0,
-                total_enhanced=system_result["total_enhanced"],
-                failed=system_result["failed"],
-                message=system_result["message"],
-                errors=system_result.get("errors", [])
-            ))
-            
-            if system_result["failed"] == 0:
-                successful_operations += 1
-            else:
-                failed_operations += 1
-            
-            log.info(f"Scenario 1 completed: {system_result['total_enhanced']} enhanced, {system_result['failed']} failed")
-            
-        except Exception as e:
-            failed_operations += 1
-            error_msg = f"Scenario 1 failed: {str(e)}"
-            log.error(error_msg)
-            warnings.append(error_msg)
-            operations_performed.append(EnhancementResult(
-                operation="system_metadata_enhancement",
-                success=False,
-                total_enhanced=0,
-                failed=1,
-                message="Failed to enhance system metadata",
-                errors=[str(e)]
-            ))
-        
-        # Step 3: Scenario 2 - User-Specific Permission Inheritance
-        log.info("Performing Scenario 2: User-Specific Permission Inheritance")
-        try:
-                         # Determine target users for inheritance
-            if request.target_user_id:
-                target_users = [request.target_user_id]
-            else:
-                # Apply to all users who might need inheritance (not dev_admins)
-                # Get unique users from graph_permissions table who are not dev_admins
-                from langconnect.database.connection import get_db_connection
                 async with get_db_connection() as conn:
-                    results = await conn.fetch(
-                        """
-                        SELECT DISTINCT gp.user_id, ur.role
-                        FROM langconnect.graph_permissions gp
-                        JOIN langconnect.user_roles ur ON gp.user_id = ur.user_id
-                        WHERE ur.role != 'dev_admin'
-                        """
-                    )
-                    target_users = [row["user_id"] for row in results]
-            
-            total_inherited = 0
-            total_inheritance_failed = 0
-            inheritance_errors = []
-            
-            for user_id in target_users:
-                try:
-                    if not request.dry_run:
-                        inheritance_result = await apply_permission_inheritance(user_id, langgraph_service, actor)
-                    else:
-                        # For dry run, simulate the operation
-                        inheritance_result = {
-                            "inherited_permissions": [],
-                            "total_inherited": 0,
-                            "failed": 0,
-                            "errors": [],
-                            "message": f"DRY RUN: Would apply inheritance for user {user_id}"
-                        }
-                    
-                    total_inherited += inheritance_result["total_inherited"]
-                    total_inheritance_failed += inheritance_result["failed"]
-                    inheritance_errors.extend(inheritance_result.get("errors", []))
-                    
-                except Exception as e:
-                    total_inheritance_failed += 1
-                    inheritance_errors.append(f"User {user_id}: {str(e)}")
-                    log.error(f"Inheritance failed for user {user_id}: {e}")
-            
+                    for graph_id, metadata in all_metadata.items():
+                        try:
+                            await conn.execute(
+                                """
+                                INSERT INTO langconnect.graphs_mirror (graph_id, name, description)
+                                VALUES ($1, $2, $3)
+                                ON CONFLICT (graph_id) DO UPDATE SET
+                                    name = COALESCE(langconnect.graphs_mirror.name, EXCLUDED.name),
+                                    description = COALESCE(langconnect.graphs_mirror.description, EXCLUDED.description),
+                                    updated_at = NOW()
+                                """,
+                                graph_id,
+                                metadata["name"],
+                                metadata["description"]
+                            )
+                            graphs_updated += 1
+                        except Exception as e:
+                            graphs_failed += 1
+                            metadata_errors.append(f"Failed to populate metadata for {graph_id}: {str(e)}")
+                            log.error(f"Failed to populate metadata for {graph_id}: {e}")
+
+                    # Increment graph version to invalidate frontend cache
+                    await conn.fetchval("SELECT langconnect.increment_cache_version('graphs')")
+
             operations_performed.append(EnhancementResult(
-                operation="user_permission_inheritance",
-                success=total_inheritance_failed == 0,
-                total_enhanced=total_inherited,
-                failed=total_inheritance_failed,
-                message=f"Applied permission inheritance to {len(target_users)} users",
-                errors=inheritance_errors
+                operation="graph_metadata_discovery",
+                success=graphs_failed == 0,
+                total_enhanced=graphs_updated if not request.dry_run else len(all_metadata),
+                failed=graphs_failed,
+                message=f"{'Would discover' if request.dry_run else 'Discovered'} metadata for {len(all_metadata)} graphs",
+                errors=metadata_errors
             ))
-            
-            if total_inheritance_failed == 0:
+
+            if graphs_failed == 0:
                 successful_operations += 1
             else:
                 failed_operations += 1
-            
-            log.info(f"Scenario 2 completed: {total_inherited} permissions inherited, {total_inheritance_failed} failed")
-            
+
+            log.info(f"Metadata discovery completed: {graphs_updated} graphs updated, {graphs_failed} failed")
+
         except Exception as e:
             failed_operations += 1
-            error_msg = f"Scenario 2 failed: {str(e)}"
+            error_msg = f"Metadata discovery failed: {str(e)}"
             log.error(error_msg)
             warnings.append(error_msg)
             operations_performed.append(EnhancementResult(
-                operation="user_permission_inheritance",
+                operation="graph_metadata_discovery",
                 success=False,
                 total_enhanced=0,
                 failed=1,
-                message="Failed to apply permission inheritance",
+                message="Failed to discover graph metadata",
                 errors=[str(e)]
             ))
-        
-        # Step 4: Scenario 3 - New Dev Admin Catch-Up
-        log.info("Performing Scenario 3: New Dev Admin Catch-Up")
+
+        # Step 3: Grant graph permissions to all dev_admins
+        log.info("Step 2: Granting graph permissions to dev_admins")
         try:
-            # Get all dev_admins for sync
+            # Get all dev_admins
             dev_admins = await GraphPermissionsManager.get_all_dev_admins()
-            target_dev_admins = [request.target_user_id] if request.target_user_id else [admin["user_id"] for admin in dev_admins]
-            
-            total_synced = 0
-            total_sync_failed = 0
-            sync_errors = []
-            
-            for admin_id in target_dev_admins:
-                try:
-                    if not request.dry_run:
-                        sync_result = await sync_dev_admin_permissions(admin_id, langgraph_service, actor)
-                    else:
-                        # For dry run, simulate the operation
-                        sync_result = {
-                            "synced_permissions": [],
-                            "total_synced": 0,
-                            "failed": 0,
-                            "errors": [],
-                            "message": f"DRY RUN: Would sync permissions for dev_admin {admin_id}"
-                        }
-                    
-                    total_synced += sync_result["total_synced"]
-                    total_sync_failed += sync_result["failed"]
-                    sync_errors.extend(sync_result.get("errors", []))
-                    
-                except Exception as e:
-                    total_sync_failed += 1
-                    sync_errors.append(f"Dev admin {admin_id}: {str(e)}")
-                    log.error(f"Sync failed for dev_admin {admin_id}: {e}")
-            
+            log.info(f"Found {len(dev_admins)} dev_admin users")
+
+            # Get all discovered graphs
+            async with get_db_connection() as conn:
+                graphs_result = await conn.fetch(
+                    "SELECT graph_id FROM langconnect.graphs_mirror ORDER BY graph_id"
+                )
+                graph_ids = [row["graph_id"] for row in graphs_result]
+
+            log.info(f"Found {len(graph_ids)} graphs to grant permissions for")
+
+            permissions_granted = 0
+            permissions_failed = 0
+            permission_errors = []
+
+            if not request.dry_run:
+                for graph_id in graph_ids:
+                    for dev_admin in dev_admins:
+                        try:
+                            # Always attempt to grant permission (ON CONFLICT will handle duplicates)
+                            success = await GraphPermissionsManager.grant_graph_permission(
+                                graph_id=graph_id,
+                                user_id=dev_admin["user_id"],
+                                permission_level="admin",
+                                granted_by="system:platform_initialization"
+                            )
+
+                            if success:
+                                permissions_granted += 1
+                                log.info(f"Granted admin permission for graph {graph_id} to dev_admin {dev_admin['email']}")
+                            else:
+                                permissions_failed += 1
+                                permission_errors.append(f"Failed to grant permission for {graph_id} to {dev_admin['email']}")
+                        except Exception as e:
+                            permissions_failed += 1
+                            permission_errors.append(f"Error granting permission for {graph_id} to {dev_admin['email']}: {str(e)}")
+                            log.error(f"Error granting permission for {graph_id} to {dev_admin['email']}: {e}")
+
             operations_performed.append(EnhancementResult(
-                operation="dev_admin_permission_sync",
-                success=total_sync_failed == 0,
-                total_enhanced=total_synced,
-                failed=total_sync_failed,
-                message=f"Synced permissions for {len(target_dev_admins)} dev_admins",
-                errors=sync_errors
+                operation="dev_admin_graph_permissions",
+                success=permissions_failed == 0,
+                total_enhanced=permissions_granted if not request.dry_run else len(graph_ids) * len(dev_admins),
+                failed=permissions_failed,
+                message=f"{'Would grant' if request.dry_run else 'Granted'} {len(graph_ids)} graph permissions to {len(dev_admins)} dev_admins",
+                errors=permission_errors
             ))
-            
-            if total_sync_failed == 0:
+
+            if permissions_failed == 0:
                 successful_operations += 1
             else:
                 failed_operations += 1
-            
-            log.info(f"Scenario 3 completed: {total_synced} permissions synced, {total_sync_failed} failed")
-            
+
+            log.info(f"Permission grants completed: {permissions_granted} granted, {permissions_failed} failed")
+
         except Exception as e:
             failed_operations += 1
-            error_msg = f"Scenario 3 failed: {str(e)}"
+            error_msg = f"Permission grants failed: {str(e)}"
             log.error(error_msg)
             warnings.append(error_msg)
             operations_performed.append(EnhancementResult(
-                operation="dev_admin_permission_sync",
+                operation="dev_admin_graph_permissions",
                 success=False,
                 total_enhanced=0,
                 failed=1,
-                message="Failed to sync dev admin permissions",
+                message="Failed to grant graph permissions",
                 errors=[str(e)]
             ))
-        
-        # Step 5: Generate summary
+
+        # Step 4: Generate summary
         total_operations = len(operations_performed)
         duration_ms = int((time.time() - start_time) * 1000)
-        
+
         action_word = "would be" if request.dry_run else "were"
         summary_parts = []
-        
+
         for result in operations_performed:
             if result.total_enhanced > 0:
                 summary_parts.append(f"{result.operation}: {result.total_enhanced} operations {action_word} performed")
-        
+
         summary = f"Platform initialization completed: {', '.join(summary_parts) if summary_parts else 'No operations needed'}"
-        
-        
-        
+
         log.info(f"Admin platform initialization completed: {successful_operations} successful, {failed_operations} failed operations in {duration_ms}ms")
-        
+
         return AdminInitializePlatformResponse(
             dry_run=request.dry_run,
             operations_performed=operations_performed,

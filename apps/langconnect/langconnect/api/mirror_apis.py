@@ -46,32 +46,78 @@ async def list_graphs_from_mirror(
 ) -> Dict[str, Any]:
     """
     List graphs from mirror with user permission levels.
-    
+
+    ARCHITECTURE: Independent Endpoint
+    ================================================
+    This endpoint is called by MULTIPLE consumers:
+
+    1. AGGREGATION PROXY: /api/langconnect/user/accessible-graphs (Next.js)
+       - Calls this endpoint + /mirror/assistants to provide combined discovery
+       - See: apps/web/src/app/api/langconnect/user/accessible-graphs/route.ts:118
+
+    2. ADMIN UI: retired-graphs-table component (Direct Call)
+       - Admin component needs graph lists WITHOUT assistant data overhead
+       - See: apps/web/src/components/admin/retired-graphs-table.tsx:113
+       - This dependency prevents consolidation
+
+    WHY SEPARATE FROM ASSISTANTS:
+    - Independent caching with optimized TTL (5 minutes vs 3 minutes)
+    - ETag-based HTTP cache for bandwidth efficiency
+    - Admin queries can fetch graphs without pulling assistant data
+    - Service accounts can query independently for automation
+
+    CACHING STRATEGY:
+    - ETag generation based on graphs_version from cache_state table
+    - Returns 304 Not Modified when client ETag matches
+    - Cache-Control: private, max-age=300 (5 minutes)
+    - Versioning incremented on graph mutations
+
+    PERMISSIONS:
+    - Filters by graph_permissions table (user access control)
+    - Respects retired graphs (hidden from non-admins)
+    - Service accounts see all graphs
+
     Serves from graphs_mirror joined with user permissions for fast reads.
-    Supports ETags for efficient caching.
     """
     try:
         log.info(f"Listing graphs from mirror for {actor.actor_type}:{actor.identity}")
         
         async with get_db_connection() as conn:
+            # ========================================================================
+            # ETAG CACHING: Independent cache for graphs (5min TTL)
+            # ========================================================================
+            # This endpoint has its own cache version separate from assistants
+            # because graph templates change less frequently than user-created
+            # assistants. Admin UI depends on this independent caching.
+            # ========================================================================
+
             # Get cache state for ETag
             cache_state = await conn.fetchrow(
                 "SELECT graphs_version FROM langconnect.cache_state WHERE id = 1"
             )
             graphs_version = cache_state["graphs_version"] if cache_state else 1
-            
+
             # Generate ETag from version
             etag = f'"graphs-v{graphs_version}"'
-            
+
             # Check if client has current version
             if if_none_match == etag:
                 response.status_code = 304
                 return {}
-            
+
             # Set ETag header
             response.headers["ETag"] = etag
             response.headers["Cache-Control"] = "private, max-age=300"  # 5 minutes soft cache
-            
+
+            # ========================================================================
+            # ADMIN UI DEPENDENCY: Retired graphs filter
+            # ========================================================================
+            # The retired-graphs-table admin component (apps/web/src/components/
+            # admin/retired-graphs-table.tsx:113) calls this endpoint directly to
+            # manage which graphs are visible to users. This prevents consolidating
+            # this endpoint with /mirror/assistants.
+            # ========================================================================
+
             # Exclude retired graphs for non-admin users
             include_retired = False
             if actor.actor_type == "user":
@@ -81,7 +127,7 @@ async def list_graphs_from_mirror(
             if actor.actor_type == "service":
                 # Service accounts see all graphs
                 graphs_query = """
-                    SELECT 
+                    SELECT
                         gm.graph_id,
                         gm.assistants_count,
                         gm.has_default_assistant,
@@ -91,10 +137,11 @@ async def list_graphs_from_mirror(
                         gm.langgraph_first_seen_at,
                         gm.langgraph_last_seen_at,
                         NULL as user_permission_level,
-                        NULL as permission_granted_at
+                        NULL as permission_granted_at,
+                        (SELECT assistant_id FROM langconnect.assistants_mirror WHERE graph_id = gm.graph_id AND metadata->>'created_by' = 'system' LIMIT 1) as system_assistant_id
                     FROM langconnect.graphs_mirror gm
                     LEFT JOIN langconnect.admin_retired_graphs rg ON rg.graph_id = gm.graph_id AND rg.status = 'marked'
-                    WHERE gm.assistants_count > 0 AND ($1::boolean OR rg.graph_id IS NULL)
+                    WHERE $1::boolean OR rg.graph_id IS NULL
                     ORDER BY gm.graph_id
                 """
                 graphs = await conn.fetch(graphs_query, include_retired)
@@ -112,7 +159,7 @@ async def list_graphs_from_mirror(
                 
                 # Join with user permissions
                 graphs_query = """
-                    SELECT 
+                    SELECT
                         gm.graph_id,
                         gm.assistants_count,
                         gm.has_default_assistant,
@@ -122,11 +169,12 @@ async def list_graphs_from_mirror(
                         gm.langgraph_first_seen_at,
                         gm.langgraph_last_seen_at,
                         gp.permission_level as user_permission_level,
-                        gp.created_at as permission_granted_at
+                        gp.created_at as permission_granted_at,
+                        (SELECT assistant_id FROM langconnect.assistants_mirror WHERE graph_id = gm.graph_id AND metadata->>'created_by' = 'system' LIMIT 1) as system_assistant_id
                     FROM langconnect.graphs_mirror gm
                     LEFT JOIN langconnect.admin_retired_graphs rg ON rg.graph_id = gm.graph_id AND rg.status = 'marked'
                     LEFT JOIN langconnect.graph_permissions gp ON gm.graph_id = gp.graph_id AND gp.user_id = $1
-                    WHERE gm.graph_id = ANY($2) AND gm.assistants_count > 0 AND ($3::boolean OR rg.graph_id IS NULL)
+                    WHERE gm.graph_id = ANY($2) AND ($3::boolean OR rg.graph_id IS NULL)
                     ORDER BY gm.graph_id
                 """
                 graphs = await conn.fetch(graphs_query, actor.identity, accessible_graph_ids, include_retired)
@@ -142,6 +190,7 @@ async def list_graphs_from_mirror(
                     "name": graph["name"],
                     "description": graph["description"],
                     "user_permission_level": graph["user_permission_level"],
+                    "system_assistant_id": str(graph["system_assistant_id"]) if graph["system_assistant_id"] else None,
                     "available": True,
                     "created_at": graph["permission_granted_at"].isoformat() if graph["permission_granted_at"] else None
                 })
@@ -177,12 +226,49 @@ async def list_assistants_from_mirror(
 ) -> Dict[str, Any]:
     """
     List assistants from mirror with permission metadata.
-    
+
+    ARCHITECTURE: Independent Endpoint
+    ================================================
+    This endpoint is called by AGGREGATION PROXY ONLY:
+
+    1. AGGREGATION PROXY: /api/langconnect/user/accessible-graphs (Next.js)
+       - Calls /mirror/graphs + this endpoint to provide combined discovery
+       - See: apps/web/src/app/api/langconnect/user/accessible-graphs/route.ts:130
+
+    WHY SEPARATE FROM GRAPHS:
+    - Independent caching with optimized TTL (3 minutes vs 5 minutes)
+      * Assistants update more frequently than graph templates
+      * Shorter TTL ensures fresher data for user-created assistants
+    - ETag-based HTTP cache for bandwidth efficiency
+    - Allows future direct queries without graph data overhead
+    - Clean separation of concerns (agents vs agent instances)
+
+    CACHING STRATEGY:
+    - ETag generation based on assistants_version from cache_state table
+    - Returns 304 Not Modified when client ETag matches
+    - Cache-Control: private, max-age=180 (3 minutes)
+    - Incremental sync before listing to reduce post-create flicker
+    - Versioning incremented on assistant mutations
+
+    PERMISSIONS:
+    - Filters by assistant_permissions table (owner/viewer access)
+    - Includes owner metadata for UI display
+    - Counts owned vs shared assistants for UI metrics
+    - Respects retired graphs (hides assistants from retired templates)
+    - Service accounts see all assistants
+
     Serves from assistants_mirror joined with permissions and presentation metadata.
     """
     try:
         log.info(f"Listing assistants from mirror for {actor.actor_type}:{actor.identity}")
         
+        # ========================================================================
+        # INCREMENTAL SYNC: Reduce flicker for newly-created assistants
+        # ========================================================================
+        # Pre-sync ensures the mirror is current before listing, reducing the
+        # chance that a user sees stale data immediately after creating an assistant.
+        # ========================================================================
+
         # Ensure mirrors are current for the calling user to avoid flicker after create
         try:
             if actor.actor_type != "service":
@@ -192,20 +278,28 @@ async def list_assistants_from_mirror(
             log.warning(f"Incremental sync before listing assistants failed (continuing): {e}")
 
         async with get_db_connection() as conn:
+            # ========================================================================
+            # ETAG CACHING: Independent cache for assistants (3min TTL)
+            # ========================================================================
+            # This endpoint has its own cache version separate from graphs because
+            # user-created assistants update more frequently than graph templates.
+            # Shorter TTL (3min vs 5min) ensures fresher data.
+            # ========================================================================
+
             # Get cache state for ETag
             cache_state = await conn.fetchrow(
                 "SELECT assistants_version FROM langconnect.cache_state WHERE id = 1"
             )
             assistants_version = cache_state["assistants_version"] if cache_state else 1
-            
+
             # Generate ETag from version
             etag = f'"assistants-v{assistants_version}"'
-            
+
             # Check if client has current version
             if if_none_match == etag:
                 response.status_code = 304
                 return {}
-            
+
             # Set ETag header
             response.headers["ETag"] = etag
             response.headers["Cache-Control"] = "private, max-age=180"  # 3 minutes soft cache
@@ -218,11 +312,12 @@ async def list_assistants_from_mirror(
             if actor.actor_type == "service":
                 # Service accounts see all assistants
                 assistants_query = """
-                    SELECT 
+                    SELECT
                         am.assistant_id,
                         am.graph_id,
                         am.name,
                         am.description,
+                        am.tags,
                         am.config,
                         am.metadata,
                         am.version,
@@ -240,11 +335,12 @@ async def list_assistants_from_mirror(
             else:
                 # Regular users see only assistants they have permission for
                 assistants_query = """
-                    SELECT 
+                    SELECT
                         am.assistant_id,
                         am.graph_id,
                         am.name,
                         am.description,
+                        am.tags,
                         am.config,
                         am.metadata,
                         am.version,
@@ -274,6 +370,7 @@ async def list_assistants_from_mirror(
                     "graph_id": assistant["graph_id"],
                     "name": assistant["name"],
                     "description": assistant["description"],
+                    "tags": assistant["tags"] or [],
                     "config": assistant["config"],
                     "metadata": assistant["metadata"],
                     "version": assistant["version"],
@@ -333,11 +430,12 @@ async def get_assistant_from_mirror(
             if actor.actor_type == "service":
                 # Service accounts can see any assistant
                 assistant_query = """
-                    SELECT 
+                    SELECT
                         am.assistant_id,
                         am.graph_id,
                         am.name,
                         am.description,
+                        am.tags,
                         am.config,
                         am.metadata,
                         am.context,
@@ -356,11 +454,12 @@ async def get_assistant_from_mirror(
             else:
                 # Regular users need permission
                 assistant_query = """
-                    SELECT 
+                    SELECT
                         am.assistant_id,
                         am.graph_id,
                         am.name,
                         am.description,
+                        am.tags,
                         am.config,
                         am.metadata,
                         am.context,
@@ -402,12 +501,13 @@ async def get_assistant_from_mirror(
             
             # Set cache headers
             response.headers["Cache-Control"] = "private, max-age=180"
-            
+
             return {
                 "assistant_id": str(assistant["assistant_id"]),
                 "graph_id": assistant["graph_id"],
                 "name": assistant["name"],
                 "description": assistant["description"],
+                "tags": assistant["tags"] or [],
                 "config": assistant["config"],
                 "metadata": assistant["metadata"],
                 "context": assistant["context"],
@@ -529,6 +629,107 @@ async def get_assistant_schemas_from_mirror(
         raise HTTPException(
             status_code=500,
             detail=f"Failed to get schemas from mirror: {str(e)}"
+        )
+
+
+@router.get("/graphs/{graph_id}/schemas")
+async def get_graph_schemas_from_mirror(
+    graph_id: str,
+    actor: Annotated[AuthenticatedActor, Depends(resolve_user_or_service)],
+    response: Response,
+    if_none_match: Optional[str] = Header(None, alias="if-none-match")
+) -> Dict[str, Any]:
+    """
+    Get graph template schemas from mirror with ETag support.
+
+    This returns the configuration schema for creating new agents from a graph template.
+    Requires graph permission (admin or access).
+    """
+    try:
+        log.info(f"Getting schemas for graph {graph_id} from mirror")
+
+        # Check user permission first
+        if actor.actor_type != "service":
+            has_permission = await GraphPermissionsManager.has_graph_permission(
+                actor.identity, graph_id, "access"
+            )
+            if not has_permission:
+                raise HTTPException(
+                    status_code=403,
+                    detail="You do not have permission to access this graph"
+                )
+
+        async with get_db_connection() as conn:
+            # Get schemas with ETag
+            schemas_query = """
+                SELECT
+                    input_schema,
+                    config_schema,
+                    state_schema,
+                    schema_etag,
+                    last_fetched_at
+                FROM langconnect.graph_schemas
+                WHERE graph_id = $1
+            """
+            schemas = await conn.fetchrow(schemas_query, graph_id)
+
+            if not schemas:
+                # If no cached schemas, synchronously attempt to populate them
+                log.warning(f"No cached schemas for graph {graph_id}. Attempting synchronous sync...")
+
+                try:
+                    # Use sync service to populate graph schemas
+                    user_token = actor.access_token if hasattr(actor, "access_token") else None
+                    sync_service = get_sync_service()
+
+                    # Sync the graph and its schemas
+                    await sync_service.sync_graph(graph_id, user_token=user_token)
+
+                    # Re-read cached schemas
+                    schemas = await conn.fetchrow(schemas_query, graph_id)
+                except Exception as sync_error:
+                    log.error(f"Synchronous schema sync failed for graph {graph_id}: {sync_error}")
+
+                if not schemas:
+                    # Still not ready - return 202 Accepted with Retry-After
+                    response.status_code = 202
+                    response.headers["Retry-After"] = "1"
+                    return {
+                        "warming": True,
+                        "detail": "Graph schemas are being prepared, please retry shortly"
+                    }
+
+            # Check ETag
+            etag = f'"{schemas["schema_etag"]}"'
+            if if_none_match == etag:
+                response.status_code = 304
+                return {}
+
+            # Set cache headers
+            response.headers["ETag"] = etag
+            response.headers["Cache-Control"] = "private, max-age=3600"  # 1 hour (graph schemas change rarely)
+
+            # Get cache version for client
+            cache_state = await conn.fetchrow(
+                "SELECT graph_schemas_version FROM langconnect.cache_state WHERE id = 1"
+            )
+            graph_schemas_version = cache_state["graph_schemas_version"] if cache_state else 1
+
+            return {
+                "input_schema": schemas["input_schema"],
+                "config_schema": schemas["config_schema"],
+                "state_schema": schemas["state_schema"],
+                "last_fetched_at": schemas["last_fetched_at"].isoformat(),
+                "graph_schemas_version": graph_schemas_version
+            }
+
+    except HTTPException:
+        raise
+    except Exception as e:
+        log.error(f"Failed to get graph schemas from mirror: {str(e)}")
+        raise HTTPException(
+            status_code=500,
+            detail=f"Failed to get graph schemas from mirror: {str(e)}"
         )
 
 
