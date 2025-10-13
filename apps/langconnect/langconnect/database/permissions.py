@@ -1,4 +1,33 @@
-"""Permission utilities for collections, graphs, and assistants."""
+"""
+Permission utilities for collections, graphs, and assistants.
+
+This module provides the core permission management system for Agent OS.
+All functions in this module enforce SECURITY-CRITICAL access control.
+
+## Security Model
+- Frontend permission checks (agent-utils.ts) are UI-only for better UX
+- THIS MODULE enforces actual security - all checks here are authorization gates
+- Service accounts have elevated access but must specify owner_id for operations
+
+## Permission Levels
+
+### Graph Permissions
+- `access`: Can view graph and create assistants from it
+- `admin`: Can manage access (grant/revoke permissions to others)
+
+### Assistant Permissions
+- `viewer`: Can view and chat with assistant
+- `editor`: Can edit configuration and chat
+- `owner`: Can delete and share assistant
+- `admin`: Service accounts only (full control)
+
+### User Roles
+- `dev_admin`: Platform administrator with implicit graph access (see notes in docs/permission-rules.md)
+- `business_admin`: (Not yet implemented)
+- `user`: Standard user with explicit permissions only
+
+For comprehensive documentation, see: docs/permission-rules.md
+"""
 
 from typing import Dict, Optional, List, Any
 from langconnect.database.connection import get_db_connection
@@ -107,7 +136,26 @@ async def get_user_collection_permission(
 
 
 class GraphPermissionsManager:
-    """Facade exposing graph permission operations used across the API."""
+    """
+    Facade exposing graph permission operations used across the API.
+
+    **SECURITY ENFORCEMENT:** All methods in this class enforce authorization.
+
+    Graph permissions control who can:
+    - View available graph templates
+    - Create assistants from graph templates
+    - Manage access for others (grant/revoke permissions)
+
+    ## Dev Admin Behavior (Important)
+
+    Dev admins have IMPLICIT admin access to all graphs:
+    - `has_graph_permission()` returns True immediately for dev_admin users
+    - `get_user_accessible_graphs()` returns all graphs with admin level
+    - No explicit permission records required
+
+    This differs from assistant permissions where dev_admins need explicit grants.
+    See docs/permission-rules.md for team discussion on unifying this behavior.
+    """
 
     @staticmethod
     async def get_user_role(user_id: str) -> Optional[str]:
@@ -146,6 +194,25 @@ class GraphPermissionsManager:
 
     @staticmethod
     async def has_graph_permission(user_id: str, graph_id: str, required_level: str) -> bool:
+        """
+        **SECURITY ENFORCEMENT:** Check if user has required permission level for a graph.
+
+        Args:
+            user_id: User ID to check permissions for
+            graph_id: Graph ID to check (e.g., 'deepagent', 'tools_agent')
+            required_level: Required permission level ('access' or 'admin')
+
+        Returns:
+            True if user has required permission or higher, False otherwise
+
+        ## Dev Admin Bypass
+        Dev admins automatically return True for any permission check.
+        This is a SECURITY DECISION - see docs/permission-rules.md for discussion.
+
+        ## Permission Logic
+        - `required_level='access'`: Returns True if user has 'access' or 'admin'
+        - `required_level='admin'`: Returns True only if user has 'admin'
+        """
         role = await GraphPermissionsManager.get_user_role(user_id)
         if role == "dev_admin":
             return True
@@ -324,7 +391,37 @@ class GraphPermissionsManager:
 
 
 class AssistantPermissionsManager:
-    """Facade exposing assistant permission operations."""
+    """
+    Facade exposing assistant permission operations.
+
+    **SECURITY ENFORCEMENT:** All methods in this class enforce authorization.
+
+    Assistant permissions control who can:
+    - View assistant details and chat with it (viewer+)
+    - Edit assistant configuration (editor+)
+    - Delete assistant (owner only)
+    - Share assistant with others (owner only)
+
+    ## Permission Levels
+    - `viewer`: Read-only access, can chat
+    - `editor`: Can modify configuration and chat
+    - `owner`: Full control including delete and sharing
+    - `admin`: Service accounts only (full control)
+
+    ## Dev Admin Behavior (Important)
+
+    Unlike graph permissions, dev admins DO NOT have implicit assistant access.
+    They must be granted explicit permissions like regular users.
+
+    This creates an inconsistency with graph permission behavior.
+    See docs/permission-rules.md for team discussion on unifying behavior.
+
+    ## Default Assistant Protection
+
+    Default assistants (metadata._x_oap_is_default === true) should not be
+    edited or deleted. Frontend explicitly checks for this. Backend should
+    add explicit validation (see Phase 2 of refactoring plan).
+    """
 
     @staticmethod
     async def get_assistant_metadata(assistant_id: str) -> Optional[Dict[str, Any]]:
