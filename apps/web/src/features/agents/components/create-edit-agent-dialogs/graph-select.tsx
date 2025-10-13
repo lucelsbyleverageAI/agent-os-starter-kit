@@ -9,7 +9,7 @@ import {
 import { Agent } from "@/types/agent";
 import {
   groupAgentsByGraphs,
-  isUserCreatedDefaultAssistant,
+  isUserDefaultAssistant,
 } from "@/lib/agent-utils";
 import _ from "lodash";
 import { useAgentsContext } from "@/providers/Agents";
@@ -44,7 +44,7 @@ export function GraphSelect({
     // Group filtered agents by graph (still needed for sorting/grouping logic)
     const agentsGroupedByGraphs = groupAgentsByGraphs(deploymentAgents);
     return agentsGroupedByGraphs.flatMap(
-      (group) => group.find((g) => isUserCreatedDefaultAssistant(g)) ?? [],
+      (group) => group.find((g) => isUserDefaultAssistant(g)) ?? [],
     );
   });
 

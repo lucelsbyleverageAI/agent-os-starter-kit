@@ -23,6 +23,7 @@ import { Badge } from "@/components/ui/badge";
 import { Crown, Edit, Shield, UserMinus } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { getScrollbarClasses } from "@/lib/scrollbar-styles";
+import { logger } from "@/lib/logger";
 
 interface EditAgentDialogProps {
   agent: Agent;
@@ -59,6 +60,7 @@ function EditAgentDialogContent({
   const form = useForm<{
     name: string;
     description: string;
+    tags: string[];
     config: Record<string, any>;
   }>({
     defaultValues: async () => {
@@ -70,6 +72,7 @@ function EditAgentDialogContent({
       return {
         name: resolvedName,
         description: resolvedDescription,
+        tags: agent.tags || [],
         config: values?.config ?? {},
       };
     },
@@ -78,6 +81,7 @@ function EditAgentDialogContent({
   const handleSubmit = async (data: {
     name: string;
     description: string;
+    tags: string[];
     config: Record<string, any>;
   }) => {
     if (!data.name || !data.description) {
@@ -92,7 +96,13 @@ function EditAgentDialogContent({
     const result = await updateAgent(
       agent.assistant_id,
       agent.deploymentId,
-      data,
+      {
+        name: data.name,
+        description: data.description,
+        config: data.config,
+        tags: data.tags || [],
+        metadata: agent.metadata,
+      },
     );
 
     if (!result.ok) {
@@ -115,7 +125,7 @@ function EditAgentDialogContent({
       invalidateAssistantListCache();
       await refreshAgents(true);
     } catch (cacheError) {
-      console.warn("Cache invalidation failed:", cacheError);
+      logger.warn("Cache invalidation failed:", cacheError);
     }
 
     onClose();

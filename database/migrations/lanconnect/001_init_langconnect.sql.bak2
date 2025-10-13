@@ -1670,7 +1670,7 @@ COMMENT ON COLUMN langconnect.assistant_schemas.config_schema IS 'LangGraph conf
 COMMENT ON COLUMN langconnect.assistant_schemas.state_schema IS 'LangGraph state schema (for advanced configuration)';
 COMMENT ON COLUMN langconnect.assistant_schemas.schema_etag IS 'Hash of all schemas for change detection';
 
-COMMENT ON TABLE langconnect.graph_schemas IS 'Cached graph template schemas from LangGraph graph template assistants for agent creation UI';
+COMMENT ON TABLE langconnect.graph_schemas IS 'Cached graph template schemas from LangGraph system assistants for agent creation UI';
 COMMENT ON COLUMN langconnect.graph_schemas.input_schema IS 'LangGraph graph input schema (for form/chat mode detection)';
 COMMENT ON COLUMN langconnect.graph_schemas.config_schema IS 'LangGraph graph config schema (for agent creation configuration UI)';
 COMMENT ON COLUMN langconnect.graph_schemas.state_schema IS 'LangGraph graph state schema (for advanced configuration)';

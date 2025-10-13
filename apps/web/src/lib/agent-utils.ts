@@ -3,17 +3,17 @@ import { getDeployments } from "./environment/deployments";
 import { Assistant } from "@langchain/langgraph-sdk";
 
 /**
- * Determines if an agent is the user's default agent.
+ * Determines if an agent is a user default assistant.
  *
- * Each user gets their own default agent in a deployment since they cannot
- * access the system-created default agent. This function checks if the given
- * agent has been marked as a user's default. This is NOT the primary agent
- * for the entire OAP deployment, but rather the default agent for a given graph.
+ * User default assistants are created by users or the system on behalf of users,
+ * and marked as the default agent for a specific graph. Each user can have their
+ * own default assistant per graph. This is NOT the primary agent for the entire
+ * platform, but rather the default agent for a given graph.
  *
  * @param agent The agent to check
- * @returns True if the agent is a user's default agent
+ * @returns True if the agent is a user default assistant (_x_oap_is_default === true)
  */
-export function isUserCreatedDefaultAssistant(
+export function isUserDefaultAssistant(
   agent: Agent | Assistant,
 ): boolean {
   const raw = (agent as any)?.metadata;
@@ -26,18 +26,19 @@ export function isUserCreatedDefaultAssistant(
 }
 
 /**
- * Determines if an agent is a system-created default assistant.
+ * Determines if an agent is a graph template assistant.
  *
- * System-created default assistants are created by the platform itself
- * rather than by users. Each graph on a deployment will always have a single
- * default assistant, created by the platform. This function checks the agent's
- * metadata to determine its origin. These agents will only be accessible if using
- * admin auth (NEXT_PUBLIC_USE_LANGSMITH_AUTH="true").
+ * Graph template assistants are created automatically by LangGraph to hold
+ * metadata and schemas for each graph template. They serve as the source of
+ * truth for graph configuration and are used for discovery and schema extraction.
+ *
+ * These assistants are filtered from user-facing lists but are synced to the
+ * mirror for template lookups. They are identified by metadata.created_by === "system".
  *
  * @param agent The agent to check
- * @returns True if the agent was created by the system
+ * @returns True if the agent is a graph template assistant (created_by === "system")
  */
-export function isSystemCreatedDefaultAssistant(
+export function isGraphTemplateAssistant(
   agent: Agent | Assistant,
 ): boolean {
   return agent.metadata?.created_by === "system";
@@ -71,7 +72,7 @@ export function isUserSpecifiedDefaultAgent(agent: Agent): boolean {
     return false;
   }
   return (
-    isUserCreatedDefaultAssistant(agent) &&
+    isUserDefaultAssistant(agent) &&
     agent.graph_id === defaultDeployment.defaultGraphId &&
     agent.deploymentId === defaultDeployment.id
   );
@@ -85,8 +86,8 @@ export function isUserSpecifiedDefaultAgent(agent: Agent): boolean {
  */
 export function sortAgentGroup(agentGroup: Agent[]): Agent[] {
   return [...agentGroup].sort((a, b) => {
-    const aIsDefault = isUserCreatedDefaultAssistant(a);
-    const bIsDefault = isUserCreatedDefaultAssistant(b);
+    const aIsDefault = isUserDefaultAssistant(a);
+    const bIsDefault = isUserDefaultAssistant(b);
 
     if (aIsDefault && !bIsDefault) {
       return -1; // a comes first
@@ -144,10 +145,10 @@ export function groupAgentsByGraphs<AgentOrAssistant extends Agent | Assistant>(
  * canUserDeleteAssistant({ permission_level: 'editor', metadata: {} }) // false
  * 
  * // Owner of default assistant - cannot delete (system-managed)
- * canUserDeleteAssistant({ permission_level: 'owner', metadata: { _x_oap_is_default: true } }) // false
+ * canUserDeleteAssistant({ permission_level: 'owner', metadata: { _x_oap_is_default: true } }) // false (user default assistant)
  */
 export function canUserDeleteAssistant(agent: Agent): boolean {
-  const isDefaultAgent = isUserCreatedDefaultAssistant(agent);
+  const isDefaultAgent = isUserDefaultAssistant(agent);
   const isOwner = agent.permission_level === 'owner';
   
   // Default assistants cannot be deleted
@@ -180,10 +181,10 @@ export function canUserDeleteAssistant(agent: Agent): boolean {
  * canUserEditAssistant({ permission_level: 'viewer', metadata: {} }) // false
  * 
  * // Owner of default assistant - cannot edit (system-managed)
- * canUserEditAssistant({ permission_level: 'owner', metadata: { _x_oap_is_default: true } }) // false
+ * canUserEditAssistant({ permission_level: 'owner', metadata: { _x_oap_is_default: true } }) // false (user default assistant)
  */
 export function canUserEditAssistant(agent: Agent): boolean {
-  const isDefaultAgent = isUserCreatedDefaultAssistant(agent);
+  const isDefaultAgent = isUserDefaultAssistant(agent);
   const permissionLevel = agent.permission_level;
   
   // Default assistants cannot be edited
@@ -216,10 +217,10 @@ export function canUserEditAssistant(agent: Agent): boolean {
  * canUserRevokeOwnAccess({ permission_level: 'owner', metadata: {} }) // false
  * 
  * // Editor of default assistant - cannot revoke (system-managed)
- * canUserRevokeOwnAccess({ permission_level: 'editor', metadata: { _x_oap_is_default: true } }) // false
+ * canUserRevokeOwnAccess({ permission_level: 'editor', metadata: { _x_oap_is_default: true } }) // false (user default assistant)
  */
 export function canUserRevokeOwnAccess(agent: Agent): boolean {
-  const isDefaultAgent = isUserCreatedDefaultAssistant(agent);
+  const isDefaultAgent = isUserDefaultAssistant(agent);
   const permissionLevel = agent.permission_level;
   
   // Default assistants cannot be revoked from (system-managed)

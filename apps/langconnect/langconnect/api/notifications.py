@@ -255,72 +255,8 @@ async def accept_notification(
 
         # Accept the notification (this will grant the permission)
         success = await NotificationManager.accept_notification(notification_id)
-        
+
         if success:
-            # For graph permissions, apply inheritance logic to grant default assistant access
-            if notification["resource_type"] == "graph":
-                try:
-                    log.info(f"Applying inheritance logic for graph permission: user {actor.identity}, graph {notification['resource_id']}")
-                    
-                    # Find default assistants for this graph
-                    assistants_data = await langgraph_service._make_request(
-                        "POST", 
-                        "assistants/search", 
-                        data={
-                            "graph_id": notification["resource_id"],
-                            "limit": 100,
-                            "offset": 0
-                        }
-                    )
-                    assistants = assistants_data if isinstance(assistants_data, list) else assistants_data.get("assistants", [])
-                    
-                    # Filter for system/default assistants
-                    default_assistants = [
-                        assistant for assistant in assistants
-                        if assistant.get("metadata", {}).get("created_by") == "system" or
-                        assistant.get("metadata", {}).get("_x_oap_is_default") == True
-                    ]
-                    
-                    log.info(f"Found {len(default_assistants)} default assistants for graph {notification['resource_id']}")
-                    
-                    # Grant assistant permissions to the RECIPIENT (not sender)
-                    inheritance_permissions_created = 0
-                    for assistant in default_assistants:
-                        assistant_id = assistant.get("assistant_id")
-                        
-                        # Check if user already has permission for this assistant
-                        existing_permission = await AssistantPermissionsManager.get_user_permission_for_assistant(
-                            user_id=actor.identity,  # This is the recipient
-                            assistant_id=assistant_id
-                        )
-                        
-                        if not existing_permission:
-                            # Grant assistant permission to implement inheritance
-                            # For default assistants, users get viewer-only access
-                            perm_success = await AssistantPermissionsManager.grant_assistant_permission(
-                                assistant_id=assistant_id,
-                                user_id=actor.identity,  # Grant to RECIPIENT, not sender
-                                permission_level="viewer",
-                                granted_by="system:inheritance"
-                            )
-                            
-                            if perm_success:
-                                inheritance_permissions_created += 1
-                                log.info(f"Granted inherited viewer permission to recipient {actor.identity} for assistant {assistant_id}")
-                            else:
-                                log.warning(f"Failed to grant inherited assistant permission to recipient {actor.identity} for assistant {assistant_id}")
-                        else:
-                            log.info(f"Recipient {actor.identity} already has permission for assistant {assistant_id}")
-                    
-                    if inheritance_permissions_created > 0:
-                        log.info(f"Inheritance completed: granted {inheritance_permissions_created} assistant permissions to recipient")
-                    
-                except Exception as e:
-                    log.error(f"Error during permission inheritance: {e}")
-                    # Don't fail the notification acceptance if inheritance fails
-            
-            
-            
             log.info(f"Successfully accepted notification {notification_id}")
 
             # If this is an assistant notification but the user lacks graph permission, return a guided message
