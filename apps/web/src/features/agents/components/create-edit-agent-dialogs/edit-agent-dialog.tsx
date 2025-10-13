@@ -101,7 +101,7 @@ function EditAgentDialogContent({
         description: data.description,
         config: data.config,
         tags: data.tags || [],
-        metadata: agent.metadata,
+        metadata: agent.metadata || undefined,
       },
     );
 

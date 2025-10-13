@@ -20,8 +20,9 @@ from langconnect.models.agent import (
     AssistantPermissionInfo,
 )
 from langconnect.services.langgraph_integration import get_langgraph_service, LangGraphService
- 
+
 from langconnect.services.langgraph_sync import LangGraphSyncService, get_sync_service
+from langconnect.services.permission_service import PermissionService
 from langconnect.database.permissions import GraphPermissionsManager, AssistantPermissionsManager
 from langconnect.database.connection import get_db_connection
 from uuid import UUID
@@ -65,7 +66,10 @@ async def list_accessible_assistants(
             for assistant in langgraph_assistants:
                 # Get metadata if it exists in our system
                 metadata = await AssistantPermissionsManager.get_assistant_metadata(assistant.get("assistant_id"))
-                
+
+                # Get allowed actions for service account (always has admin access)
+                allowed_actions = ["view", "chat", "edit", "delete", "share", "manage_access"]
+
                 assistant_info = AssistantInfo(
                     assistant_id=assistant.get("assistant_id"),
                     graph_id=assistant.get("graph_id"),
@@ -76,7 +80,8 @@ async def list_accessible_assistants(
                     owner_display_name=metadata.get("owner_display_name") if metadata else None,
                     created_at=assistant.get("created_at", ""),
                     updated_at=assistant.get("updated_at"),
-                    metadata=assistant.get("metadata")
+                    metadata=assistant.get("metadata"),
+                    allowed_actions=allowed_actions
                 )
                 assistants.append(assistant_info)
             
@@ -102,7 +107,15 @@ async def list_accessible_assistants(
                 except Exception as e:
                     log.warning(f"Could not get LangGraph data for assistant {assistant_data['assistant_id']}: {e}")
                     langgraph_assistant = {}
-                
+
+                # Get allowed actions for this user (Phase 3: Centralized permissions)
+                allowed_actions = await PermissionService.get_allowed_actions(
+                    user_id=actor.identity,
+                    resource_type="assistant",
+                    resource_id=assistant_data["assistant_id"],
+                    resource_metadata=langgraph_assistant
+                )
+
                 assistant_info = AssistantInfo(
                     assistant_id=assistant_data["assistant_id"],
                     graph_id=assistant_data["graph_id"],
@@ -113,7 +126,8 @@ async def list_accessible_assistants(
                     owner_display_name=assistant_data["owner_display_name"],
                     created_at=assistant_data["assistant_created_at"].isoformat() if assistant_data["assistant_created_at"] else "",
                     updated_at=assistant_data["assistant_updated_at"].isoformat() if assistant_data["assistant_updated_at"] else None,
-                    metadata=langgraph_assistant.get("metadata")
+                    metadata=langgraph_assistant.get("metadata"),
+                    allowed_actions=allowed_actions
                 )
                 assistants.append(assistant_info)
                 
@@ -315,9 +329,18 @@ async def register_assistant(
                 )
                 for perm in permissions_data
             ]
-        
-        
-        
+
+        # Step 6.5: Get allowed actions (Phase 3: Centralized permissions)
+        if actor.actor_type == "service":
+            allowed_actions = ["view", "chat", "edit", "delete", "share", "manage_access"]
+        else:
+            allowed_actions = await PermissionService.get_allowed_actions(
+                user_id=actor.identity,
+                resource_type="assistant",
+                resource_id=request.assistant_id,
+                resource_metadata=langgraph_assistant
+            )
+
         successful_shares = len([r for r in sharing_results if r["success"]])
         log.info(f"Assistant {request.assistant_id} registered successfully, shared with {successful_shares} users")
         
@@ -372,7 +395,8 @@ async def register_assistant(
             permissions=permissions,
             metadata=langgraph_assistant.get("metadata"),
             config=langgraph_assistant.get("config"),
-            schemas_warming=schemas_warming
+            schemas_warming=schemas_warming,
+            allowed_actions=allowed_actions
         )
         
     except HTTPException:
@@ -450,9 +474,20 @@ async def get_assistant_details(
                 )
                 for perm in permissions_data
             ]
-        
+
+        # Get allowed actions (Phase 3: Centralized permissions)
+        if actor.actor_type == "service":
+            allowed_actions = ["view", "chat", "edit", "delete", "share", "manage_access"]
+        else:
+            allowed_actions = await PermissionService.get_allowed_actions(
+                user_id=actor.identity,
+                resource_type="assistant",
+                resource_id=assistant_id,
+                resource_metadata=langgraph_assistant
+            )
+
         log.info(f"Retrieved assistant details for {assistant_id} with permission level {user_permission_level}")
-        
+
         return AssistantDetailsResponse(
             assistant_id=assistant_id,
             graph_id=metadata.get("graph_id") if metadata else langgraph_assistant.get("graph_id", "unknown"),
@@ -465,7 +500,8 @@ async def get_assistant_details(
             user_permission_level=user_permission_level,
             permissions=permissions,
             metadata=langgraph_assistant.get("metadata"),
-            config=langgraph_assistant.get("config")
+            config=langgraph_assistant.get("config"),
+            allowed_actions=allowed_actions
         )
         
     except HTTPException:

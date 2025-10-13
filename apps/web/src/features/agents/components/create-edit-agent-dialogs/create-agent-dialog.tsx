@@ -128,6 +128,7 @@ function CreateAgentFormContent(props: {
       ...newAgent,
       deploymentId: props.selectedDeployment.id,
       permission_level: "owner" as const,
+      allowed_actions: ["view", "chat", "edit", "delete", "share", "manage_access"],
       owner_id: typeof newAgent.metadata?.owner === 'string' ? newAgent.metadata.owner : "",
       owner_display_name: "You",
     };
