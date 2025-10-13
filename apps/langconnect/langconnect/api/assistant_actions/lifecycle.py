@@ -2,6 +2,7 @@
 Assistant lifecycle management endpoints: listing, registration, details, updates, deletion, and sync.
 """
 
+import json
 import logging
 import time
 from typing import Annotated, Dict, Any
@@ -510,7 +511,27 @@ async def update_assistant(
                     status_code=403,
                     detail="Only assistant owners can update assistants"
                 )
-        
+
+        # **SECURITY ENFORCEMENT:** Explicit check for default assistant protection
+        # Default assistants (metadata._x_oap_is_default === true) cannot be edited
+        # See docs/permission-rules.md for rationale
+        metadata = await AssistantPermissionsManager.get_assistant_metadata(assistant_id)
+        if metadata:
+            # Check if assistant is marked as default in metadata
+            metadata_obj = metadata.get("metadata", {})
+            if isinstance(metadata_obj, str):
+                try:
+                    metadata_obj = json.loads(metadata_obj)
+                except:
+                    metadata_obj = {}
+
+            is_default = metadata_obj.get("_x_oap_is_default", False)
+            if is_default is True or is_default == "true" or is_default == 1:
+                raise HTTPException(
+                    status_code=400,
+                    detail="Cannot modify default system assistants"
+                )
+
         # Check if assistant exists in LangGraph
         try:
             current_assistant = await langgraph_service._make_request(
@@ -630,9 +651,26 @@ async def delete_assistant(
                     status_code=403,
                     detail="Only assistant owners can delete assistants"
                 )
-        
-        # Get assistant metadata before deletion
+
+        # **SECURITY ENFORCEMENT:** Explicit check for default assistant protection
+        # Default assistants (metadata._x_oap_is_default === true) cannot be deleted
+        # See docs/permission-rules.md for rationale
         metadata = await AssistantPermissionsManager.get_assistant_metadata(assistant_id)
+        if metadata:
+            # Check if assistant is marked as default in metadata
+            metadata_obj = metadata.get("metadata", {})
+            if isinstance(metadata_obj, str):
+                try:
+                    metadata_obj = json.loads(metadata_obj)
+                except:
+                    metadata_obj = {}
+
+            is_default = metadata_obj.get("_x_oap_is_default", False)
+            if is_default is True or is_default == "true" or is_default == 1:
+                raise HTTPException(
+                    status_code=400,
+                    detail="Cannot delete default system assistants"
+                )
         
         # Delete from LangGraph
         deleted_from_langgraph = False

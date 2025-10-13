@@ -128,22 +128,26 @@ export function groupAgentsByGraphs<AgentOrAssistant extends Agent | Assistant>(
 }
 
 /**
- * Determines if a user can delete an assistant based on permissions.
- * 
+ * **UI-ONLY CHECK:** Determines if a user can delete an assistant based on permissions.
+ *
+ * **IMPORTANT:** This function is NOT security enforcement. It only controls UI element
+ * visibility (delete button). Actual security is enforced by backend endpoints.
+ * See: `apps/langconnect/langconnect/api/assistant_actions/lifecycle.py`
+ *
  * Deletion rules:
  * - Default assistants (system-managed) cannot be deleted by anyone
  * - Only owners can delete custom assistants
  * - Editors and viewers cannot delete assistants
- * 
+ *
  * @param agent The agent to check
  * @returns True if the user can delete this assistant
  * @example
  * // Owner of custom assistant - can delete
  * canUserDeleteAssistant({ permission_level: 'owner', metadata: {} }) // true
- * 
+ *
  * // Editor of custom assistant - cannot delete
  * canUserDeleteAssistant({ permission_level: 'editor', metadata: {} }) // false
- * 
+ *
  * // Owner of default assistant - cannot delete (system-managed)
  * canUserDeleteAssistant({ permission_level: 'owner', metadata: { _x_oap_is_default: true } }) // false (user default assistant)
  */
@@ -161,25 +165,29 @@ export function canUserDeleteAssistant(agent: Agent): boolean {
 }
 
 /**
- * Determines if a user can edit an assistant based on permissions.
- * 
+ * **UI-ONLY CHECK:** Determines if a user can edit an assistant based on permissions.
+ *
+ * **IMPORTANT:** This function is NOT security enforcement. It only controls UI element
+ * visibility (edit button). Actual security is enforced by backend endpoints.
+ * See: `apps/langconnect/langconnect/api/assistant_actions/lifecycle.py`
+ *
  * Edit rules:
  * - Default assistants cannot be edited
  * - Owners and editors can edit custom assistants
  * - Viewers cannot edit assistants
- * 
+ *
  * @param agent The agent to check
  * @returns True if the user can edit this assistant
  * @example
  * // Owner of custom assistant - can edit
  * canUserEditAssistant({ permission_level: 'owner', metadata: {} }) // true
- * 
+ *
  * // Editor of custom assistant - can edit
  * canUserEditAssistant({ permission_level: 'editor', metadata: {} }) // true
- * 
+ *
  * // Viewer of custom assistant - cannot edit
  * canUserEditAssistant({ permission_level: 'viewer', metadata: {} }) // false
- * 
+ *
  * // Owner of default assistant - cannot edit (system-managed)
  * canUserEditAssistant({ permission_level: 'owner', metadata: { _x_oap_is_default: true } }) // false (user default assistant)
  */
@@ -197,25 +205,29 @@ export function canUserEditAssistant(agent: Agent): boolean {
 }
 
 /**
- * Determines if a user can revoke their own access to an assistant.
- * 
+ * **UI-ONLY CHECK:** Determines if a user can revoke their own access to an assistant.
+ *
+ * **IMPORTANT:** This function is NOT security enforcement. It only controls UI element
+ * visibility ("Leave" button). Actual security is enforced by backend endpoints.
+ * See: `apps/langconnect/langconnect/api/assistant_actions/permissions.py`
+ *
  * Self-revocation rules:
  * - Editors and viewers can revoke their own access
  * - Owners cannot revoke their own access (they should delete the assistant instead)
  * - Default assistants cannot be revoked from (system-managed)
- * 
+ *
  * @param agent The agent to check
  * @returns True if the user can revoke their own access to this assistant
  * @example
  * // Editor of custom assistant - can revoke own access
  * canUserRevokeOwnAccess({ permission_level: 'editor', metadata: {} }) // true
- * 
+ *
  * // Viewer of custom assistant - can revoke own access
  * canUserRevokeOwnAccess({ permission_level: 'viewer', metadata: {} }) // true
- * 
+ *
  * // Owner of custom assistant - cannot revoke (should delete instead)
  * canUserRevokeOwnAccess({ permission_level: 'owner', metadata: {} }) // false
- * 
+ *
  * // Editor of default assistant - cannot revoke (system-managed)
  * canUserRevokeOwnAccess({ permission_level: 'editor', metadata: { _x_oap_is_default: true } }) // false (user default assistant)
  */
@@ -234,26 +246,30 @@ export function canUserRevokeOwnAccess(agent: Agent): boolean {
 }
 
 /**
- * Determines if a user can revoke their own access to a graph.
- * 
+ * **UI-ONLY CHECK:** Determines if a user can revoke their own access to a graph.
+ *
+ * **IMPORTANT:** This function is NOT security enforcement. It only controls UI element
+ * visibility ("Leave" button for graphs). Actual security is enforced by backend endpoints.
+ * See: `apps/langconnect/langconnect/api/graph_actions/permissions.py`
+ *
  * Self-revocation rules:
  * - Users with 'access' or 'admin' permissions can revoke their own access
  * - dev_admin users cannot revoke their own access (system protection)
  * - Users with no permission cannot revoke (nothing to revoke)
- * 
+ *
  * @param userRole The user's global role (dev_admin, business_admin, user, etc.)
  * @param graphPermissionLevel The user's permission level for this specific graph
  * @returns True if the user can revoke their own access to this graph
  * @example
  * // Regular user with access - can revoke
  * canUserRevokeOwnGraphAccess('user', 'access') // true
- * 
- * // Regular user with admin - can revoke  
+ *
+ * // Regular user with admin - can revoke
  * canUserRevokeOwnGraphAccess('user', 'admin') // true
- * 
+ *
  * // Dev admin with access - cannot revoke (system protection)
  * canUserRevokeOwnGraphAccess('dev_admin', 'access') // false
- * 
+ *
  * // User with no access - cannot revoke (nothing to revoke)
  * canUserRevokeOwnGraphAccess('user', null) // false
  */
@@ -276,22 +292,25 @@ export function canUserRevokeOwnGraphAccess(
 }
 
 /**
- * Determines if a user should see the graph action menu.
- * 
+ * **UI-ONLY CHECK:** Determines if a user should see the graph action menu.
+ *
+ * **IMPORTANT:** This function is NOT security enforcement. It only controls UI element
+ * visibility (action menu/dropdown). Actual security is enforced by backend endpoints.
+ *
  * Action menu visibility rules:
  * - Users with 'admin' permission can see it (to manage access and potentially revoke own)
  * - Users with 'access' permission can see it (to revoke own access)
  * - Users with no permission cannot see it
- * 
+ *
  * @param graphPermissionLevel The user's permission level for this specific graph
  * @returns True if the user should see the graph action menu
  * @example
  * // Admin user - can see menu
  * canUserSeeGraphActionMenu('admin') // true
- * 
- * // Access user - can see menu  
+ *
+ * // Access user - can see menu
  * canUserSeeGraphActionMenu('access') // true
- * 
+ *
  * // No permission - cannot see menu
  * canUserSeeGraphActionMenu(null) // false
  */
@@ -302,18 +321,22 @@ export function canUserSeeGraphActionMenu(
 }
 
 /**
- * Determines if a user can manage access for a graph (add/remove other users).
- * 
+ * **UI-ONLY CHECK:** Determines if a user can manage access for a graph (add/remove other users).
+ *
+ * **IMPORTANT:** This function is NOT security enforcement. It only controls UI element
+ * visibility ("Manage Access" button). Actual security is enforced by backend endpoints.
+ * See: `apps/langconnect/langconnect/api/graph_actions/permissions.py`
+ *
  * Access management rules:
  * - Only users with 'admin' permission can manage access
  * - Users with 'access' permission cannot manage access
- * 
+ *
  * @param graphPermissionLevel The user's permission level for this specific graph
  * @returns True if the user can manage access for this graph
  * @example
  * // Admin user - can manage access
  * canUserManageGraphAccess('admin') // true
- * 
+ *
  * // Access user - cannot manage access
  * canUserManageGraphAccess('access') // false
  */
