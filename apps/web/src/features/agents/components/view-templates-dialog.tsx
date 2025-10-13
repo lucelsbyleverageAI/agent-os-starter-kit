@@ -8,6 +8,7 @@ import { Bot, Users, Crown, Shield } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { GraphInfo } from "@/types/agent";
 import { GraphPermissionsDialog } from "./graph-permissions-dialog";
+import { canUserManageGraphAccess } from "@/lib/agent-utils";
 import _ from "lodash";
 
 interface ViewTemplatesDialogProps {
@@ -96,7 +97,7 @@ export function ViewTemplatesDialog({
                   const graphDescription =
                     graph.description ||
                     `AI agent template with ${graph.assistants_count} active instance${graph.assistants_count !== 1 ? "s" : ""}`;
-                  const hasAdminAccess = graph.user_permission_level === "admin";
+                  const hasAdminAccess = canUserManageGraphAccess(graph.user_permission_level, graph);
 
                   return (
                     <div

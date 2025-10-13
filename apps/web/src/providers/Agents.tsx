@@ -245,6 +245,7 @@ function convertAssistantInfoToAgent(item: AssistantInfo, deploymentId: string):
     deploymentId,
     supportedConfigs: undefined, // Will be filled during enrichment
     permission_level: item.permission_level,
+    allowed_actions: item.allowed_actions, // Phase 4: Pass through backend permissions
     owner_id: item.owner_id,
     owner_display_name: item.owner_display_name,
     type: "assistant",
@@ -727,18 +728,19 @@ export const AgentsProvider: React.FC<{ children: ReactNode }> = ({
    * @param versionKey - Current backend version key
    */
   const setAssistantListCache = useCallback((userId: string, assistantData: { assistants: AssistantInfo[]; assistant_counts: any; user_role: string; is_dev_admin: boolean; deployment_id: string; deployment_name: string }, versionKey: string) => {
+    const cacheData: AssistantListCache = {
+      assistants: assistantData.assistants,
+      assistant_counts: assistantData.assistant_counts,
+      user_role: assistantData.user_role,
+      is_dev_admin: assistantData.is_dev_admin,
+      deployment_id: assistantData.deployment_id,
+      deployment_name: assistantData.deployment_name,
+      timestamp: Date.now(),
+      userId,
+      version: versionKey,
+    };
+
     try {
-      const cacheData: AssistantListCache = {
-        assistants: assistantData.assistants,
-        assistant_counts: assistantData.assistant_counts,
-        user_role: assistantData.user_role,
-        is_dev_admin: assistantData.is_dev_admin,
-        deployment_id: assistantData.deployment_id,
-        deployment_name: assistantData.deployment_name,
-        timestamp: Date.now(),
-        userId,
-        version: versionKey,
-      };
       localStorage.setItem(`${ASSISTANT_LIST_CACHE_KEY_PREFIX}${userId}`, JSON.stringify(cacheData));
 
       // Monitor storage usage after write

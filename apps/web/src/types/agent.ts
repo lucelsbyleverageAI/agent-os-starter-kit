@@ -54,6 +54,7 @@ export interface Agent extends Assistant {
 
   // Permission metadata
   permission_level?: "owner" | "editor" | "viewer" | "admin";
+  allowed_actions?: string[];  // Backend-provided allowed actions (Phase 4)
   owner_id?: string;
   owner_display_name?: string;
   shared_users_count?: number;
@@ -114,6 +115,7 @@ export interface GraphInfo {
 
   // Permission context
   user_permission_level?: "admin" | "access";
+  allowed_actions?: string[];  // Backend-provided allowed actions (Phase 4)
   created_at?: string;
   // Presentation
   name?: string;
@@ -163,6 +165,7 @@ export interface AssistantInfo {
   description?: string | null;
   tags?: string[];
   permission_level: "owner" | "editor" | "viewer" | "admin";
+  allowed_actions?: string[];  // Backend-provided allowed actions (Phase 4)
   owner_id: string;
   owner_display_name?: string;
   created_at: string;

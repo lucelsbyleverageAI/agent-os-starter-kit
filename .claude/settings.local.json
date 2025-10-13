@@ -16,7 +16,9 @@
       "Bash(docker exec:*)",
       "Bash(gh issue create:*)",
       "Bash(yarn build:*)",
-      "Bash(npx tsc:*)"
+      "Bash(npx tsc:*)",
+      "Bash(gh issue view:*)",
+      "Bash(poetry lock:*)"
     ]
   },
   "enableAllProjectMcpServers": true,

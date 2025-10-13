@@ -15,6 +15,7 @@ from langconnect.auth import resolve_user_or_service, AuthenticatedActor
 from langconnect.database.connection import get_db_connection, get_db_pool
 import asyncpg
 from langconnect.database.permissions import GraphPermissionsManager, AssistantPermissionsManager
+from langconnect.services.permission_service import PermissionService
 from langconnect.services.langgraph_integration import get_langgraph_service, LangGraphService
 from langconnect.services.langgraph_sync import LangGraphSyncService, get_sync_service
 
@@ -182,6 +183,18 @@ async def list_graphs_from_mirror(
             # Format response
             graphs_list = []
             for graph in graphs:
+                # Calculate allowed actions for this graph
+                if actor.actor_type == "service":
+                    # Service accounts get full access
+                    allowed_actions = ["view", "create_assistant", "manage_access"]
+                else:
+                    # Regular users: calculate based on permissions
+                    allowed_actions = await PermissionService.get_allowed_actions(
+                        user_id=actor.identity,
+                        resource_type="graph",
+                        resource_id=graph["graph_id"]
+                    )
+
                 graphs_list.append({
                     "graph_id": graph["graph_id"],
                     "assistants_count": graph["assistants_count"],
@@ -192,7 +205,8 @@ async def list_graphs_from_mirror(
                     "user_permission_level": graph["user_permission_level"],
                     "system_assistant_id": str(graph["system_assistant_id"]) if graph["system_assistant_id"] else None,
                     "available": True,
-                    "created_at": graph["permission_granted_at"].isoformat() if graph["permission_granted_at"] else None
+                    "created_at": graph["permission_granted_at"].isoformat() if graph["permission_granted_at"] else None,
+                    "allowed_actions": allowed_actions
                 })
             
             log.info(f"Listed {len(graphs_list)} graphs from mirror for {actor.actor_type}:{actor.identity}")
@@ -363,8 +377,21 @@ async def list_assistants_from_mirror(
             assistants_list = []
             owned_count = 0
             shared_count = 0
-            
+
             for assistant in assistants:
+                # Calculate allowed actions for this assistant
+                if actor.actor_type == "service":
+                    # Service accounts get full admin access
+                    allowed_actions = ["view", "chat", "edit", "delete", "share", "manage_access"]
+                else:
+                    # Regular users: calculate based on permissions and metadata
+                    allowed_actions = await PermissionService.get_allowed_actions(
+                        user_id=actor.identity,
+                        resource_type="assistant",
+                        resource_id=str(assistant["assistant_id"]),
+                        resource_metadata={"metadata": assistant["metadata"]}  # Pass metadata to avoid extra DB query
+                    )
+
                 assistant_info = {
                     "assistant_id": str(assistant["assistant_id"]),
                     "graph_id": assistant["graph_id"],
@@ -379,10 +406,11 @@ async def list_assistants_from_mirror(
                     "owner_display_name": assistant["owner_display_name"],
                     "available": True,
                     "created_at": assistant["langgraph_created_at"].isoformat(),
-                    "updated_at": assistant["langgraph_updated_at"].isoformat()
+                    "updated_at": assistant["langgraph_updated_at"].isoformat(),
+                    "allowed_actions": allowed_actions
                 }
                 assistants_list.append(assistant_info)
-                
+
                 if assistant["permission_level"] == "owner":
                     owned_count += 1
                 else:
@@ -498,7 +526,20 @@ async def get_assistant_from_mirror(
                     }
                     for perm in permissions_data
                 ]
-            
+
+            # Calculate allowed actions for this assistant
+            if actor.actor_type == "service":
+                # Service accounts get full admin access
+                allowed_actions = ["view", "chat", "edit", "delete", "share", "manage_access"]
+            else:
+                # Regular users: calculate based on permissions and metadata
+                allowed_actions = await PermissionService.get_allowed_actions(
+                    user_id=actor.identity,
+                    resource_type="assistant",
+                    resource_id=assistant_id,
+                    resource_metadata={"metadata": assistant["metadata"]}  # Pass metadata to avoid extra DB query
+                )
+
             # Set cache headers
             response.headers["Cache-Control"] = "private, max-age=180"
 
@@ -517,7 +558,8 @@ async def get_assistant_from_mirror(
                 "owner_display_name": assistant["owner_display_name"],
                 "created_at": assistant["langgraph_created_at"].isoformat(),
                 "updated_at": assistant["langgraph_updated_at"].isoformat(),
-                "permissions": permissions
+                "permissions": permissions,
+                "allowed_actions": allowed_actions
             }
             
     except HTTPException:

@@ -131,6 +131,7 @@ class GraphInfo(BaseModel):
     has_default_assistant: bool = Field(..., description="Whether default assistant exists")
     user_permission_level: Optional[str] = Field(None, description="User's permission level for this graph")
     created_at: Optional[str] = Field(None, description="When user gained access to this graph")
+    allowed_actions: Optional[List[str]] = Field(None, description="Actions user can perform (view, create_assistant, manage_access, revoke_own) - Phase 3 centralized permissions")
 
 
 class GraphListResponse(BaseModel):
@@ -204,6 +205,7 @@ class AssistantInfo(BaseModel):
     created_at: str = Field(..., description="When assistant was created")
     updated_at: Optional[str] = Field(None, description="When assistant was last updated")
     metadata: Optional[Dict[str, Any]] = Field(None, description="Assistant metadata from LangGraph")
+    allowed_actions: Optional[List[str]] = Field(None, description="Actions user can perform (view, chat, edit, delete, share) - Phase 3 centralized permissions")
 
 
 class AssistantListResponse(BaseModel):
@@ -250,6 +252,7 @@ class AssistantDetailsResponse(BaseModel):
     metadata: Optional[Dict[str, Any]] = Field(None, description="Assistant metadata from LangGraph")
     config: Optional[Dict[str, Any]] = Field(None, description="Assistant configuration from LangGraph")
     schemas_warming: Optional[bool] = Field(False, description="Whether schemas are still being cached (true means schemas may not be immediately available)")
+    allowed_actions: Optional[List[str]] = Field(None, description="Actions user can perform (view, chat, edit, delete, share, manage_access) - Phase 3 centralized permissions")
 
 
 class AssistantUpdateRequest(BaseModel):

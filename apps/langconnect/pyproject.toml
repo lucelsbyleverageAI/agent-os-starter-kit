@@ -4,47 +4,49 @@ version = "0.0.1"
 description = "LangConnect: A RAG service"
 readme = "README.md"
 requires-python = ">=3.11,<4.0"
-dependencies = [
-    "fastapi>=0.115.6",
-    "langchain>=0.3.20",
-    "langchain-openai>=0.3.7",
-    "langchain-community>=0.0.20",
-    "langchain-core>=0.2.37",
-    "langchain-text-splitters>=0.0.1",
-    "langchain-postgres>=0.0.2",
-    "langgraph-sdk>=0.1.48",
-    "python-dotenv>=1.0.1",
-    "uvicorn>=0.34.0",
-    "aiohttp>=3.11.13",
-    "python-multipart>=0.0.20",
-    "httpx>=0.28.1",
-    "beautifulsoup4>=4.12.3",
-    "pdfminer.six>=20231228",
-    "asyncpg>=0.30.0",
-    "psycopg[binary]>=3.2.6",
-    "pillow>=11.2.1",
-    "pdfminer.six>=20250416",
-    "lxml>=5.4.0",
-    "unstructured>=0.17.2",
-    "supabase>=2.15.1",
-    "docling (>=2.0.0,<3.0.0)",
-    "youtube-transcript-api (>=0.6.0,<0.7.0)",
-    "google-cloud-storage>=3.0.0",
-    "google-crc32c>=1.6.0",
-    "requests>=2.31.0",
-    "sentry-sdk[fastapi]>=2.8.0",
-    "mem0ai (>=0.1.117,<0.2.0)",
-]
+dynamic = []
 
-[project.packages]
-find = { where = ["langconnect"] }
+[tool.poetry]
+name = "langconnect"
+version = "0.0.1"
+description = "LangConnect: A RAG service"
+readme = "README.md"
+packages = [{include = "langconnect"}]
+
+[tool.poetry.dependencies]
+python = ">=3.11,<4.0"
+fastapi = ">=0.115.6"
+langchain = ">=0.3.20"
+langchain-openai = ">=0.3.7"
+langchain-community = ">=0.0.20"
+langchain-core = ">=0.2.37"
+langchain-text-splitters = ">=0.0.1"
+langchain-postgres = ">=0.0.2"
+langgraph-sdk = ">=0.1.48"
+python-dotenv = ">=1.0.1"
+uvicorn = ">=0.34.0"
+aiohttp = ">=3.11.13"
+python-multipart = ">=0.0.20"
+httpx = ">=0.28.1"
+beautifulsoup4 = ">=4.12.3"
+pdfminer-six = ">=20231228"
+asyncpg = ">=0.30.0"
+psycopg = {extras = ["binary"], version = ">=3.2.6"}
+pillow = ">=11.2.1"
+lxml = ">=5.4.0"
+unstructured = ">=0.17.2"
+supabase = ">=2.15.1"
+docling = ">=2.0.0,<3.0.0"
+youtube-transcript-api = ">=0.6.0,<0.7.0"
+google-cloud-storage = ">=3.0.0"
+google-crc32c = ">=1.6.0"
+requests = ">=2.31.0"
+sentry-sdk = {extras = ["fastapi"], version = ">=2.8.0"}
+mem0ai = ">=0.1.117,<0.2.0"
 
 [build-system]
-requires = ["hatchling"]
-build-backend = "hatchling.build"
-
-[tool.hatch.build.targets.wheel]
-packages = ["langconnect"]
+requires = ["poetry-core"]
+build-backend = "poetry.core.masonry.api"
 
 
 [tool.poetry.group.dev.dependencies]
