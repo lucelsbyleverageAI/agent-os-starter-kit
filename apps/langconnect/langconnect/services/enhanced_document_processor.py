@@ -21,6 +21,7 @@ from docling.datamodel.base_models import ConversionStatus
 from langconnect.services.youtube_service import YouTubeService, YouTubeProcessingError
 from langconnect.services.enhanced_chunking_service import EnhancedChunkingService
 from langconnect.services.duplicate_detection_service import DuplicateDetectionService
+from langconnect.services.excel_processor import excel_processor_service
 from langconnect.database.document import DocumentManager
 
 import mimetypes
@@ -86,55 +87,66 @@ class EnhancedDocumentProcessor:
     
     def _detect_file_format(self, filename: str, content_type: Optional[str] = None) -> str:
         """Detect file format based on filename and content type.
-        
+
         Args:
             filename: Name of the file
             content_type: MIME type if available
-            
+
         Returns:
-            Format category: 'simple_text', 'complex_document', or 'unsupported'
+            Format category: 'simple_text', 'excel_spreadsheet', 'complex_document', or 'unsupported'
         """
         # Get file extension
         _, ext = os.path.splitext(filename.lower())
-        
+
         # Simple text formats that don't need Docling
         simple_text_extensions = {'.txt', '.md', '.csv', '.tsv'}
         simple_text_mimes = {'text/plain', 'text/markdown', 'text/csv', 'text/tab-separated-values'}
-        
+
+        # Excel spreadsheet formats (need special handling for calculated values)
+        excel_extensions = {'.xlsx', '.xls'}
+        excel_mimes = {
+            'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+            'application/vnd.ms-excel'
+        }
+
         # Complex document formats that need Docling
-        complex_doc_extensions = {'.pdf', '.docx', '.doc', '.pptx', '.ppt', '.html', '.htm', '.xlsx', '.xls'}
+        complex_doc_extensions = {'.pdf', '.docx', '.doc', '.pptx', '.ppt', '.html', '.htm'}
         complex_doc_mimes = {
             'application/pdf',
             'application/vnd.openxmlformats-officedocument.wordprocessingml.document',
             'application/msword',
             'application/vnd.openxmlformats-officedocument.presentationml.presentation',
             'application/vnd.ms-powerpoint',
-            'text/html',
-            'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
-            'application/vnd.ms-excel'
+            'text/html'
         }
-        
+
         # Check by extension first
         if ext in simple_text_extensions:
             return 'simple_text'
+        elif ext in excel_extensions:
+            return 'excel_spreadsheet'
         elif ext in complex_doc_extensions:
             return 'complex_document'
-        
+
         # Check by MIME type if available
         if content_type:
             if content_type in simple_text_mimes:
                 return 'simple_text'
+            elif content_type in excel_mimes:
+                return 'excel_spreadsheet'
             elif content_type in complex_doc_mimes:
                 return 'complex_document'
-        
+
         # Try to guess MIME type from filename
         guessed_type, _ = mimetypes.guess_type(filename)
         if guessed_type:
             if guessed_type in simple_text_mimes:
                 return 'simple_text'
+            elif guessed_type in excel_mimes:
+                return 'excel_spreadsheet'
             elif guessed_type in complex_doc_mimes:
                 return 'complex_document'
-        
+
         # Default to unsupported for unknown formats
         return 'unsupported'
     
@@ -614,6 +626,11 @@ class EnhancedDocumentProcessor:
                 return await self._process_simple_text_file(
                     file_obj, processing_options, document_manager
                 )
+            elif file_format == 'excel_spreadsheet':
+                # Process Excel files with custom processor for calculated values
+                return await self._process_excel_file(
+                    file_obj, processing_options, document_manager
+                )
             elif file_format == 'complex_document':
                 # Process complex documents with Docling
                 return await self._process_complex_document_file(
@@ -628,6 +645,149 @@ class EnhancedDocumentProcessor:
             logger.error(f"Error processing file {filename}: {e}", exc_info=True)
             return {"error": str(e)}
     
+    async def _process_excel_file(
+        self,
+        file_obj: Union[Dict[str, Any], UploadFile],
+        processing_options: ProcessingOptions,
+        document_manager: Optional[DocumentManager] = None
+    ) -> Dict[str, Any]:
+        """Process Excel files with calculated value extraction.
+
+        Args:
+            file_obj: File object to process
+            processing_options: Processing configuration
+            document_manager: Optional document manager
+
+        Returns:
+            Dictionary with processing results
+        """
+        # Get filename
+        filename = getattr(file_obj, 'filename', 'unknown')
+        if isinstance(file_obj, dict):
+            filename = file_obj.get('filename', 'unknown')
+
+        logger.info(f"Processing Excel file: {filename}")
+
+        try:
+            # Convert to temporary file for processing
+            temp_file_path = None
+            try:
+                with tempfile.NamedTemporaryFile(delete=False, suffix=f'_{filename}') as temp_file:
+                    temp_file_path = temp_file.name
+
+                    # Write file content to temp file
+                    if hasattr(file_obj, 'content'):
+                        # SimpleUploadFile object
+                        temp_file.write(file_obj.content)
+                    elif hasattr(file_obj, 'read'):
+                        # UploadFile object
+                        await file_obj.seek(0)
+                        content = await file_obj.read()
+                        temp_file.write(content)
+                    elif isinstance(file_obj, dict) and 'content_b64' in file_obj:
+                        # Base64 content
+                        content = base64.b64decode(file_obj['content_b64'])
+                        temp_file.write(content)
+                    else:
+                        raise ValueError(f"Unknown file object type for {filename}")
+
+                    temp_file.flush()
+
+                logger.info(f"Created temporary Excel file: {temp_file_path}")
+
+                # Process with Excel processor
+                documents = await excel_processor_service.process_excel_to_documents(
+                    temp_file_path,
+                    filename,
+                    ""  # Description will be generated if needed
+                )
+
+                # Generate individual document metadata if requested
+                if documents and processing_options.use_ai_metadata:
+                    full_content = documents[0].page_content
+                    individual_title, individual_description = await self._generate_individual_document_metadata(
+                        filename=filename,
+                        content=full_content,
+                        use_ai_metadata=True,
+                        processing_mode=processing_options.processing_mode
+                    )
+
+                    # Update metadata
+                    for doc in documents:
+                        doc.metadata["title"] = individual_title
+                        doc.metadata["description"] = individual_description
+
+                logger.info(f"Created {len(documents)} LangChain documents for Excel file {filename}")
+
+                # Store full document if using new model
+                document_records = []
+                document_id = None
+                if document_manager and documents:
+                    # Store the full document content before chunking
+                    full_content = documents[0].page_content
+                    document_metadata = documents[0].metadata.copy()
+
+                    # Add content hash to metadata for future duplicate detection
+                    if hasattr(file_obj, 'content'):
+                        content_for_hash = file_obj.content
+                    elif isinstance(file_obj, dict) and 'content_b64' in file_obj:
+                        content_for_hash = base64.b64decode(file_obj['content_b64'])
+                    else:
+                        content_for_hash = full_content.encode('utf-8')
+
+                    content_hash = DuplicateDetectionService.calculate_content_hash(content_for_hash)
+                    document_metadata["content_hash"] = content_hash
+
+                    try:
+                        document_id = await document_manager.create_document(
+                            content=full_content,
+                            metadata=document_metadata
+                        )
+                        document_records.append({
+                            "id": document_id,
+                            "content": full_content,
+                            "metadata": document_metadata,
+                            "filename": filename
+                        })
+                        logger.info(f"Created document record {document_id} for Excel file {filename}")
+                    except Exception as e:
+                        logger.error(f"Failed to create document record for Excel file {filename}: {e}")
+                        # Continue processing even if document creation fails
+
+                # Chunk documents
+                if processing_options.chunking_strategy != "none":
+                    logger.info(f"Chunking Excel documents for {filename} with strategy: {processing_options.chunking_strategy}")
+                    documents = await self.chunking_service.chunk_documents(
+                        documents,
+                        processing_options.chunking_strategy
+                    )
+                    logger.info(f"After chunking {filename}: {len(documents)} chunks")
+
+                # Link chunks to document if using new model
+                if document_id:
+                    for doc in documents:
+                        doc.metadata["document_id"] = document_id
+
+                logger.info(f"Successfully processed Excel file {filename}")
+
+                return {
+                    "documents": documents,
+                    "document_records": document_records
+                }
+
+            finally:
+                # Clean up temporary file
+                if temp_file_path and os.path.exists(temp_file_path):
+                    try:
+                        os.unlink(temp_file_path)
+                        logger.debug(f"Cleaned up temporary Excel file: {temp_file_path}")
+                    except OSError as cleanup_error:
+                        logger.warning(f"Failed to cleanup temp file {temp_file_path}: {cleanup_error}")
+
+        except Exception as e:
+            logger.error(f"Error processing Excel file {filename}: {e}", exc_info=True)
+            return {"error": str(e)}
+
     async def _process_complex_document_file(
         self,
         file_obj: Union[Dict[str, Any], UploadFile],
