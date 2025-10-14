@@ -6,7 +6,7 @@
 #   make clean         - Stop all services and remove volumes (WARNING: Deletes all data!)
 #   make export-n8n    - Export n8n workflows and credentials to repo folders
 
-.PHONY: start-dev stop clean export-n8n poetry-install help
+.PHONY: start-dev stop clean export-n8n help
 
 # Default target
 help:
@@ -30,36 +30,27 @@ help:
 	@echo ""
 	@echo "For detailed usage, see scripts/README.md"
 
-# Install Poetry dependencies in all project directories
-poetry-install:
-	@echo "📦 Installing Poetry dependencies..."
-	@command -v poetry >/dev/null 2>&1 || { echo "❌ Error: Poetry is not installed. Please install Poetry first: https://python-poetry.org/docs/#installation"; exit 1; }
-	@echo "  → Installing langgraph dependencies..."
-	@cd langgraph && poetry install
-	@echo "  → Installing langconnect dependencies..."
-	@cd apps/langconnect && poetry install
-	@echo "  → Installing MCP server dependencies..."
-	@cd apps/mcp && poetry install
-	@echo "✅ All Poetry dependencies installed"
-
 # Start complete development stack
-start-dev: poetry-install
+start-dev:
 	@echo "🚀 Starting Agent Platform development stack..."
 	@poetry install
 	@poetry run python scripts/start_local_services.py
 
 # Stop all services
-stop: poetry-install
+stop:
 	@echo "🛑 Stopping all services..."
+	@poetry install
 	@poetry run python scripts/stop_local_services.py
 
 # Force stop all services and remove ALL data (for stuck containers/volumes)
-clean-reset: poetry-install
+clean-reset:
 	@echo "🔥 Complete Reset: Forcibly stopping services and removing ALL data..."
 	@echo "⚠️  WARNING: This is the most thorough cleanup and will reset everything!"
+	@poetry install
 	@poetry run python scripts/stop_local_services.py --complete-reset --yes
 
 # Export n8n workflows and credentials to repo folders
 export-n8n:
 	@echo "📁 Exporting n8n workflows and credentials..."
+	@poetry install
 	@./scripts/export-n8n.sh
