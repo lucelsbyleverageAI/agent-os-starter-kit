@@ -27,6 +27,27 @@ from langconnect.services.langgraph_integration import LangGraphService
 log = logging.getLogger(__name__)
 
 
+def is_graph_template_assistant(assistant: Dict[str, Any]) -> bool:
+    """
+    Check if an assistant is a graph template assistant.
+
+    Graph template assistants are created automatically by LangGraph to hold
+    metadata and schemas for each graph template. They serve as the source of
+    truth for graph configuration schemas and template information.
+
+    They ARE synced to the mirror for template lookups and schema extraction,
+    but won't appear in user-facing assistant lists due to permission filtering.
+
+    Args:
+        assistant: Assistant dictionary from LangGraph
+
+    Returns:
+        True if assistant is a graph template assistant (created_by === "system"), False otherwise
+    """
+    metadata = assistant.get("metadata", {})
+    return metadata.get("created_by") == "system"
+
+
 class LangGraphSyncService:
     """Service for synchronizing LangGraph data into mirror tables."""
     
@@ -62,51 +83,121 @@ class LangGraphSyncService:
     async def sync_assistant_schemas(self, assistant_id: str, *, user_token: Optional[str] = None) -> bool:
         """
         Fetch and cache schemas for a specific assistant.
-        
+
         Args:
             assistant_id: Assistant to fetch schemas for
-            
+
         Returns:
             True if schemas were updated, False if unchanged or error
         """
         try:
             log.info(f"Syncing schemas for assistant {assistant_id}")
-            
+
             # Fetch schemas from LangGraph
             schemas_data = await self.langgraph_service._make_request(
                 "GET",
                 f"assistants/{assistant_id}/schemas",
                 user_token=user_token,
             )
-            
+
             if not schemas_data:
                 log.warning(f"No schemas returned for assistant {assistant_id}")
                 return False
-            
+
             # Extract schema components
             input_schema = schemas_data.get("input_schema")
-            config_schema = schemas_data.get("config_schema") 
+            config_schema = schemas_data.get("config_schema")
             state_schema = schemas_data.get("state_schema")
-            
+
             # Upsert schemas using database function
             async with get_db_connection() as conn:
                 result = await conn.fetchval(
                     "SELECT langconnect.upsert_assistant_schemas($1, $2, $3, $4)",
-                    assistant_id, 
+                    assistant_id,
                     json.dumps(input_schema) if input_schema is not None else None,
                     json.dumps(config_schema) if config_schema is not None else None,
                     json.dumps(state_schema) if state_schema is not None else None
                 )
-                
+
                 if result:
                     log.info(f"Updated schemas for assistant {assistant_id}")
                     return True
                 else:
                     log.debug(f"Schemas unchanged for assistant {assistant_id}")
                     return False
-                    
+
         except Exception as e:
             log.error(f"Failed to sync schemas for assistant {assistant_id}: {e}")
+            return False
+
+    async def sync_graph_schemas(self, graph_id: str, *, user_token: Optional[str] = None) -> bool:
+        """
+        Fetch and cache schemas for a graph from its graph template assistant.
+
+        Args:
+            graph_id: Graph to fetch schemas for
+            user_token: Optional user token for auth
+
+        Returns:
+            True if schemas were updated, False if unchanged or error
+        """
+        try:
+            log.info(f"Syncing graph schemas for {graph_id}")
+
+            # Find the graph template assistant for this graph
+            async with get_db_connection() as conn:
+                system_assistant_row = await conn.fetchrow(
+                    """
+                    SELECT assistant_id
+                    FROM langconnect.assistants_mirror
+                    WHERE graph_id = $1
+                    AND metadata->>'created_by' = 'system'
+                    LIMIT 1
+                    """,
+                    graph_id
+                )
+
+            if not system_assistant_row:
+                log.warning(f"No graph template assistant found for graph {graph_id}")
+                return False
+
+            system_assistant_id = str(system_assistant_row["assistant_id"])
+
+            # Fetch schemas from the graph template assistant
+            schemas_data = await self.langgraph_service._make_request(
+                "GET",
+                f"assistants/{system_assistant_id}/schemas",
+                user_token=user_token,
+            )
+
+            if not schemas_data:
+                log.warning(f"No schemas returned for graph template assistant {system_assistant_id} (graph {graph_id})")
+                return False
+
+            # Extract schema components
+            input_schema = schemas_data.get("input_schema")
+            config_schema = schemas_data.get("config_schema")
+            state_schema = schemas_data.get("state_schema")
+
+            # Upsert graph schemas using database function
+            async with get_db_connection() as conn:
+                result = await conn.fetchval(
+                    "SELECT langconnect.upsert_graph_schemas($1, $2, $3, $4)",
+                    graph_id,
+                    json.dumps(input_schema) if input_schema is not None else None,
+                    json.dumps(config_schema) if config_schema is not None else None,
+                    json.dumps(state_schema) if state_schema is not None else None
+                )
+
+                if result:
+                    log.info(f"Updated graph schemas for {graph_id}")
+                    return True
+                else:
+                    log.debug(f"Graph schemas unchanged for {graph_id}")
+                    return False
+
+        except Exception as e:
+            log.error(f"Failed to sync graph schemas for {graph_id}: {e}")
             return False
     
     async def sync_all_schemas(self) -> Dict[str, Any]:
@@ -164,27 +255,27 @@ class LangGraphSyncService:
     async def sync_assistant(self, assistant_id: str, *, user_token: Optional[str] = None) -> bool:
         """
         Sync a specific assistant from LangGraph to mirror.
-        
+
         Args:
             assistant_id: Assistant to sync
-            
+
         Returns:
             True if assistant was updated, False if unchanged or error
         """
         try:
             log.info(f"Syncing assistant {assistant_id}")
-            
+
             # Fetch assistant from LangGraph
             assistant_data = await self.langgraph_service._make_request(
                 "GET",
                 f"assistants/{assistant_id}",
                 user_token=user_token,
             )
-            
+
             if not assistant_data:
                 log.warning(f"Assistant {assistant_id} not found in LangGraph")
                 return False
-            
+
             # Parse timestamps
             created_at = datetime.fromisoformat(assistant_data.get("created_at", "").replace("Z", "+00:00"))
             updated_at = datetime.fromisoformat(assistant_data.get("updated_at", "").replace("Z", "+00:00"))
@@ -209,20 +300,28 @@ class LangGraphSyncService:
                         "INSERT INTO langconnect.graphs_mirror (graph_id) VALUES ($1) ON CONFLICT (graph_id) DO NOTHING",
                         assistant_data.get("graph_id")
                     )
-                    
+
+                    # Extract tags from metadata (LangGraph workaround pattern)
+                    # LangGraph SDK doesn't support native tags, so frontend stores them
+                    # in metadata._x_oap_tags. We extract here and populate the database
+                    # tags column for fast queries without hitting LangGraph API.
+                    metadata = assistant_data.get("metadata", {})
+                    tags = metadata.get("_x_oap_tags", [])
+
                     # Upsert assistant
                     await conn.execute(
                         """
                         INSERT INTO langconnect.assistants_mirror (
-                            assistant_id, graph_id, name, description, config, metadata, context, version,
+                            assistant_id, graph_id, name, description, tags, config, metadata, context, version,
                             langgraph_created_at, langgraph_updated_at, langgraph_hash, last_seen_at
                         ) VALUES (
-                            $1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, NOW()
+                            $1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, NOW()
                         )
                         ON CONFLICT (assistant_id) DO UPDATE SET
                             graph_id = EXCLUDED.graph_id,
                             name = EXCLUDED.name,
                             description = EXCLUDED.description,
+                            tags = EXCLUDED.tags,
                             config = EXCLUDED.config,
                             metadata = EXCLUDED.metadata,
                             context = EXCLUDED.context,
@@ -238,6 +337,7 @@ class LangGraphSyncService:
                         assistant_data.get("graph_id"),
                         assistant_data.get("name"),
                         assistant_data.get("description", assistant_data.get("metadata", {}).get("description")),
+                        tags,  # Add tags
                         json.dumps(assistant_data.get("config", {})),
                         json.dumps(assistant_data.get("metadata", {})),
                         json.dumps(assistant_data.get("context", {})),
@@ -312,7 +412,16 @@ class LangGraphSyncService:
             
             assistants = assistants_data if isinstance(assistants_data, list) else assistants_data.get("assistants", [])
             log.info(f"Found {len(assistants)} assistants in LangGraph")
-            
+
+            # Count graph template vs user assistants for logging
+            template_count = sum(1 for a in assistants if is_graph_template_assistant(a))
+            user_count = len(assistants) - template_count
+            log.info(f"Breakdown: {user_count} user assistants, {template_count} graph template assistants")
+
+            # Note: We sync ALL assistants (including graph templates) to the mirror
+            # Graph template assistants are needed for template schema lookups and discovery
+            # They won't appear in user-facing lists due to permission filtering
+
             # Get existing mirror data for comparison
             async with get_db_connection() as conn:
                 existing_mirrors = await conn.fetch(
@@ -379,20 +488,28 @@ class LangGraphSyncService:
                                 "INSERT INTO langconnect.graphs_mirror (graph_id) VALUES ($1) ON CONFLICT (graph_id) DO NOTHING",
                                 graph_id
                             )
-                            
+
+                            # Extract tags from metadata (LangGraph workaround pattern)
+                            # LangGraph SDK doesn't support native tags, so frontend stores them
+                            # in metadata._x_oap_tags. We extract here and populate the database
+                            # tags column for fast queries without hitting LangGraph API.
+                            metadata = assistant.get("metadata", {})
+                            tags = metadata.get("_x_oap_tags", [])
+
                             # Upsert assistant (include description; prefer top-level, fallback to metadata.description)
                             await conn.execute(
                                 """
                                 INSERT INTO langconnect.assistants_mirror (
-                                    assistant_id, graph_id, name, description, config, metadata, context, version,
+                                    assistant_id, graph_id, name, description, tags, config, metadata, context, version,
                                     langgraph_created_at, langgraph_updated_at, langgraph_hash, last_seen_at
                                 ) VALUES (
-                                    $1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, NOW()
+                                    $1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, NOW()
                                 )
                                 ON CONFLICT (assistant_id) DO UPDATE SET
                                     graph_id = EXCLUDED.graph_id,
                                     name = EXCLUDED.name,
                                     description = EXCLUDED.description,
+                                    tags = EXCLUDED.tags,
                                     config = EXCLUDED.config,
                                     metadata = EXCLUDED.metadata,
                                     context = EXCLUDED.context,
@@ -408,6 +525,7 @@ class LangGraphSyncService:
                                 graph_id,
                                 assistant.get("name"),
                                 assistant.get("description", assistant.get("metadata", {}).get("description")),
+                                tags,  # Add tags
                                 json.dumps(assistant.get("config", {})),
                                 json.dumps(assistant.get("metadata", {})),
                                 json.dumps(assistant.get("context", {})),
@@ -451,8 +569,8 @@ class LangGraphSyncService:
                     error_msg = f"Failed to sync assistant {assistant_id}: {str(e)}"
                     log.error(error_msg)
                     stats["errors"].append(error_msg)
-            
-            # Refresh graph mirrors for affected graphs
+
+            # Refresh graph mirrors for affected graphs and populate metadata
             for graph_id in graphs_to_refresh:
                 try:
                     async with get_db_connection() as conn:
@@ -462,6 +580,57 @@ class LangGraphSyncService:
                         )
                         if graph_updated:
                             stats["graph_updates"] += 1
+
+                    # Sync graph schemas from graph template assistant
+                    try:
+                        await self.sync_graph_schemas(graph_id, user_token=user_token)
+                    except Exception as e:
+                        log.warning(f"Failed to sync graph schemas for {graph_id}: {e}")
+
+                    async with get_db_connection() as conn:
+                        # Always try to populate graph metadata from LangGraph API
+                        # This ensures metadata is populated on first sync and kept updated
+                        try:
+                            from langconnect.api.graph_actions.discovery_utils import get_graph_metadata_from_api
+
+                            name, description = await get_graph_metadata_from_api(self.langgraph_service, graph_id)
+                            if name and description:
+                                # Check if graph has default/placeholder metadata that needs updating
+                                # Default descriptions follow pattern "Agent graph: {Name}"
+                                graph_row = await conn.fetchrow(
+                                    "SELECT name, description FROM langconnect.graphs_mirror WHERE graph_id = $1",
+                                    graph_id
+                                )
+
+                                should_update = False
+                                if graph_row:
+                                    # Update if description is missing or looks like a default placeholder
+                                    current_desc = graph_row["description"]
+                                    is_placeholder = (
+                                        not current_desc or
+                                        current_desc.startswith("Agent graph:")
+                                    )
+                                    if is_placeholder:
+                                        should_update = True
+
+                                if should_update:
+                                    await conn.execute(
+                                        """
+                                        UPDATE langconnect.graphs_mirror
+                                        SET name = $1,
+                                            description = $2,
+                                            schema_accessible = TRUE,
+                                            updated_at = NOW()
+                                        WHERE graph_id = $3
+                                        """,
+                                        name,
+                                        description,
+                                        graph_id
+                                    )
+                                    log.info(f"Populated metadata for graph {graph_id}: {name}")
+                        except Exception as e:
+                            log.warning(f"Failed to populate metadata for graph {graph_id}: {e}")
+
                 except Exception as e:
                     error_msg = f"Failed to refresh graph mirror {graph_id}: {str(e)}"
                     log.error(error_msg)
@@ -592,7 +761,13 @@ class LangGraphSyncService:
             )
             
             assistants = assistants_data if isinstance(assistants_data, list) else assistants_data.get("assistants", [])
-            
+            log.info(f"Found {len(assistants)} assistants for graph {graph_id}")
+
+            # Count graph template vs user assistants
+            template_count = sum(1 for a in assistants if is_graph_template_assistant(a))
+            user_count = len(assistants) - template_count
+            log.info(f"Breakdown: {user_count} user assistants, {template_count} graph template assistants")
+
             stats = {
                 "graph_id": graph_id,
                 "assistants_found": len(assistants),
@@ -600,7 +775,7 @@ class LangGraphSyncService:
                 "schemas_synced": 0,
                 "errors": []
             }
-            
+
             # Sync each assistant
             for assistant in assistants:
                 assistant_id = assistant.get("assistant_id")
@@ -622,20 +797,28 @@ class LangGraphSyncService:
                             "INSERT INTO langconnect.graphs_mirror (graph_id) VALUES ($1) ON CONFLICT (graph_id) DO NOTHING",
                             graph_id
                         )
-                        
+
+                        # Extract tags from metadata (LangGraph workaround pattern)
+                        # LangGraph SDK doesn't support native tags, so frontend stores them
+                        # in metadata._x_oap_tags. We extract here and populate the database
+                        # tags column for fast queries without hitting LangGraph API.
+                        metadata = assistant.get("metadata", {})
+                        tags = metadata.get("_x_oap_tags", [])
+
                         # Upsert assistant
                         await conn.execute(
                             """
                             INSERT INTO langconnect.assistants_mirror (
-                                assistant_id, graph_id, name, description, config, metadata, context, version,
+                                assistant_id, graph_id, name, description, tags, config, metadata, context, version,
                                 langgraph_created_at, langgraph_updated_at, langgraph_hash, last_seen_at
                             ) VALUES (
-                                $1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, NOW()
+                                $1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, NOW()
                             )
                             ON CONFLICT (assistant_id) DO UPDATE SET
                                 graph_id = EXCLUDED.graph_id,
                                 name = EXCLUDED.name,
                                 description = EXCLUDED.description,
+                                tags = EXCLUDED.tags,
                                 config = EXCLUDED.config,
                                 metadata = EXCLUDED.metadata,
                                 context = EXCLUDED.context,
@@ -651,6 +834,7 @@ class LangGraphSyncService:
                             graph_id,
                             assistant.get("name"),
                             assistant.get("description", assistant.get("metadata", {}).get("description")),
+                            tags,  # Add tags
                             json.dumps(assistant.get("config", {})),
                             json.dumps(assistant.get("metadata", {})),
                             json.dumps(assistant.get("context", {})),
@@ -684,6 +868,55 @@ class LangGraphSyncService:
                     graph_id
                 )
                 stats["graph_updated"] = graph_updated
+
+            # Sync graph schemas from graph template assistant
+            try:
+                graph_schema_updated = await self.sync_graph_schemas(graph_id, user_token=user_token)
+                stats["graph_schema_updated"] = graph_schema_updated
+            except Exception as e:
+                log.warning(f"Failed to sync graph schemas for {graph_id}: {e}")
+
+            async with get_db_connection() as conn:
+                # Populate graph metadata from LangGraph API if missing or placeholder
+                try:
+                    from langconnect.api.graph_actions.discovery_utils import get_graph_metadata_from_api
+
+                    name, description = await get_graph_metadata_from_api(self.langgraph_service, graph_id)
+                    if name and description:
+                        # Check if graph has default/placeholder metadata
+                        graph_row = await conn.fetchrow(
+                            "SELECT name, description FROM langconnect.graphs_mirror WHERE graph_id = $1",
+                            graph_id
+                        )
+
+                        should_update = False
+                        if graph_row:
+                            current_desc = graph_row["description"]
+                            is_placeholder = (
+                                not current_desc or
+                                current_desc.startswith("Agent graph:")
+                            )
+                            if is_placeholder:
+                                should_update = True
+
+                        if should_update:
+                            await conn.execute(
+                                """
+                                UPDATE langconnect.graphs_mirror
+                                SET name = $1,
+                                    description = $2,
+                                    schema_accessible = TRUE,
+                                    updated_at = NOW()
+                                WHERE graph_id = $3
+                                """,
+                                name,
+                                description,
+                                graph_id
+                            )
+                            log.info(f"Populated metadata for graph {graph_id}: {name}")
+                            stats["metadata_populated"] = True
+                except Exception as e:
+                    log.warning(f"Failed to populate metadata for graph {graph_id}: {e}")
             
             stats["duration_ms"] = int((time.time() - start_time) * 1000)
             

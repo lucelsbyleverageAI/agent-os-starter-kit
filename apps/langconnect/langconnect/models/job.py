@@ -30,9 +30,9 @@ class JobType(str, Enum):
 
 class ProcessingOptions(BaseModel):
     """Processing options for document processing jobs."""
-    
+
     processing_mode: str = Field(
-        default="balanced", 
+        default="balanced",
         description="Processing mode: 'fast' (standard processing with table extraction, no OCR), 'balanced' (OCR processing for scanned documents with table extraction)"
     )
     image_processing: str = Field(default="placeholders", description="Image processing method")
@@ -41,6 +41,7 @@ class ProcessingOptions(BaseModel):
     extract_tables: bool = Field(default=True, description="Extract tables from documents")
     extract_figures: bool = Field(default=True, description="Extract figures from documents")
     language: Optional[str] = Field(default=None, description="Document language for processing")
+    use_ai_metadata: bool = Field(default=False, description="Use AI to generate document names and descriptions")
 
 
 class JobCreate(BaseModel):

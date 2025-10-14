@@ -194,9 +194,11 @@ class EnhancedDocumentProcessor:
                     logger.warning(f"File {filename} decoded with errors ignored")
             
             # Generate individual document metadata
-            individual_title, individual_description = self._generate_individual_document_metadata(
-                filename, 
-                processing_options.processing_mode
+            individual_title, individual_description = await self._generate_individual_document_metadata(
+                filename=filename,
+                content=text_content,
+                use_ai_metadata=processing_options.use_ai_metadata,
+                processing_mode=processing_options.processing_mode
             )
             
             # Determine file format for specific processing
@@ -685,23 +687,33 @@ class EnhancedDocumentProcessor:
                 logger.info(f"Docling conversion result for {filename} - status: {conversion_result.status}")
                 
                 if conversion_result.status == ConversionStatus.SUCCESS:
-                    # Generate individual document metadata
-                    individual_title, individual_description = self._generate_individual_document_metadata(
-                        filename, 
-                        processing_options.processing_mode
-                    )
-                    
-                    # Convert to LangChain documents
+                    # Convert to LangChain documents first
                     logger.info(f"Converting to LangChain documents for {filename}")
                     documents = self._convert_docling_result_to_documents(
                         conversion_result,
                         filename,
-                        individual_title,
-                        individual_description
+                        filename,  # Temporary title, will be updated
+                        ""  # Temporary description, will be updated
                     )
-                    
+
+                    # Get full content for metadata generation
+                    full_content = documents[0].page_content if documents else ""
+
+                    # Generate individual document metadata (with AI if requested)
+                    individual_title, individual_description = await self._generate_individual_document_metadata(
+                        filename=filename,
+                        content=full_content,
+                        use_ai_metadata=processing_options.use_ai_metadata,
+                        processing_mode=processing_options.processing_mode
+                    )
+
+                    # Update the document metadata with generated title and description
+                    for doc in documents:
+                        doc.metadata["title"] = individual_title
+                        doc.metadata["description"] = individual_description
+
                     logger.info(f"Created {len(documents)} LangChain documents for {filename}")
-                    
+
                     # Store full document if using new model
                     document_records = []
                     document_id = None
@@ -709,7 +721,7 @@ class EnhancedDocumentProcessor:
                         # Store the full document content before chunking
                         full_content = documents[0].page_content  # First document contains full content
                         document_metadata = documents[0].metadata.copy()
-                        
+
                         # Add content hash to metadata for future duplicate detection
                         if hasattr(file_obj, 'content'):
                             content_for_hash = file_obj.content
@@ -717,10 +729,10 @@ class EnhancedDocumentProcessor:
                             content_for_hash = base64.b64decode(file_obj['content_b64'])
                         else:
                             content_for_hash = full_content.encode('utf-8')
-                        
+
                         content_hash = DuplicateDetectionService.calculate_content_hash(content_for_hash)
                         document_metadata["content_hash"] = content_hash
-                        
+
                         try:
                             document_id = await document_manager.create_document(
                                 content=full_content,
@@ -736,7 +748,7 @@ class EnhancedDocumentProcessor:
                         except Exception as e:
                             logger.error(f"Failed to create document record for {filename}: {e}")
                             # Continue processing even if document creation fails
-                    
+
                     # Chunk documents
                     if processing_options.chunking_strategy != "none":
                         logger.info(f"Chunking documents for {filename} with strategy: {processing_options.chunking_strategy}")
@@ -745,23 +757,23 @@ class EnhancedDocumentProcessor:
                             processing_options.chunking_strategy
                         )
                         logger.info(f"After chunking {filename}: {len(documents)} chunks")
-                    
+
                     # Link chunks to document if using new model
                     if document_id:
                         for doc in documents:
                             doc.metadata["document_id"] = document_id
-                    
+
                     logger.info(f"Successfully processed file {filename}")
-                    
+
                     return {
                         "documents": documents,
                         "document_records": document_records
                     }
-                    
+
                 else:
                     logger.warning(f"Failed to convert file {filename}: {conversion_result.status}")
                     return {"error": f"Conversion failed with status: {conversion_result.status}"}
-                    
+
             finally:
                 # Clean up temporary file
                 if temp_file_path and os.path.exists(temp_file_path):
@@ -770,7 +782,7 @@ class EnhancedDocumentProcessor:
                         logger.debug(f"Cleaned up temporary file: {temp_file_path}")
                     except OSError as cleanup_error:
                         logger.warning(f"Failed to cleanup temp file {temp_file_path}: {cleanup_error}")
-                        
+
         except Exception as e:
             logger.error(f"Error processing complex document file {filename}: {e}", exc_info=True)
             return {"error": str(e)}
@@ -1147,18 +1159,31 @@ class EnhancedDocumentProcessor:
                         processing_options,
                         progress_callback
                     )
-                    
+
                     if conversion_result.status == ConversionStatus.SUCCESS:
-                        # Generate individual metadata for URL
-                        individual_title = url  # Use raw URL as title
-                        individual_description = ""
-                        
+                        # Convert to documents first to get content
                         documents = self._convert_docling_result_to_documents(
                             conversion_result,
                             url,
-                            individual_title,
-                            individual_description
+                            url,  # Temporary title, will be updated
+                            ""  # Temporary description, will be updated
                         )
+
+                        # Get full content for metadata generation
+                        full_content = documents[0].page_content if documents else ""
+
+                        # Generate individual metadata for URL (with AI if requested)
+                        individual_title, individual_description = await self._generate_individual_document_metadata(
+                            filename=url,
+                            content=full_content,
+                            use_ai_metadata=processing_options.use_ai_metadata,
+                            processing_mode=processing_options.processing_mode
+                        )
+
+                        # Update the document metadata with generated title and description
+                        for doc in documents:
+                            doc.metadata["title"] = individual_title
+                            doc.metadata["description"] = individual_description
                     else:
                         logger.warning(f"Failed to convert URL {url}: {conversion_result.status}")
                         continue
@@ -1268,17 +1293,31 @@ class EnhancedDocumentProcessor:
         """
         if progress_callback:
             progress_callback("Processing text content")
-        
+
+        # Generate metadata (with AI if requested and no user-provided title)
+        if processing_options.use_ai_metadata and not title:
+            # Use AI to generate title and description
+            individual_title, individual_description = await self._generate_individual_document_metadata(
+                filename="Text Input",
+                content=text_content,
+                use_ai_metadata=True,
+                processing_mode=processing_options.processing_mode
+            )
+        else:
+            # Use user-provided or fallback values
+            individual_title = title or "Text Input"
+            individual_description = description or ""
+
         # Create document from text
         metadata = {
             "source_type": "text",
-            "title": title or "Text Input",
-            "description": description or "",
+            "title": individual_title,
+            "description": individual_description,
             "processing_mode": processing_options.processing_mode,
             "content_length": len(text_content),
             "word_count": len(text_content.split())
         }
-        
+
         document = Document(
             page_content=text_content,
             metadata=metadata
@@ -1340,39 +1379,54 @@ class EnhancedDocumentProcessor:
             document_records=document_records if document_records else None
         )
     
-    def _generate_individual_document_metadata(
-        self, 
-        filename: str, 
+    async def _generate_individual_document_metadata(
+        self,
+        filename: str,
+        content: str = None,
+        use_ai_metadata: bool = False,
         processing_mode: str = "balanced"
     ) -> Tuple[str, str]:
-        """Generate individual document title from filename.
-        
+        """Generate individual document title and description.
+
         Args:
             filename: Original filename
+            content: Full document content (required for AI generation)
+            use_ai_metadata: Whether to use AI to generate metadata
             processing_mode: Processing mode used (not currently used)
-            
+
         Returns:
-            Tuple of (title, description) - description is empty string for user to fill in
+            Tuple of (title, description)
         """
         import os
-        
-        # Clean up filename for title
+
+        # Clean up filename for fallback title
         name_without_ext = os.path.splitext(filename)[0]
-        
-        # Replace common separators and clean up
         clean_title = (name_without_ext
                       .replace('_', ' ')
                       .replace('-', ' ')
                       .replace('.', ' ')
                       .strip())
-        
-        # Title case for better readability
-        title = ' '.join(word.capitalize() for word in clean_title.split())
-        
-        # Return empty description - user should add their own
-        description = ""
-        
-        return title, description
+        fallback_title = ' '.join(word.capitalize() for word in clean_title.split())
+
+        # If AI metadata is requested and content is available
+        if use_ai_metadata and content:
+            try:
+                from langconnect.services.ai_metadata_service import ai_metadata_service
+
+                logger.info(f"Generating AI metadata for {filename}")
+                metadata = await ai_metadata_service.generate_metadata(
+                    content=content,
+                    fallback_name=fallback_title
+                )
+
+                return metadata.name, metadata.description
+
+            except Exception as e:
+                logger.warning(f"AI metadata generation failed for {filename}: {e}. Using fallback.")
+                # Fall through to fallback logic
+
+        # Fallback: Use filename-based title with empty description
+        return fallback_title, ""
 
     def _convert_docling_result_to_documents(
         self,

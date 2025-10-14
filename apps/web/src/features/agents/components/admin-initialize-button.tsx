@@ -15,7 +15,11 @@ import { useAgentsContext } from "@/providers/Agents";
 import { notify } from "@/utils/toast";
 import { adminMessages } from "@/utils/toast-messages";
 
-export function AdminInitializeButton() {
+interface AdminInitializeButtonProps {
+  size?: "default" | "sm" | "lg" | "icon";
+}
+
+export function AdminInitializeButton({ size = "default" }: AdminInitializeButtonProps) {
   const { loading, initializePlatform, previewInitialization, isDevAdmin } = useAdminPlatform();
   const { refreshAgents } = useAgentsContext();
   const [showDropdown, setShowDropdown] = useState(false);
@@ -82,7 +86,7 @@ export function AdminInitializeButton() {
   return (
     <DropdownMenu open={showDropdown} onOpenChange={setShowDropdown}>
       <DropdownMenuTrigger asChild>
-        <Button variant="outline" disabled={loading}>
+        <Button variant="outline" size={size} disabled={loading}>
           {loading ? (
             <>
               <Loader2 className="mr-2 h-4 w-4 animate-spin" />

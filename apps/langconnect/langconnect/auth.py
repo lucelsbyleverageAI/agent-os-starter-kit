@@ -142,15 +142,15 @@ def resolve_user_or_service(
     credentials: Annotated[HTTPAuthorizationCredentials, Depends(security)],
 ) -> AuthenticatedActor:
     """Resolve user or service account from the credentials.
-    
+
     Supports both JWT tokens for users and static API keys for service accounts.
-    
+
     Args:
         credentials: HTTP Authorization credentials
-        
+
     Returns:
         AuthenticatedActor: Either an AuthenticatedUser or ServiceAccount
-        
+
     Raises:
         HTTPException: If authentication fails
     """
@@ -181,8 +181,59 @@ def resolve_user_or_service(
     except Exception as e:
         # If JWT validation fails, it might be an invalid API key or token
         raise HTTPException(
-            status_code=401, 
+            status_code=401,
             detail="Invalid credentials - neither valid JWT token nor service API key"
+        )
+
+
+def resolve_user(
+    credentials: Annotated[HTTPAuthorizationCredentials, Depends(security)],
+) -> AuthenticatedUser:
+    """Resolve authenticated user from JWT token (service accounts not allowed).
+
+    This function is used for endpoints that are user-specific and should not
+    be accessible to service accounts (e.g., user default assistant settings).
+
+    Args:
+        credentials: HTTP Authorization credentials with JWT token
+
+    Returns:
+        AuthenticatedUser: The authenticated user
+
+    Raises:
+        HTTPException: If authentication fails or service account is used
+    """
+    if credentials.scheme != "Bearer":
+        raise HTTPException(status_code=401, detail="Invalid authentication scheme")
+
+    if not credentials.credentials:
+        raise HTTPException(status_code=401, detail="Invalid credentials")
+
+    # Reject service account API keys for user-only endpoints
+    if validate_service_account_key(credentials.credentials):
+        raise HTTPException(
+            status_code=403,
+            detail="Service accounts cannot access user-specific endpoints"
+        )
+
+    # Handle testing mode for users
+    if config.IS_TESTING:
+        if credentials.credentials in {"user1", "user2"}:
+            return AuthenticatedUser(credentials.credentials, credentials.credentials)
+        raise HTTPException(
+            status_code=401, detail="Invalid credentials or user not found"
+        )
+
+    # Try JWT authentication for regular users
+    try:
+        user = get_current_user(credentials.credentials)
+        if not user:
+            raise HTTPException(status_code=401, detail="Invalid credentials")
+        return AuthenticatedUser(user.id, user.user_metadata.get("name", "User"))
+    except Exception as e:
+        raise HTTPException(
+            status_code=401,
+            detail="Invalid credentials - must provide valid JWT token"
         )
 
 

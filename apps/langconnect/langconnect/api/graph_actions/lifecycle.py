@@ -58,23 +58,37 @@ def generate_human_readable_name(graph_id: str) -> str:
     return f"Default {human_name}"
 
 
-def is_system_assistant_enhanced(assistant: Dict) -> bool:
-    """Check if a system assistant has been enhanced with proper default metadata."""
+def is_system_default_assistant(assistant: Dict) -> bool:
+    """
+    Check if an assistant is a system default assistant.
+
+    System default assistants are graph template assistants that have been enhanced
+    with user-friendly metadata, making them suitable for end-user interaction.
+    They are system-owned but accessible to users with proper permissions.
+
+    Criteria:
+    - Must be created by system (metadata.created_by === "system")
+    - Must have default flag (metadata._x_oap_is_default === true)
+    - Must have human-readable name starting with "Default"
+
+    Returns:
+        True if assistant is a system default assistant, False otherwise
+    """
     metadata = assistant.get("metadata", {})
-    
-    # Must be system created
+
+    # Must be system created (i.e., a graph template assistant)
     if metadata.get("created_by") != "system":
         return False
-    
+
     # Must have default tag
     if not metadata.get("_x_oap_is_default"):
         return False
-    
+
     # Name should be human-readable (start with "Default")
     name = assistant.get("name", "")
     if not name.startswith("Default "):
         return False
-    
+
     return True
 
 
@@ -351,8 +365,8 @@ async def enhance_system_metadata(
     """
     Scenario 1: System-Wide Graph Setup
     
-    Enhance system-created assistants with proper default metadata and human-readable names.
-    This handles NEW GRAPHS that have system assistants but no enhanced metadata.
+    Enhance graph template assistants with proper default metadata and human-readable names.
+    This handles NEW GRAPHS that have graph template assistants but no enhanced metadata yet.
     
     - Updates names to human-readable format ("Default Tools Agent")
     - Adds _x_oap_is_default metadata flag
@@ -371,7 +385,7 @@ async def enhance_system_metadata(
     else:
         log.info(f"Found default graph ID from deployment config: {default_graph_id}")
     
-    # Find all system assistants that need metadata enhancement
+    # Find all graph template assistants that need metadata enhancement
     assistants_data = await langgraph_service._make_request(
         "POST", 
         "assistants/search", 
@@ -386,7 +400,7 @@ async def enhance_system_metadata(
     # Filter assistants that need metadata enhancement
     assistants_to_enhance = [
         assistant for assistant in system_assistants
-        if not is_system_assistant_enhanced(assistant)
+        if not is_system_default_assistant(assistant)
     ]
     
     if not assistants_to_enhance:
@@ -395,7 +409,7 @@ async def enhance_system_metadata(
             "enhanced_assistants": [],
             "total_enhanced": 0,
             "skipped": len(system_assistants),
-            "message": "All system assistants have proper metadata"
+            "message": "All graph template assistants have proper metadata"
         }
     
     log.info(f"Found {len(assistants_to_enhance)} assistants needing system metadata enhancement")
@@ -500,7 +514,7 @@ async def enhance_system_metadata(
                 
                 if not existing_permission:
                     # Grant assistant permission to dev_admin
-                    # For default assistants, dev_admins get viewer-only access (cannot edit system assistants)
+                    # For default assistants, dev_admins get viewer-only access (cannot edit system default assistants)
                     success = await AssistantPermissionsManager.grant_assistant_permission(
                         assistant_id=assistant_id,
                         user_id=dev_admin["user_id"],
@@ -606,7 +620,7 @@ async def apply_permission_inheritance(
             # Filter for enhanced default assistants
             default_assistants = [
                 assistant for assistant in assistants
-                if is_system_assistant_enhanced(assistant)
+                if is_system_default_assistant(assistant)
             ]
             
             log.info(f"Found {len(default_assistants)} default assistants for graph {graph_id}")
@@ -622,7 +636,7 @@ async def apply_permission_inheritance(
                 
                 if not existing_permission:
                     # Grant assistant permission to implement inheritance
-                    # For default assistants, users get viewer-only access (cannot edit system assistants)
+                    # For default assistants, users get viewer-only access (cannot edit system default assistants)
                     success = await AssistantPermissionsManager.grant_assistant_permission(
                         assistant_id=assistant_id,
                         user_id=user_id,
@@ -814,8 +828,8 @@ async def enhance_system_metadata_endpoint(
     """
     Scenario 1: System-Wide Graph Setup Endpoint
     
-    Enhance system-created assistants with proper default metadata and human-readable names.
-    Only for graphs that have system assistants but no enhanced metadata.
+    Enhance graph template assistants with proper default metadata and human-readable names.
+    Only for graphs that have graph template assistants but no enhanced metadata yet.
     """
     start_time = time.time()
     
@@ -970,7 +984,7 @@ async def enhance_default_assistants(
         else:
             log.info(f"Found default graph ID from deployment config: {default_graph_id}")
         
-        # Step 3: Find all system assistants that need enhancement
+        # Step 3: Find all graph template assistants that need enhancement
         assistants_data = await langgraph_service._make_request(
             "POST", 
             "assistants/search", 
@@ -982,7 +996,7 @@ async def enhance_default_assistants(
         )
         system_assistants = assistants_data if isinstance(assistants_data, list) else assistants_data.get("assistants", [])
         
-        log.info(f"Found {len(system_assistants)} system assistants")
+        log.info(f"Found {len(system_assistants)} graph template assistants")
         
         # Get all dev_admins for permission setup (moved earlier)
         dev_admins = await GraphPermissionsManager.get_all_dev_admins()
@@ -991,13 +1005,13 @@ async def enhance_default_assistants(
         # Step 4: Filter assistants that need enhancement
         assistants_to_enhance = [
             assistant for assistant in system_assistants
-            if not is_system_assistant_enhanced(assistant)
+            if not is_system_default_assistant(assistant)
         ]
         
         # Also include assistants that are enhanced but may need permission setup
         assistants_needing_permissions = []
         for assistant in system_assistants:
-            if is_system_assistant_enhanced(assistant):
+            if is_system_default_assistant(assistant):
                 # Check if this assistant has proper permissions
                 assistant_id = assistant.get("assistant_id")
                 graph_id = assistant.get("graph_id")
@@ -1031,7 +1045,7 @@ async def enhance_default_assistants(
                 "enhanced_assistants": [],
                 "total_enhanced": 0,
                 "skipped": len(system_assistants),
-                "message": "All system assistants are properly configured"
+                "message": "All graph template assistants are properly configured"
             }
         
         log.info(f"Found {len(assistants_to_enhance)} assistants needing metadata enhancement and {len(assistants_needing_permissions)} needing permission setup")
@@ -1151,7 +1165,7 @@ async def enhance_default_assistants(
                     
                     if not existing_permission:
                         # Grant assistant permission to dev_admin
-                        # For default assistants, dev_admins get viewer-only access (cannot edit system assistants)
+                        # For default assistants, dev_admins get viewer-only access (cannot edit system default assistants)
                         success = await AssistantPermissionsManager.grant_assistant_permission(
                             assistant_id=assistant_id,
                             user_id=dev_admin["user_id"],
@@ -1191,7 +1205,7 @@ async def enhance_default_assistants(
                         
                         if not existing_permission:
                             # Grant assistant permission to implement inheritance
-                            # For default assistants, users get viewer-only access (cannot edit system assistants)
+                            # For default assistants, users get viewer-only access (cannot edit system default assistants)
                             success = await AssistantPermissionsManager.grant_assistant_permission(
                                 assistant_id=assistant_id,
                                 user_id=user_id,
@@ -1669,6 +1683,102 @@ async def cleanup_graphs(
         raise HTTPException(
             status_code=500,
             detail=f"Failed to perform graph cleanup: {str(e)}"
+        )
+
+
+@router.post("/graphs/discover-metadata")
+async def discover_graph_metadata(
+    actor: Annotated[AuthenticatedActor, Depends(resolve_user_or_service)],
+) -> Dict[str, Any]:
+    """
+    Discover and populate graph metadata from configuration files.
+
+    This endpoint reads GRAPH_NAME and GRAPH_DESCRIPTION from each graph's
+    configuration module and populates the graphs_mirror table.
+
+    This is part of the simplified discovery flow where we:
+    1. Read metadata from config files
+    2. Populate graphs_mirror with name/description
+    3. Do NOT create default assistants (LangGraph auto-creates them)
+
+    **Authorization:**
+    - **Dev Admins**: Can discover graph metadata
+    - **Service Accounts**: Can discover graph metadata
+    - **Regular Users**: 403 Forbidden
+    """
+    start_time = time.time()
+
+    try:
+        log.info(f"Graph metadata discovery requested by {actor.actor_type}:{actor.identity}")
+
+        # Permission check - only dev_admins or service accounts
+        if actor.actor_type == "user":
+            user_role = await GraphPermissionsManager.get_user_role(actor.identity)
+            if user_role != "dev_admin":
+                raise HTTPException(
+                    status_code=403,
+                    detail="Only dev_admin users can discover graph metadata"
+                )
+
+        # Import discovery utils
+        from langconnect.api.graph_actions.discovery_utils import get_all_graph_metadata, populate_graph_metadata_in_db
+        from langconnect.database.connection import get_db_connection
+
+        # Get metadata for all graphs
+        all_metadata = get_all_graph_metadata()
+
+        log.info(f"Found metadata for {len(all_metadata)} graphs")
+
+        # Populate database
+        updated_graphs = []
+        failed_graphs = []
+
+        async with get_db_connection() as conn:
+            for graph_id, metadata in all_metadata.items():
+                try:
+                    success = await populate_graph_metadata_in_db(
+                        conn,
+                        graph_id,
+                        metadata["name"],
+                        metadata["description"]
+                    )
+
+                    if success:
+                        updated_graphs.append({
+                            "graph_id": graph_id,
+                            "name": metadata["name"],
+                            "description": metadata["description"]
+                        })
+                    else:
+                        failed_graphs.append(graph_id)
+
+                except Exception as e:
+                    log.error(f"Failed to populate metadata for {graph_id}: {e}")
+                    failed_graphs.append(graph_id)
+
+            # Increment graph version to invalidate frontend cache
+            await conn.fetchval("SELECT langconnect.increment_cache_version('graphs')")
+
+        duration_ms = int((time.time() - start_time) * 1000)
+
+        log.info(f"Graph metadata discovery completed: {len(updated_graphs)} updated, {len(failed_graphs)} failed in {duration_ms}ms")
+
+        return {
+            "updated_graphs": updated_graphs,
+            "total_updated": len(updated_graphs),
+            "failed_graphs": failed_graphs,
+            "total_failed": len(failed_graphs),
+            "duration_ms": duration_ms,
+            "message": f"Discovered and populated metadata for {len(updated_graphs)} graphs"
+        }
+
+    except HTTPException:
+        raise
+    except Exception as e:
+        log.error(f"Failed to discover graph metadata: {str(e)}")
+        raise HTTPException(
+            status_code=500,
+            detail=f"Failed to discover graph metadata: {str(e)}"
         )
 
 

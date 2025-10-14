@@ -99,7 +99,11 @@ async def create_public_graph_permission(
     actor: Annotated[AuthenticatedActor, Depends(resolve_user_or_service)],
     langgraph_service: Annotated[LangGraphService, Depends(get_langgraph_service)]
 ):
-    """Create a new public graph permission and automatically create permissions for the default assistant."""
+    """Create a new public graph permission and grant it to all existing users.
+
+    Note: This only grants graph-level permissions. Assistant permissions must be
+    granted separately if you want users to access existing assistants created from this graph.
+    """
     user_role_manager = UserRoleManager(actor.identity)
     if not await user_role_manager.is_dev_admin():
         raise HTTPException(status_code=403, detail="Forbidden: Requires dev_admin role")
@@ -109,32 +113,6 @@ async def create_public_graph_permission(
         raise HTTPException(status_code=400, detail="Invalid permission level. Must be 'access' or 'admin'.")
 
     try:
-        # First, find the default assistant for this graph
-        default_assistant_id = None
-        try:
-            assistants_data = await langgraph_service._make_request(
-                "POST", 
-                "assistants/search", 
-                data={
-                    "graph_id": request.graph_id,
-                    "limit": 100,
-                    "offset": 0
-                }
-            )
-            assistants = assistants_data if isinstance(assistants_data, list) else assistants_data.get("assistants", [])
-            
-            # Find the default (system-created) assistant
-            for assistant in assistants:
-                if assistant.get("metadata", {}).get("created_by") == "system":
-                    default_assistant_id = assistant.get("assistant_id")
-                    break
-                    
-            log.info(f"Found default assistant for graph '{request.graph_id}': {default_assistant_id}")
-            
-        except Exception as e:
-            log.warning(f"Failed to find default assistant for graph '{request.graph_id}': {e}")
-            # Continue without the assistant - the graph permission will still be created
-
         async with get_db_connection() as connection:
             # Use a transaction to ensure consistency
             async with connection.transaction():
@@ -170,69 +148,19 @@ async def create_public_graph_permission(
                 )
                 
                 # Extract number of users granted graph permission
-                users_granted_graph = 0
+                users_granted = 0
                 if hasattr(granted_result, 'split'):
-                    users_granted_graph = int(granted_result.split()[-1]) if granted_result.split()[-1].isdigit() else 0
+                    users_granted = int(granted_result.split()[-1]) if granted_result.split()[-1].isdigit() else 0
 
-                # If we found a default assistant, create public permission for it and grant to users
-                users_granted_assistant = 0
-                assistant_permission_id = None
-                if default_assistant_id:
-                    try:
-                        # Check if public assistant permission already exists
-                        existing_assistant = await connection.fetchrow(
-                            "SELECT id FROM langconnect.public_assistant_permissions WHERE assistant_id = $1 AND revoked_at IS NULL",
-                            default_assistant_id
-                        )
-                        
-                        if not existing_assistant:
-                            # Create public assistant permission (use viewer level for default assistants)
-                            assistant_result = await connection.fetchrow(
-                                """
-                                INSERT INTO langconnect.public_assistant_permissions 
-                                (assistant_id, permission_level, created_by, notes)
-                                VALUES ($1, $2, $3, $4)
-                                RETURNING id, created_at
-                                """,
-                                default_assistant_id, "viewer", actor.identity, f"Auto-created from public graph: {request.graph_id}"
-                            )
-                            assistant_permission_id = assistant_result["id"]
+                log.info(f"User '{actor.identity}' created public permission for graph '{request.graph_id}' with level '{request.permission_level}' and granted to {users_granted} existing users")
 
-                            # Grant assistant permissions to all existing users
-                            assistant_granted_result = await connection.execute(
-                                """
-                                INSERT INTO langconnect.assistant_permissions (user_id, assistant_id, permission_level, granted_by)
-                                SELECT ur.user_id, $1, $2, 'system:public'
-                                FROM langconnect.user_roles ur
-                                ON CONFLICT (user_id, assistant_id) DO NOTHING
-                                """,
-                                default_assistant_id, "viewer"
-                            )
-                            
-                            # Extract number of users granted assistant permission
-                            if hasattr(assistant_granted_result, 'split'):
-                                users_granted_assistant = int(assistant_granted_result.split()[-1]) if assistant_granted_result.split()[-1].isdigit() else 0
-
-                            log.info(f"Auto-created public permission for default assistant '{default_assistant_id}' and granted to {users_granted_assistant} users")
-                        else:
-                            log.info(f"Public permission already exists for default assistant '{default_assistant_id}'")
-                            
-                    except Exception as e:
-                        log.error(f"Failed to create public permission for default assistant '{default_assistant_id}': {e}")
-                        # Don't fail the whole operation if assistant permission fails
-
-                log.info(f"User '{actor.identity}' created public permission for graph '{request.graph_id}' with level '{request.permission_level}' and granted to {users_granted_graph} existing users. Default assistant: {default_assistant_id}, assistant permissions granted: {users_granted_assistant}")
-                
                 return {
                     "id": result["id"],
                     "graph_id": request.graph_id,
                     "permission_level": request.permission_level,
                     "created_at": result["created_at"].isoformat(),
-                    "users_granted": users_granted_graph,
-                    "default_assistant_id": default_assistant_id,
-                    "assistant_permission_id": assistant_permission_id,
-                    "assistant_users_granted": users_granted_assistant,
-                    "message": f"Public graph permission created successfully and granted to {users_granted_graph} existing users. Default assistant permission also created and granted to {users_granted_assistant} users." if default_assistant_id else f"Public graph permission created successfully and granted to {users_granted_graph} existing users. No default assistant found."
+                    "users_granted": users_granted,
+                    "message": f"Public graph permission created successfully and granted to {users_granted} existing users"
                 }
 
     except HTTPException:
@@ -352,40 +280,14 @@ async def create_public_assistant_permission(
 async def revoke_public_graph_permission(
     graph_id: str,
     request: RevokeRequest,
-    actor: Annotated[AuthenticatedActor, Depends(resolve_user_or_service)],
-    langgraph_service: Annotated[LangGraphService, Depends(get_langgraph_service)]
+    actor: Annotated[AuthenticatedActor, Depends(resolve_user_or_service)]
 ):
-    """Revoke a public permission for a graph and associated default assistant permission."""
+    """Revoke a public permission for a graph."""
     user_role_manager = UserRoleManager(actor.identity)
     if not await user_role_manager.is_dev_admin():
         raise HTTPException(status_code=403, detail="Forbidden: Requires dev_admin role")
 
     try:
-        # Find the default assistant for this graph
-        default_assistant_id = None
-        try:
-            assistants_data = await langgraph_service._make_request(
-                "POST", 
-                "assistants/search", 
-                data={
-                    "graph_id": graph_id,
-                    "limit": 100,
-                    "offset": 0
-                }
-            )
-            assistants = assistants_data if isinstance(assistants_data, list) else assistants_data.get("assistants", [])
-            
-            # Find the default (system-created) assistant
-            for assistant in assistants:
-                if assistant.get("metadata", {}).get("created_by") == "system":
-                    default_assistant_id = assistant.get("assistant_id")
-                    break
-                    
-            log.info(f"Found default assistant for graph '{graph_id}': {default_assistant_id}")
-            
-        except Exception as e:
-            log.warning(f"Failed to find default assistant for graph '{graph_id}': {e}")
-
         async with get_db_connection() as connection:
             # First check if there's an active permission
             active_permission = await connection.fetchrow(
@@ -393,46 +295,13 @@ async def revoke_public_graph_permission(
                 graph_id
             )
             
-            # If there's an active permission, revoke it normally and also handle default assistant
+            # If there's an active permission, revoke it normally
             if active_permission:
                 result = await GraphPermissionManager.revoke_public_graph_permission(graph_id, request.revoke_mode)
-                
-                # Also revoke the auto-created default assistant permission if it exists
-                assistant_revoked = False
-                if default_assistant_id:
-                    try:
-                        async with connection.transaction():
-                            default_assistant_id_text = str(default_assistant_id)
-                            assistant_result = await connection.execute(
-                                """
-                                UPDATE langconnect.public_assistant_permissions
-                                SET revoked_at = NOW(), revoke_mode = $2
-                                WHERE assistant_id = $1 AND revoked_at IS NULL
-                                AND notes LIKE 'Auto-created from public graph: %'
-                                """,
-                                default_assistant_id_text, request.revoke_mode
-                            )
-                            
-                            if "UPDATE 1" in assistant_result:
-                                assistant_revoked = True
-                                log.info(f"Revoked auto-created public permission for default assistant '{default_assistant_id}'")
-                                
-                                # If revoke_all mode, also remove user permissions
-                                if request.revoke_mode == "revoke_all":
-                                    await connection.execute(
-                                        "DELETE FROM langconnect.assistant_permissions WHERE assistant_id = $1 AND granted_by = 'system:public'",
-                                        default_assistant_id_text
-                                    )
-                                    
-                    except Exception as e:
-                        log.warning(f"Failed to revoke public permission for default assistant '{default_assistant_id}': {e}")
-                        # Don't fail the whole operation if assistant revoke fails
-                
+
                 return {
                     "message": "Public graph permission revoked successfully",
-                    "result": result,
-                    "default_assistant_id": default_assistant_id,
-                    "assistant_revoked": assistant_revoked
+                    "result": result
                 }
             
             # If no active permission, check for a revoked one that we might want to change mode
@@ -451,61 +320,24 @@ async def revoke_public_graph_permission(
                     "UPDATE langconnect.public_graph_permissions SET revoke_mode = 'revoke_all' WHERE graph_id = $1",
                     graph_id
                 )
-                
-                # Find all assistants belonging to this graph (from mirror) and update their revoke mode as well
-                assistant_query = """
-                    SELECT assistant_id 
-                    FROM langconnect.assistants_mirror 
-                    WHERE graph_id = $1
-                """
-                assistant_results = await connection.fetch(assistant_query, graph_id)
-                assistant_ids = [row['assistant_id'] for row in assistant_results]
-                
-                # Update assistant public permissions to revoke_all mode if they were future_only
-                assistant_permissions_updated = 0
-                for assistant_id in assistant_ids:
-                    assistant_id_text = str(assistant_id)
-                    update_result = await connection.execute(
-                        """
-                        UPDATE langconnect.public_assistant_permissions 
-                        SET revoke_mode = 'revoke_all' 
-                        WHERE assistant_id = $1 AND revoked_at IS NOT NULL AND revoke_mode = 'future_only'
-                        """,
-                        assistant_id_text
-                    )
-                    if "UPDATE 1" in update_result:
-                        assistant_permissions_updated += 1
-                
+
                 # Remove existing user permissions that were granted by the public permission
-                graph_delete_result = await connection.execute(
+                delete_result = await connection.execute(
                     "DELETE FROM langconnect.graph_permissions WHERE graph_id = $1 AND granted_by = 'system:public'",
                     graph_id
                 )
-                
-                revoked_graph_permissions = 0
-                if hasattr(graph_delete_result, 'split'):
-                    revoked_graph_permissions = int(graph_delete_result.split()[-1]) if graph_delete_result.split()[-1].isdigit() else 0
-                
-                # Remove assistant permissions for related assistants
-                revoked_assistant_permissions = 0
-                if assistant_ids:
-                    assistant_delete_result = await connection.execute(
-                        "DELETE FROM langconnect.assistant_permissions WHERE assistant_id = ANY($1::uuid[]) AND granted_by = 'system:public'",
-                        [str(a) for a in assistant_ids]
-                    )
-                    if hasattr(assistant_delete_result, 'split'):
-                        revoked_assistant_permissions = int(assistant_delete_result.split()[-1]) if assistant_delete_result.split()[-1].isdigit() else 0
-                
+
+                revoked_count = 0
+                if hasattr(delete_result, 'split'):
+                    revoked_count = int(delete_result.split()[-1]) if delete_result.split()[-1].isdigit() else 0
+
                 return {
                     "message": "Public graph permission updated to revoke all users",
                     "result": {
                         "graph_id": graph_id,
                         "status": "revoked",
                         "mode": "revoke_all",
-                        "revoked_graph_permissions": revoked_graph_permissions,
-                        "revoked_assistant_permissions": revoked_assistant_permissions,
-                        "related_assistants_count": len(assistant_ids),
-                        "assistant_permissions_updated": assistant_permissions_updated
+                        "revoked_user_count": revoked_count
                     }
                 }
             else:
@@ -589,40 +421,14 @@ async def revoke_public_assistant_permission(
 @router.post("/graphs/{graph_id}/re-invoke")
 async def re_invoke_public_graph_permission(
     graph_id: str,
-    actor: Annotated[AuthenticatedActor, Depends(resolve_user_or_service)],
-    langgraph_service: Annotated[LangGraphService, Depends(get_langgraph_service)]
+    actor: Annotated[AuthenticatedActor, Depends(resolve_user_or_service)]
 ):
-    """Re-invoke a previously revoked public graph permission and associated default assistant permission."""
+    """Re-invoke a previously revoked public graph permission."""
     user_role_manager = UserRoleManager(actor.identity)
     if not await user_role_manager.is_dev_admin():
         raise HTTPException(status_code=403, detail="Forbidden: Requires dev_admin role")
 
     try:
-        # Find the default assistant for this graph
-        default_assistant_id = None
-        try:
-            assistants_data = await langgraph_service._make_request(
-                "POST", 
-                "assistants/search", 
-                data={
-                    "graph_id": graph_id,
-                    "limit": 100,
-                    "offset": 0
-                }
-            )
-            assistants = assistants_data if isinstance(assistants_data, list) else assistants_data.get("assistants", [])
-            
-            # Find the default (system-created) assistant
-            for assistant in assistants:
-                if assistant.get("metadata", {}).get("created_by") == "system":
-                    default_assistant_id = assistant.get("assistant_id")
-                    break
-                    
-            log.info(f"Found default assistant for graph '{graph_id}': {default_assistant_id}")
-            
-        except Exception as e:
-            log.warning(f"Failed to find default assistant for graph '{graph_id}': {e}")
-
         # Re-invoke by setting revoked_at back to NULL
         async with get_db_connection() as connection:
             async with connection.transaction():
@@ -638,33 +444,9 @@ async def re_invoke_public_graph_permission(
                 if "UPDATE 0" in result:
                     raise HTTPException(status_code=404, detail="No revoked permission found for this graph")
 
-                # Also re-invoke the default assistant permission if it exists and was auto-created
-                assistant_re_invoked = False
-                if default_assistant_id:
-                    try:
-                        assistant_result = await connection.execute(
-                            """
-                            UPDATE langconnect.public_assistant_permissions
-                            SET revoked_at = NULL, revoke_mode = NULL
-                            WHERE assistant_id = $1 AND revoked_at IS NOT NULL
-                            AND notes LIKE 'Auto-created from public graph: %'
-                            """,
-                            default_assistant_id
-                        )
-                        
-                        if "UPDATE 1" in assistant_result:
-                            assistant_re_invoked = True
-                            log.info(f"Re-invoked auto-created public permission for default assistant '{default_assistant_id}'")
-                            
-                    except Exception as e:
-                        log.warning(f"Failed to re-invoke public permission for default assistant '{default_assistant_id}': {e}")
-                        # Don't fail the whole operation if assistant re-invoke fails
-            
                 return {
                     "message": "Public graph permission re-invoked successfully",
-                    "graph_id": graph_id,
-                    "default_assistant_id": default_assistant_id,
-                    "assistant_re_invoked": assistant_re_invoked
+                    "graph_id": graph_id
                 }
 
     except HTTPException:

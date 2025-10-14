@@ -175,7 +175,8 @@ async function uploadDocumentsEnhanced(
     
     // Add processing configuration
     formData.append("processing_mode", uploadData.processingMode);
-    
+    formData.append("use_ai_metadata", uploadData.useAIMetadata.toString());
+
     // Generate job-level metadata (for tracking the batch)
     const itemCount = uploadData.files.length + uploadData.urls.length + (uploadData.textContent ? 1 : 0);
     formData.append("job_title", generateBatchTitle(uploadData, itemCount));
@@ -725,6 +726,7 @@ export function useKnowledge(): UseKnowledgeReturn {
         urls: [],
         textContent: "",
         processingMode: "fast" as ProcessingMode,
+        useAIMetadata: false,
       };
 
       await handleEnhancedUpload(uploadData, collectionId);
@@ -745,6 +747,7 @@ export function useKnowledge(): UseKnowledgeReturn {
         urls: [],
         textContent: textInput,
         processingMode: "fast" as ProcessingMode,
+        useAIMetadata: false,
       };
 
       await handleEnhancedUpload(uploadData, collectionId);

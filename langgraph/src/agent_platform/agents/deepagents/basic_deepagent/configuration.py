@@ -5,6 +5,10 @@ from agent_platform.agents.deepagents.builder import SerializableSubAgent
 from agent_platform.utils.model_utils import get_model_options_for_ui
 
 
+# Graph metadata
+GRAPH_NAME = "Deep Agent"
+GRAPH_DESCRIPTION = "An advanced multi-agent system that coordinates specialized sub-agents to handle complex tasks"
+
 # System prompts and constants.
 DEFAULT_SYSTEM_PROMPT = """## Role
 You are an expert AI assistant that helps users by using available tools and delegating tasks to specialist sub-agents.
@@ -237,14 +241,14 @@ class SubAgentConfig(BaseModel):
 class GraphConfigPydantic(BaseModel):
     """
     Complete configuration schema for the tools agent.
-    
+
     This is the main configuration class that defines all available options
     for the tools agent, including model parameters, tool integrations,
     and behavior customization.
-    
+
     The configuration includes UI metadata for automatic form generation
     in the agent platform interface.
-    
+
     Attributes:
         model_name: LLM model identifier
         temperature: Randomness control (0-2)
@@ -255,7 +259,29 @@ class GraphConfigPydantic(BaseModel):
         sub_agents: Configuration for dynamic sub-agents
         recursion_limit: The maximum number of steps the agent can take.
     """
-    
+
+    template_name: Optional[str] = Field(
+        default=GRAPH_NAME,
+        metadata={
+            "x_oap_ui_config": {
+                "type": "agent_name",
+                "description": "The name of the agent template.",
+            }
+        },
+    )
+    """The name of the agent template"""
+
+    template_description: Optional[str] = Field(
+        default=GRAPH_DESCRIPTION,
+        metadata={
+            "x_oap_ui_config": {
+                "type": "agent_description",
+                "description": "The description of the agent template.",
+            }
+        },
+    )
+    """The description of the agent template"""
+
     model_name: Optional[str] = Field(
         default="anthropic:claude-sonnet-4-5-20250929",
         metadata={

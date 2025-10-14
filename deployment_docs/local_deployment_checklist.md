@@ -3,7 +3,7 @@
 ## Prerequisites
 
 - [ ] **Docker** and **Docker Compose** installed
-- [ ] **Python 3.10+** installed
+- [ ] **Python 3.10+** and **Poetry** installed
 - [ ] **Node.js** and **Yarn** installed
 
 ## Initial Setup

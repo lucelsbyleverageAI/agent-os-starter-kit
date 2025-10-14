@@ -7,6 +7,8 @@ import { getSupabaseClient } from "./supabase-client";
  * This solves the race condition where Supabase refreshes tokens in the background,
  * invalidating the old token before the new one propagates to React state.
  *
+ * Also proactively refreshes tokens that are about to expire to prevent 401 errors.
+ *
  * @param url - The URL to fetch
  * @param options - Fetch options (headers, method, body, etc.)
  * @param session - Current session from Auth context
@@ -22,12 +24,34 @@ export async function fetchWithAuth(
     return fetch(url, options);
   }
 
-  // First attempt with current token from React state
+  // Check if token is expired or about to expire (within 60 seconds)
+  const now = Math.floor(Date.now() / 1000);
+  const expiresAt = session.expiresAt || 0;
+  const isExpiringSoon = expiresAt - now < 60;
+
+  let currentToken = session.accessToken;
+
+  // Proactively refresh if token is expiring soon
+  if (isExpiringSoon) {
+    try {
+      const supabase = getSupabaseClient();
+      const { data, error } = await supabase.auth.refreshSession();
+
+      if (!error && data.session?.access_token) {
+        currentToken = data.session.access_token;
+      }
+    } catch (refreshError) {
+      // If proactive refresh fails, continue with existing token
+      console.warn("Proactive token refresh failed, using existing token:", refreshError);
+    }
+  }
+
+  // First attempt with current token (or refreshed token if we just refreshed)
   let response = await fetch(url, {
     ...options,
     headers: {
       ...options.headers,
-      Authorization: `Bearer ${session.accessToken}`,
+      Authorization: `Bearer ${currentToken}`,
     },
   });
 
@@ -39,11 +63,18 @@ export async function fetchWithAuth(
       const { data, error } = await supabase.auth.refreshSession();
 
       if (!error && data.session?.access_token) {
-        // Retry with the fresh token
+        // IMPORTANT: Create a new fetch WITHOUT the original abort signal
+        // The original signal may have been aborted by component cleanup
+        const retryOptions = { ...options };
+
+        // Remove the signal from retry to prevent abort interference
+        delete retryOptions.signal;
+
+        // Retry with the fresh token and new options
         response = await fetch(url, {
-          ...options,
+          ...retryOptions,
           headers: {
-            ...options.headers,
+            ...retryOptions.headers,
             Authorization: `Bearer ${data.session.access_token}`,
           },
         });
