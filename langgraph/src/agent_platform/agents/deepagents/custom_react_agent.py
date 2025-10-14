@@ -260,32 +260,48 @@ def custom_create_react_agent(
         try:
             files = _get_state_value(state, "files", {}) or {}
             logger.debug("[call_model] Checking for user uploads to build system note")
-            
+
             # Collect user-uploaded images from file system
-            uploaded = []
+            uploaded_images = []
+            uploaded_documents = []
+
             for filename, file_entry in files.items():
                 metadata = file_entry.get("metadata", {}) if isinstance(file_entry, dict) else {}
-                if metadata.get("source") == "user_upload" and metadata.get("type") == "image":
-                    uploaded.append({
-                        "filename": filename,
-                        "name": metadata.get("name", "Uploaded Image"),
-                        "description": metadata.get("description", "User uploaded image"),
-                        "gcp_url": metadata.get("gcp_url") or metadata.get("gcp_path"),
-                    })
+                if metadata.get("source") == "user_upload":
+                    if metadata.get("type") == "image":
+                        uploaded_images.append({
+                            "filename": filename,
+                            "name": metadata.get("name", "Uploaded Image"),
+                            "description": metadata.get("description", "User uploaded image"),
+                            "gcp_url": metadata.get("gcp_url") or metadata.get("gcp_path"),
+                        })
+                    elif metadata.get("type") == "document":
+                        uploaded_documents.append({
+                            "filename": filename,
+                            "original_filename": metadata.get("original_filename", filename),
+                            "original_mime_type": metadata.get("original_mime_type", "unknown"),
+                        })
 
-            logger.debug("[call_model] Found %d uploaded image(s)", len(uploaded))
-            if not uploaded:
+            logger.debug("[call_model] Found %d uploaded image(s), %d uploaded document(s)",
+                        len(uploaded_images), len(uploaded_documents))
+
+            if not uploaded_images and not uploaded_documents:
                 return None
 
             # Build concise system note
-            lines = [
-                "System Note: The user uploaded image(s) have been added to your internal file system.",
-                "You can reference them by gcp_url when using tools (e.g., create_from_references, edit_images).",
-                "Uploads:",
-            ]
-            for u in uploaded:
-                display_url = u.get("gcp_url") or u.get("filename")
-                lines.append(f"- {display_url} — {u['name']}: {u['description']}")
+            lines = ["System Note: The user uploaded file(s) have been added to your internal file system."]
+
+            if uploaded_images:
+                lines.append("\nImages (reference by gcp_url when using tools):")
+                for img in uploaded_images:
+                    display_url = img.get("gcp_url") or img.get("filename")
+                    lines.append(f"- {display_url} — {img['name']}: {img['description']}")
+
+            if uploaded_documents:
+                lines.append("\nDocuments (reference by filename):")
+                for doc in uploaded_documents:
+                    lines.append(f"- {doc['filename']} (original: {doc['original_filename']})")
+
             return "\n".join(lines)
         except Exception:
             logger.exception("[call_model] Failed to build system note; skipping")
@@ -362,27 +378,26 @@ def custom_create_react_agent(
             raise ValueError(f"Expected input to call_model to have 'messages' key, but got {state}")
 
         _validate_chat_history(messages)
-        
-        # If image processing is enabled, inject system note for uploads
-        if enable_image_processing:
-            system_note = _build_system_note_for_uploads(state)
-            if system_note and messages:
-                # Create a copy of messages and append system note to last human message
-                model_messages = list(messages)
-                last_msg = model_messages[-1]
-                if isinstance(last_msg, HumanMessage):
-                    # Preserve rich content if present
-                    if isinstance(last_msg.content, list):
-                        augmented = list(last_msg.content) + [{"type": "text", "text": system_note}]
-                        new_last = HumanMessage(content=augmented, additional_kwargs=getattr(last_msg, "additional_kwargs", {}))
-                        logger.debug("[call_model] Appended system note to structured HumanMessage (list content)")
-                    else:
-                        text_content = str(last_msg.content) if last_msg.content is not None else ""
-                        new_last = HumanMessage(content=(text_content + "\n\n" + system_note).strip(), additional_kwargs=getattr(last_msg, "additional_kwargs", {}))
-                        logger.debug("[call_model] Appended system note to plain-text HumanMessage")
-                    model_messages[-1] = new_last
-                    return model_messages
-        
+
+        # Inject system note for uploads (images and documents)
+        system_note = _build_system_note_for_uploads(state)
+        if system_note and messages:
+            # Create a copy of messages and append system note to last human message
+            model_messages = list(messages)
+            last_msg = model_messages[-1]
+            if isinstance(last_msg, HumanMessage):
+                # Preserve rich content if present
+                if isinstance(last_msg.content, list):
+                    augmented = list(last_msg.content) + [{"type": "text", "text": system_note}]
+                    new_last = HumanMessage(content=augmented, additional_kwargs=getattr(last_msg, "additional_kwargs", {}))
+                    logger.debug("[call_model] Appended system note to structured HumanMessage (list content)")
+                else:
+                    text_content = str(last_msg.content) if last_msg.content is not None else ""
+                    new_last = HumanMessage(content=(text_content + "\n\n" + system_note).strip(), additional_kwargs=getattr(last_msg, "additional_kwargs", {}))
+                    logger.debug("[call_model] Appended system note to plain-text HumanMessage")
+                model_messages[-1] = new_last
+                return model_messages
+
         return list(messages)
 
     # Define the function that calls the model
@@ -510,24 +525,36 @@ def custom_create_react_agent(
             RunnableCallable(call_model, acall_model),
             input_schema=input_schema,
         )
-        
+
+        # Import file attachment processing
+        try:
+            from .file_attachment_processing import extract_file_attachments
+        except ImportError:
+            from agent_platform.agents.deepagents.file_attachment_processing import extract_file_attachments
+
+        # Add file attachment extraction node (always runs first)
+        workflow.add_node("extract_file_attachments", extract_file_attachments)
+        entrypoint = "extract_file_attachments"
+
         # Handle image processing and pre_model_hook for no-tool case
-        entrypoint = "agent"
-        
+        next_node = "agent"
+
         if enable_image_processing:
             try:
                 from .image_processing import dispatch_image_processing, process_single_image, continue_after_image_processing
             except ImportError:
                 from agent_platform.agents.deepagents.image_processing import dispatch_image_processing, process_single_image, continue_after_image_processing
-            
+
             workflow.add_node("dispatch_image_processing", dispatch_image_processing)
             workflow.add_node("process_single_image", process_single_image)
             workflow.add_node("continue_after_image_processing", continue_after_image_processing)
-            entrypoint = "dispatch_image_processing"
-            
-            # Flow: dispatch -> [process_single_image (parallel)] -> continue_after_image_processing -> agent/pre_model_hook
+
+            # Connect file attachments -> image processing
+            workflow.add_edge("extract_file_attachments", "dispatch_image_processing")
+
+            # Flow: extract_file_attachments -> dispatch -> [process_single_image (parallel)] -> continue_after_image_processing -> agent/pre_model_hook
             # The continue_after_image_processing node acts as fan-in for all parallel processing
-            
+
             if pre_model_hook is not None:
                 workflow.add_node("pre_model_hook", pre_model_hook)
                 workflow.add_edge("continue_after_image_processing", "pre_model_hook")
@@ -536,8 +563,11 @@ def custom_create_react_agent(
                 workflow.add_edge("continue_after_image_processing", "agent")
         elif pre_model_hook is not None:
             workflow.add_node("pre_model_hook", pre_model_hook)
+            workflow.add_edge("extract_file_attachments", "pre_model_hook")
             workflow.add_edge("pre_model_hook", "agent")
-            entrypoint = "pre_model_hook"
+        else:
+            # Direct connection: extract_file_attachments -> agent
+            workflow.add_edge("extract_file_attachments", "agent")
 
         workflow.set_entry_point(entrypoint)
 
@@ -599,41 +629,64 @@ def custom_create_react_agent(
     )
     workflow.add_node("tools", tool_node)
 
+    # Import file attachment processing
+    try:
+        from .file_attachment_processing import extract_file_attachments
+    except ImportError:
+        from agent_platform.agents.deepagents.file_attachment_processing import extract_file_attachments
+
+    # Add file attachment extraction node (always runs first)
+    workflow.add_node("extract_file_attachments", extract_file_attachments, input_schema=state_schema)
+    entrypoint = "extract_file_attachments"
+
+    # agent_loop_entrypoint is where tools should route back to (skipping file attachment extraction)
+    agent_loop_entrypoint = "agent"
+
     # Handle image processing and pre_model_hook
-    entrypoint = "agent"
-    
     if enable_image_processing:
         # Import here to avoid circular imports
         try:
             from .image_processing import dispatch_image_processing, process_single_image, continue_after_image_processing
         except ImportError:
             from agent_platform.agents.deepagents.image_processing import dispatch_image_processing, process_single_image, continue_after_image_processing
-        
+
         # Add image processing nodes with explicit input schema to avoid conflicts
         workflow.add_node("dispatch_image_processing", dispatch_image_processing, input_schema=state_schema)
         workflow.add_node("process_single_image", process_single_image, input_schema=state_schema)
         workflow.add_node("continue_after_image_processing", continue_after_image_processing, input_schema=state_schema)
-        entrypoint = "dispatch_image_processing"
-        
-        # Flow: dispatch -> [process_single_image (parallel)] -> continue_after_image_processing -> agent/pre_model_hook
+
+        # Connect file attachments -> image processing
+        workflow.add_edge("extract_file_attachments", "dispatch_image_processing")
+
+        # Flow: extract_file_attachments -> dispatch -> [process_single_image (parallel)] -> continue_after_image_processing -> agent/pre_model_hook
         # The continue_after_image_processing node acts as fan-in for all parallel processing
-        
+
         if pre_model_hook is not None:
             workflow.add_node("pre_model_hook", pre_model_hook)
             workflow.add_edge("continue_after_image_processing", "pre_model_hook")
             workflow.add_edge("pre_model_hook", "agent")
         else:
             workflow.add_edge("continue_after_image_processing", "agent")
+
+        # Tools should route back to agent (image processing already happened)
+        agent_loop_entrypoint = "agent"
     elif pre_model_hook is not None:
         workflow.add_node("pre_model_hook", pre_model_hook)
+        workflow.add_edge("extract_file_attachments", "pre_model_hook")
         workflow.add_edge("pre_model_hook", "agent")
-        entrypoint = "pre_model_hook"
+        # Tools should route back to pre_model_hook
+        agent_loop_entrypoint = "pre_model_hook"
+    else:
+        # Direct connection: extract_file_attachments -> agent
+        workflow.add_edge("extract_file_attachments", "agent")
+        # Tools should route back to agent
+        agent_loop_entrypoint = "agent"
 
     workflow.set_entry_point(entrypoint)
 
     # Setup routing paths
     agent_paths = []
-    post_model_hook_paths = [entrypoint, "tools"]
+    post_model_hook_paths = [agent_loop_entrypoint, "tools"]
     
     # When image processing is enabled, post_model_hook can also route to agent
     if enable_image_processing and post_model_hook is not None:
@@ -684,11 +737,8 @@ def custom_create_react_agent(
                 ]
                 return [Send("tools", [tool_call]) for tool_call in pending_tool_calls]
             elif isinstance(messages[-1], ToolMessage):
-                # When image processing is enabled, go back to agent after tools, not dispatch_image_processing
-                if enable_image_processing:
-                    return "agent"
-                else:
-                    return entrypoint
+                # Route back to agent loop entrypoint (skips file attachment extraction)
+                return agent_loop_entrypoint
             elif response_format is not None:
                 return "generate_structured_response"
             else:
@@ -720,27 +770,15 @@ def custom_create_react_agent(
             if any(call["name"] in should_return_direct for call in m.tool_calls):
                 return END
 
-        # When image processing is enabled, tools should go back to agent, not dispatch_image_processing
-        if enable_image_processing:
-            return "agent"
-        else:
-            return entrypoint
+        # Route back to agent loop entrypoint (skips file attachment extraction)
+        return agent_loop_entrypoint
 
     if should_return_direct:
-        # When image processing is enabled, tools can go to either agent or entrypoint
-        if enable_image_processing:
-            workflow.add_conditional_edges(
-                "tools", route_tool_responses, path_map=["agent", entrypoint, END]
-            )
-        else:
-            workflow.add_conditional_edges(
-                "tools", route_tool_responses, path_map=[entrypoint, END]
-            )
+        workflow.add_conditional_edges(
+            "tools", route_tool_responses, path_map=[agent_loop_entrypoint, END]
+        )
     else:
-        if enable_image_processing:
-            workflow.add_edge("tools", "agent")
-        else:
-            workflow.add_edge("tools", entrypoint)
+        workflow.add_edge("tools", agent_loop_entrypoint)
 
     return workflow.compile(
         checkpointer=checkpointer,
