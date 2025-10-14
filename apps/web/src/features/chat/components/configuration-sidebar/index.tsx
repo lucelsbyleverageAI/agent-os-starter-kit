@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, forwardRef, ForwardedRef, useState } from "react";
+import React, { useEffect, forwardRef, ForwardedRef, useState } from "react";
 import { Save, Trash2 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
@@ -49,6 +49,21 @@ import { Label } from "@/components/ui/label";
 import { canUserEditAssistant } from "@/lib/agent-utils";
 import { useAuthContext } from "@/providers/Auth";
 import { getScrollbarClasses } from "@/lib/scrollbar-styles";
+import { AGENT_TAG_GROUPS, getTagLabel } from "@/lib/agent-tags";
+import {
+  Command,
+  CommandEmpty,
+  CommandInput,
+  CommandItem,
+  CommandList,
+} from "@/components/ui/command";
+import {
+  Popover,
+  PopoverContent,
+  PopoverTrigger,
+} from "@/components/ui/popover";
+import { Badge } from "@/components/ui/badge";
+import { X, Check } from "lucide-react";
 
 
 function NameAndDescriptionAlertDialog({
@@ -146,6 +161,7 @@ export const ConfigurationSidebar = forwardRef<
 
   const [newName, setNewName] = useState("");
   const [newDescription, setNewDescription] = useState("");
+  const [tags, setTags] = useState<string[]>([]);
   const [
     openNameAndDescriptionAlertDialog,
     setOpenNameAndDescriptionAlertDialog,
@@ -188,6 +204,9 @@ export const ConfigurationSidebar = forwardRef<
       return;
     }
 
+    // Load tags from selected agent
+    setTags(selectedAgent.tags || []);
+
     // Load schema + defaults
     getSchemaAndUpdateConfig(selectedAgent).catch(() => {});
   }, [open, agentId, deploymentId, agents, refreshAgentsLoading, authLoading, session?.accessToken]);
@@ -226,6 +245,7 @@ export const ConfigurationSidebar = forwardRef<
         name: newName,
         description: newDescription,
         config: completeConfig,
+        tags: tags || [],
       });
       const newAgent = result.ok ? result.data : null;
       if (!newAgent) {
@@ -263,11 +283,13 @@ export const ConfigurationSidebar = forwardRef<
 
     const completeConfig = store.getAgentConfig(agentId);
 
-    
+
     const result = await updateAgent(agentId, deploymentId, {
       name: selectedAgent.name,
       description: selectedAgent.description,
       config: completeConfig,
+      tags: tags || [],
+      metadata: selectedAgent.metadata || undefined,
     });
     
 
@@ -372,6 +394,97 @@ export const ConfigurationSidebar = forwardRef<
                 value="general"
                 className="m-0 p-4"
               >
+                <ConfigSection title="Tags">
+                  <div className="flex w-full flex-col items-start justify-start gap-2">
+                    <Label htmlFor="agent_tags">
+                      Select categories for your agent
+                    </Label>
+
+                    {/* Selected tags display */}
+                    {tags.length > 0 && (
+                      <div className="flex flex-wrap gap-2 w-full">
+                        {tags.map((tag) => (
+                          <Badge
+                            key={tag}
+                            variant="secondary"
+                            className="gap-1"
+                          >
+                            {getTagLabel(tag)}
+                            <X
+                              className="h-3 w-3 cursor-pointer hover:text-destructive"
+                              onClick={() => setTags(tags.filter((t) => t !== tag))}
+                            />
+                          </Badge>
+                        ))}
+                      </div>
+                    )}
+
+                    {/* Multi-select dropdown */}
+                    <Popover>
+                      <PopoverTrigger asChild>
+                        <Button
+                          variant="outline"
+                          role="combobox"
+                          className="w-full justify-between"
+                        >
+                          {tags.length > 0
+                            ? `${tags.length} tag${tags.length > 1 ? 's' : ''} selected`
+                            : "Select tags..."}
+                        </Button>
+                      </PopoverTrigger>
+                      <PopoverContent className="w-[350px] p-0" align="start">
+                        <Command className="h-auto max-h-[350px]">
+                          <CommandInput placeholder="Search tags..." />
+                          <CommandEmpty>No tags found.</CommandEmpty>
+                          <CommandList className={cn("max-h-[300px]", ...getScrollbarClasses('y'))}>
+                            {Object.entries(AGENT_TAG_GROUPS).map(([category, tagList]) => (
+                              <React.Fragment key={category}>
+                                {/* Category Header */}
+                                <div className="px-3 py-2 text-sm font-medium text-foreground">
+                                  {category}
+                                </div>
+
+                                {/* Tags in this category */}
+                                {tagList.map((tag) => (
+                                  <CommandItem
+                                    key={tag.value}
+                                    value={tag.label}
+                                    onSelect={() => {
+                                      if (tags.includes(tag.value)) {
+                                        setTags(tags.filter((t) => t !== tag.value));
+                                      } else {
+                                        setTags([...tags, tag.value]);
+                                      }
+                                    }}
+                                  >
+                                    <div className="flex items-center gap-2 flex-1">
+                                      <div className={`flex h-4 w-4 items-center justify-center rounded-sm border ${
+                                        tags.includes(tag.value)
+                                          ? "bg-primary border-primary text-primary-foreground"
+                                          : "border-muted-foreground"
+                                      }`}>
+                                        {tags.includes(tag.value) && (
+                                          <Check className="h-3 w-3" />
+                                        )}
+                                      </div>
+                                      <div className="flex flex-col flex-1">
+                                        <span className="text-sm font-medium">{tag.label}</span>
+                                        <span className="text-xs text-muted-foreground">
+                                          {tag.description}
+                                        </span>
+                                      </div>
+                                    </div>
+                                  </CommandItem>
+                                ))}
+                              </React.Fragment>
+                            ))}
+                          </CommandList>
+                        </Command>
+                      </PopoverContent>
+                    </Popover>
+                  </div>
+                </ConfigSection>
+
                 <ConfigSection title="Configuration">
                   {loading || !agentId ? (
                     <div className="space-y-4">

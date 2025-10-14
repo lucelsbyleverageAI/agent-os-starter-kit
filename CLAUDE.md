@@ -148,6 +148,107 @@ poetry run python -m mcp_server.main --transport http --host 0.0.0.0 --port 8001
 - `apps/web/src/app/api/oap_mcp/` - MCP server proxy
 - `apps/web/src/app/auth/` - MCP OAuth endpoints
 
+## Discovery Endpoint Architecture
+
+The platform uses a three-endpoint architecture for agent and assistant discovery. This design provides separation of concerns, independent caching, and admin flexibility.
+
+### The Three Endpoints
+
+1. **Backend: GET /agents/mirror/graphs** (LangConnect)
+   - **Purpose**: Returns permission-filtered graph templates (agent types)
+   - **Caching**: ETag with 5-minute TTL (graphs change infrequently)
+   - **Consumers**:
+     - Next.js aggregation proxy (below)
+     - Admin UI: `retired-graphs-table.tsx` component (direct call)
+   - **Location**: `apps/langconnect/langconnect/api/mirror_apis.py:41`
+   - **Why Independent**: Admin UI needs graph lists without assistant data overhead
+
+2. **Backend: GET /agents/mirror/assistants** (LangConnect)
+   - **Purpose**: Returns permission-filtered assistant instances
+   - **Caching**: ETag with 3-minute TTL (assistants update more frequently)
+   - **Consumers**: Next.js aggregation proxy only (internal infrastructure)
+   - **Location**: `apps/langconnect/langconnect/api/mirror_apis.py:203`
+   - **Why Independent**: Different cache TTL optimized for user-created content
+
+3. **Frontend: GET /api/langconnect/user/accessible-graphs** (Next.js)
+   - **Purpose**: Aggregation proxy that combines graphs + assistants
+   - **Pattern**: Calls both backend endpoints and merges responses
+   - **Consumers**: Web UI components that need both resources
+   - **Location**: `apps/web/src/app/api/langconnect/user/accessible-graphs/route.ts:84`
+   - **Why Needed**: Convenient single-call API for UI while preserving backend flexibility
+
+### Architecture Benefits
+
+This separation provides several advantages:
+
+1. **Independent Caching**: Graphs (5min) vs Assistants (3min) with separate ETags
+2. **Admin Flexibility**: Admin components query graphs directly without assistant overhead
+3. **Service Independence**: Microservices can query specific resources independently
+4. **Performance**: Parallel backend fetching in proxy reduces overall latency
+5. **Separation of Concerns**: Graph templates vs assistant instances are distinct concepts
+
+### Why Not Consolidate?
+
+A single combined endpoint was considered but rejected because:
+
+- **Admin UI Dependency**: `retired-graphs-table.tsx` needs graphs-only queries
+- **Different Update Frequencies**: Graphs are templates (stable), assistants are instances (dynamic)
+- **Cache Optimization**: Independent versioning enables per-resource cache invalidation
+- **Microservice Best Practices**: Resources should be independently queryable
+
+### Endpoint Flow Diagram
+
+```
+┌─────────────────────────────────────────────────────────────┐
+│                        Web UI Component                      │
+│                  (needs graphs + assistants)                 │
+└─────────────────────────┬───────────────────────────────────┘
+                          │
+                          ▼
+         ┌────────────────────────────────────┐
+         │  Next.js Aggregation Proxy         │
+         │  /user/accessible-graphs           │
+         └────────┬──────────────┬────────────┘
+                  │              │
+         ┌────────▼────┐    ┌───▼──────────┐
+         │ /mirror/    │    │ /mirror/     │
+         │ graphs      │    │ assistants   │
+         │ (5min TTL)  │    │ (3min TTL)   │
+         └─────────────┘    └──────────────┘
+                  ▲              ▲
+                  │              │
+                  └──────┬───────┘
+                         │
+              ┌──────────▼──────────┐
+              │   Admin UI Direct   │
+              │   (graphs only)     │
+              └─────────────────────┘
+```
+
+### Implementation Details
+
+**Backend Endpoints** (`mirror_apis.py`):
+- Use ETag-based HTTP caching with version tracking
+- Return 304 Not Modified when client ETag matches
+- Filter by user permissions (graph_permissions, assistant_permissions tables)
+- Handle retired graphs (hidden from non-admin users)
+- Support service account access (see all resources)
+
+**Aggregation Proxy** (`route.ts`):
+- Runs on Next.js Edge runtime for low latency
+- Calls backend endpoints sequentially (acceptable for UI flows)
+- Merges responses into unified discovery payload
+- Includes performance timing for debugging
+- Passes through user JWT for permission filtering
+
+### Cache Versioning
+
+Both backend endpoints use versioned caching:
+- `graphs_version` and `assistants_version` in `langconnect.cache_state` table
+- Versions increment on mutations (create/update/delete operations)
+- ETags generated from versions: `"graphs-v{version}"`, `"assistants-v{version}"`
+- Clients send `If-None-Match` header to enable 304 responses
+
 ## Agent System
 
 ### How Agents Work

@@ -13,7 +13,6 @@ import { Button } from "@/components/ui/button";
 import { Checkpoint, Message } from "@langchain/langgraph-sdk";
 import { AssistantMessage } from "@/features/chat/components/thread/messages/ai";
 import { HumanMessage } from "@/features/chat/components/thread/messages/human";
-import Image from "next/image";
 
 import {
   ArrowDown,
@@ -36,6 +35,26 @@ import { TasksFilesSidebar } from "../tasks-files-sidebar";
 import { FileViewDialog } from "../file-view-dialog";
 import { useDeepAgentWorkspace } from "@/hooks/use-deep-agent-workspace";
 import { FileItem } from "@/types/deep-agent";
+
+// Helper function to get time-based greeting
+function getTimeBasedGreeting(): string {
+  const hour = new Date().getHours();
+  if (hour >= 5 && hour < 12) return "Morning";
+  if (hour >= 12 && hour < 17) return "Afternoon";
+  return "Evening";
+}
+
+// Helper function to extract user's first name
+function getUserFirstName(user: any): string {
+  let firstName = "";
+  if (user?.firstName) firstName = user.firstName;
+  else if (user?.displayName) firstName = user.displayName.split(' ')[0];
+  else if (user?.email) firstName = user.email.split('@')[0];
+  else firstName = "there";
+
+  // Capitalize first letter
+  return firstName.charAt(0).toUpperCase() + firstName.slice(1).toLowerCase();
+}
 
 function StickyToBottomContent(props: {
   content: ReactNode;
@@ -90,7 +109,7 @@ export function Thread({ historyOpen = false, configOpen = false }: ThreadProps)
   );
   const [hasInput, setHasInput] = useState(false);
   const [selectedFile, setSelectedFile] = useState<FileItem | null>(null);
-  
+
   // Deep agent workspace functionality
   const {
     isDeepAgent,
@@ -110,9 +129,9 @@ export function Thread({ historyOpen = false, configOpen = false }: ThreadProps)
     dragOver,
     handlePaste,
   } = useFileUpload();
-  
 
-  const { session } = useAuthContext();
+
+  const { session, user } = useAuthContext();
   const { agents } = useAgentsContext();
 
   const stream = useStreamContext();
@@ -479,20 +498,31 @@ export function Thread({ historyOpen = false, configOpen = false }: ThreadProps)
             !hasMessages && "items-center justify-center"
           )}>
             {!hasMessages ? (
-              // Empty state: centered logo and composer
-              <div className={cn("flex flex-col items-center gap-8 px-2 md:px-4 w-full", chatWidth)}>
-                <div className="flex items-center justify-center gap-3">
-                  <Image 
-                    src="/logo_icon_round.png" 
-                    alt="AgentOS Logo" 
-                    width={48} 
-                    height={48} 
-                    priority
-                    unoptimized
-                    className="flex-shrink-0"
-                  />
-                  <h1 className="text-3xl font-semibold tracking-tight">
-                    AgentOS
+              // Empty state: personalized greeting and composer
+              <div className={cn("flex flex-col items-center gap-12 px-2 md:px-4 w-full", chatWidth)}>
+                <div className="flex flex-col items-center justify-center text-center">
+                  {/* Gradient Orb Visual */}
+                  <div className="relative flex items-center justify-center mb-10">
+                    <div
+                      className="absolute w-24 h-24 md:w-28 md:h-28 rounded-full opacity-80 blur-2xl"
+                      style={{
+                        background: 'radial-gradient(circle, var(--color-primary) 0%, transparent 70%)',
+                      }}
+                    />
+                    <div
+                      className="relative w-20 h-20 md:w-24 md:h-24 rounded-full opacity-90 blur-xl"
+                      style={{
+                        background: 'radial-gradient(circle, var(--color-primary) 0%, transparent 70%)',
+                      }}
+                    />
+                  </div>
+
+                  <p className="text-2xl md:text-3xl font-medium text-foreground">
+                    Good {getTimeBasedGreeting()}, {getUserFirstName(user)}
+                  </p>
+                  <h1 className="text-3xl md:text-4xl mt-2 font-semibold tracking-tight">
+                    <span className="text-foreground">How Can I </span>
+                    <span className="text-primary">Assist You Today?</span>
                   </h1>
                 </div>
 

@@ -22,6 +22,7 @@ interface UserPermissionsTableProps {
   users: User[];
   onRemoveUser?: (userId: string, userName: string) => void;
   className?: string;
+  emptyState?: React.ReactNode;
 }
 
 const getPermissionIcon = (level: 'owner' | 'editor' | 'viewer') => {
@@ -67,9 +68,10 @@ export function UserPermissionsTable({
   users,
   onRemoveUser,
   className,
+  emptyState,
 }: UserPermissionsTableProps) {
   if (users.length === 0) {
-    return (
+    return emptyState || (
       <div className="text-center py-8 text-sm text-muted-foreground">
         No users have been granted access yet.
       </div>

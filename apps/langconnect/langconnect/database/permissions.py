@@ -1,4 +1,33 @@
-"""Permission utilities for collections, graphs, and assistants."""
+"""
+Permission utilities for collections, graphs, and assistants.
+
+This module provides the core permission management system for Agent OS.
+All functions in this module enforce SECURITY-CRITICAL access control.
+
+## Security Model
+- Frontend permission checks (agent-utils.ts) are UI-only for better UX
+- THIS MODULE enforces actual security - all checks here are authorization gates
+- Service accounts have elevated access but must specify owner_id for operations
+
+## Permission Levels
+
+### Graph Permissions
+- `access`: Can view graph and create assistants from it
+- `admin`: Can manage access (grant/revoke permissions to others)
+
+### Assistant Permissions
+- `viewer`: Can view and chat with assistant
+- `editor`: Can edit configuration and chat
+- `owner`: Can delete and share assistant
+- `admin`: Service accounts only (full control)
+
+### User Roles
+- `dev_admin`: Platform administrator with implicit graph access (see notes in docs/permission-rules.md)
+- `business_admin`: (Not yet implemented)
+- `user`: Standard user with explicit permissions only
+
+For comprehensive documentation, see: docs/permission-rules.md
+"""
 
 from typing import Dict, Optional, List, Any
 from langconnect.database.connection import get_db_connection
@@ -107,7 +136,26 @@ async def get_user_collection_permission(
 
 
 class GraphPermissionsManager:
-    """Facade exposing graph permission operations used across the API."""
+    """
+    Facade exposing graph permission operations used across the API.
+
+    **SECURITY ENFORCEMENT:** All methods in this class enforce authorization.
+
+    Graph permissions control who can:
+    - View available graph templates
+    - Create assistants from graph templates
+    - Manage access for others (grant/revoke permissions)
+
+    ## Dev Admin Behavior (Important)
+
+    Dev admins have IMPLICIT admin access to all graphs:
+    - `has_graph_permission()` returns True immediately for dev_admin users
+    - `get_user_accessible_graphs()` returns all graphs with admin level
+    - No explicit permission records required
+
+    This differs from assistant permissions where dev_admins need explicit grants.
+    See docs/permission-rules.md for team discussion on unifying this behavior.
+    """
 
     @staticmethod
     async def get_user_role(user_id: str) -> Optional[str]:
@@ -131,7 +179,40 @@ class GraphPermissionsManager:
             return [dict(r) for r in rows]
 
     @staticmethod
+    async def get_user_by_id(user_id: str) -> Optional[Dict[str, Any]]:
+        """Get user information by user ID."""
+        async with get_db_connection() as conn:
+            row = await conn.fetchrow(
+                """
+                SELECT user_id, email, display_name, role
+                FROM langconnect.user_roles
+                WHERE user_id = $1
+                """,
+                user_id,
+            )
+            return dict(row) if row else None
+
+    @staticmethod
     async def has_graph_permission(user_id: str, graph_id: str, required_level: str) -> bool:
+        """
+        **SECURITY ENFORCEMENT:** Check if user has required permission level for a graph.
+
+        Args:
+            user_id: User ID to check permissions for
+            graph_id: Graph ID to check (e.g., 'deepagent', 'tools_agent')
+            required_level: Required permission level ('access' or 'admin')
+
+        Returns:
+            True if user has required permission or higher, False otherwise
+
+        ## Dev Admin Bypass
+        Dev admins automatically return True for any permission check.
+        This is a SECURITY DECISION - see docs/permission-rules.md for discussion.
+
+        ## Permission Logic
+        - `required_level='access'`: Returns True if user has 'access' or 'admin'
+        - `required_level='admin'`: Returns True only if user has 'admin'
+        """
         role = await GraphPermissionsManager.get_user_role(user_id)
         if role == "dev_admin":
             return True
@@ -173,6 +254,21 @@ class GraphPermissionsManager:
 
     @staticmethod
     async def get_user_accessible_graphs(user_id: str) -> List[Dict[str, Any]]:
+        # Check if user is dev_admin - they have implicit access to all graphs
+        role = await GraphPermissionsManager.get_user_role(user_id)
+        if role == "dev_admin":
+            # Dev admins have implicit admin access to all graphs in the mirror
+            async with get_db_connection() as conn:
+                rows = await conn.fetch(
+                    """
+                    SELECT graph_id, 'admin' as permission_level
+                    FROM langconnect.graphs_mirror
+                    ORDER BY graph_id
+                    """
+                )
+                return [dict(r) for r in rows]
+
+        # Regular users only see graphs they have explicit permissions for
         async with get_db_connection() as conn:
             rows = await conn.fetch(
                 """
@@ -190,7 +286,13 @@ class GraphPermissionsManager:
         async with get_db_connection() as conn:
             rows = await conn.fetch(
                 """
-                SELECT gp.user_id, gp.permission_level, ur.email
+                SELECT
+                    gp.user_id,
+                    gp.permission_level,
+                    gp.granted_by,
+                    gp.created_at,
+                    ur.email,
+                    ur.display_name
                 FROM langconnect.graph_permissions gp
                 LEFT JOIN langconnect.user_roles ur ON ur.user_id = gp.user_id
                 WHERE gp.graph_id = $1
@@ -199,6 +301,23 @@ class GraphPermissionsManager:
                 graph_id,
             )
             return [dict(r) for r in rows]
+
+    @staticmethod
+    async def revoke_graph_permission(graph_id: str, user_id: str) -> bool:
+        """Revoke a user's permission for a specific graph."""
+        async with get_db_connection() as conn:
+            result = await conn.execute(
+                """
+                DELETE FROM langconnect.graph_permissions
+                WHERE graph_id = $1 AND user_id = $2
+                """,
+                graph_id,
+                user_id,
+            )
+            # Check if any rows were deleted
+            if isinstance(result, str) and result.split()[-1].isdigit():
+                return int(result.split()[-1]) > 0
+            return False
 
     @staticmethod
     async def cleanup_graph_permissions(graph_id: str, dry_run: bool = True) -> int:
@@ -272,7 +391,37 @@ class GraphPermissionsManager:
 
 
 class AssistantPermissionsManager:
-    """Facade exposing assistant permission operations."""
+    """
+    Facade exposing assistant permission operations.
+
+    **SECURITY ENFORCEMENT:** All methods in this class enforce authorization.
+
+    Assistant permissions control who can:
+    - View assistant details and chat with it (viewer+)
+    - Edit assistant configuration (editor+)
+    - Delete assistant (owner only)
+    - Share assistant with others (owner only)
+
+    ## Permission Levels
+    - `viewer`: Read-only access, can chat
+    - `editor`: Can modify configuration and chat
+    - `owner`: Full control including delete and sharing
+    - `admin`: Service accounts only (full control)
+
+    ## Dev Admin Behavior (Important)
+
+    Unlike graph permissions, dev admins DO NOT have implicit assistant access.
+    They must be granted explicit permissions like regular users.
+
+    This creates an inconsistency with graph permission behavior.
+    See docs/permission-rules.md for team discussion on unifying behavior.
+
+    ## Default Assistant Protection
+
+    Default assistants (metadata._x_oap_is_default === true) should not be
+    edited or deleted. Frontend explicitly checks for this. Backend should
+    add explicit validation (see Phase 2 of refactoring plan).
+    """
 
     @staticmethod
     async def get_assistant_metadata(assistant_id: str) -> Optional[Dict[str, Any]]:
@@ -415,6 +564,23 @@ class AssistantPermissionsManager:
             """
             results = await conn.fetch(query, user_id)
             return [dict(result) for result in results]
+
+    @staticmethod
+    async def revoke_assistant_permission(assistant_id: str, user_id: str) -> bool:
+        """Revoke a specific user's permission for an assistant."""
+        async with get_db_connection() as conn:
+            result = await conn.execute(
+                """
+                DELETE FROM langconnect.assistant_permissions
+                WHERE assistant_id = $1::uuid AND user_id = $2
+                """,
+                assistant_id,
+                user_id
+            )
+            # Check if any rows were deleted
+            if isinstance(result, str) and result.split()[-1].isdigit():
+                return int(result.split()[-1]) > 0
+            return False
 
     @staticmethod
     async def delete_assistant_permissions(assistant_id: str) -> bool:

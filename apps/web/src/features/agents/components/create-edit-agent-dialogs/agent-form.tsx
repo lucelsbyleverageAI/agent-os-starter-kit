@@ -1,7 +1,10 @@
+import React from "react";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Skeleton } from "@/components/ui/skeleton";
 import { Textarea } from "@/components/ui/textarea";
+import { Badge } from "@/components/ui/badge";
+import { X, Check } from "lucide-react";
 import { Search } from "@/components/ui/tool-search";
 import { Button } from "@/components/ui/button";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
@@ -22,6 +25,21 @@ import {
 import _ from "lodash";
 import { useFetchPreselectedTools } from "@/hooks/use-fetch-preselected-tools";
 import { Controller, useFormContext } from "react-hook-form";
+import { AGENT_TAG_GROUPS, getTagLabel } from "@/lib/agent-tags";
+import {
+  Command,
+  CommandEmpty,
+  CommandInput,
+  CommandItem,
+  CommandList,
+} from "@/components/ui/command";
+import {
+  Popover,
+  PopoverContent,
+  PopoverTrigger,
+} from "@/components/ui/popover";
+import { cn } from "@/lib/utils";
+import { getScrollbarClasses } from "@/lib/scrollbar-styles";
  
 
 export function AgentFieldsFormLoading() {
@@ -58,6 +76,7 @@ export function AgentFieldsForm({
   const form = useFormContext<{
     name: string;
     description: string;
+    tags: string[];
     config: Record<string, any>;
   }>();
 
@@ -113,6 +132,144 @@ export function AgentFieldsForm({
                 placeholder="Agent that handles emails"
               />
             </div>
+
+            {/* Tags Multi-Select */}
+            <Controller
+              control={form.control}
+              name="tags"
+              render={({ field: { value = [], onChange } }) => {
+                const [open, setOpen] = React.useState(false);
+                const commandListRef = React.useRef<HTMLDivElement>(null);
+
+                const toggleTag = (tagValue: string) => {
+                  if (value.includes(tagValue)) {
+                    onChange(value.filter((t: string) => t !== tagValue));
+                  } else {
+                    onChange([...value, tagValue]);
+                  }
+                };
+
+                const removeTag = (tagToRemove: string) => {
+                  onChange(value.filter((tag: string) => tag !== tagToRemove));
+                };
+
+                // Enable mouse wheel scrolling - cmdk blocks it by default
+                React.useEffect(() => {
+                  if (!open) return;
+
+                  // Wait for portal to render
+                  const timeoutId = setTimeout(() => {
+                    const el = commandListRef.current || document.querySelector('[cmdk-list]') as HTMLElement;
+                    if (!el) return;
+
+                    const handleWheel = (e: WheelEvent) => {
+                      e.preventDefault();
+                      e.stopPropagation();
+                      el.scrollTop += e.deltaY;
+                    };
+
+                    el.addEventListener('wheel', handleWheel, { passive: false });
+
+                    return () => {
+                      el.removeEventListener('wheel', handleWheel);
+                    };
+                  }, 100);
+
+                  return () => {
+                    clearTimeout(timeoutId);
+                  };
+                }, [open]);
+
+                return (
+                  <div className="flex w-full flex-col items-start justify-start gap-2">
+                    <Label htmlFor="oap_tags">
+                      Tags <span className="text-xs text-muted-foreground">(Select categories for your agent)</span>
+                    </Label>
+
+                    {/* Selected tags display */}
+                    {value.length > 0 && (
+                      <div className="flex flex-wrap gap-2 w-full">
+                        {value.map((tag: string) => (
+                          <Badge
+                            key={tag}
+                            variant="secondary"
+                            className="gap-1"
+                          >
+                            {getTagLabel(tag)}
+                            <X
+                              className="h-3 w-3 cursor-pointer hover:text-destructive"
+                              onClick={() => removeTag(tag)}
+                            />
+                          </Badge>
+                        ))}
+                      </div>
+                    )}
+
+                    {/* Multi-select dropdown */}
+                    <Popover open={open} onOpenChange={setOpen}>
+                      <PopoverTrigger asChild>
+                        <Button
+                          variant="outline"
+                          role="combobox"
+                          aria-expanded={open}
+                          className="w-full justify-between"
+                        >
+                          {value.length > 0
+                            ? `${value.length} tag${value.length > 1 ? 's' : ''} selected`
+                            : "Select tags..."}
+                        </Button>
+                      </PopoverTrigger>
+                      <PopoverContent className="w-[400px] p-0" align="start">
+                        <Command className="h-auto max-h-[350px]">
+                          <CommandInput placeholder="Search tags..." />
+                          <CommandEmpty>No tags found.</CommandEmpty>
+                          <CommandList
+                            ref={commandListRef as any}
+                            className={cn("max-h-[300px]", ...getScrollbarClasses('y'))}
+                          >
+                            {Object.entries(AGENT_TAG_GROUPS).map(([category, tags]) => (
+                              <React.Fragment key={category}>
+                                {/* Category Header */}
+                                <div className="px-3 py-2 text-sm font-medium text-foreground">
+                                  {category}
+                                </div>
+
+                                {/* Tags in this category */}
+                                {tags.map((tag) => (
+                                  <CommandItem
+                                    key={tag.value}
+                                    value={tag.label}
+                                    onSelect={() => toggleTag(tag.value)}
+                                  >
+                                    <div className="flex items-center gap-2 flex-1">
+                                      <div className={`flex h-4 w-4 items-center justify-center rounded-sm border ${
+                                        value.includes(tag.value)
+                                          ? "bg-primary border-primary text-primary-foreground"
+                                          : "border-muted-foreground"
+                                      }`}>
+                                        {value.includes(tag.value) && (
+                                          <Check className="h-3 w-3" />
+                                        )}
+                                      </div>
+                                      <div className="flex flex-col flex-1">
+                                        <span className="text-sm font-medium">{tag.label}</span>
+                                        <span className="text-xs text-muted-foreground">
+                                          {tag.description}
+                                        </span>
+                                      </div>
+                                    </div>
+                                  </CommandItem>
+                                ))}
+                              </React.Fragment>
+                            ))}
+                          </CommandList>
+                        </Command>
+                      </PopoverContent>
+                    </Popover>
+                  </div>
+                );
+              }}
+            />
           </div>
 
           {configurations.length > 0 && (

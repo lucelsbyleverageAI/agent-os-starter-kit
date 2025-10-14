@@ -2,7 +2,8 @@ import { createClient } from "@/lib/client";
 import { Agent, AgentSchemaResponse } from "@/types/agent";
 import { useAuthContext } from "@/providers/Auth";
 import { useCallback } from "react";
-import { isSystemCreatedDefaultAssistant } from "@/lib/agent-utils";
+import { isGraphTemplateAssistant } from "@/lib/agent-utils";
+import { logger } from "@/lib/logger";
 
 // Result types for consistent error handling
 interface SuccessResult<T = void> {
@@ -26,9 +27,9 @@ export function useAgents() {
       agentId: string,
       deploymentId: string,
     ): Promise<Result<Agent>> => {
-      
+
       if (!session?.accessToken) {
-        console.warn(`❌ [getAgent] No access token available`);
+        logger.warn(`No access token available for getAgent`);
         return {
           ok: false,
           errorCode: "NO_ACCESS_TOKEN",
@@ -51,7 +52,7 @@ export function useAgents() {
 
         if (!response.ok) {
           const errorText = await response.text();
-          console.warn(`❌ [getAgent] Fetch failed:`, { status: response.status, errorText });
+          logger.warn(`Get agent fetch failed:`, { status: response.status, errorText });
           return {
             ok: false,
             errorCode: "FETCH_FAILED",
@@ -68,7 +69,7 @@ export function useAgents() {
               const parsed = JSON.parse(field);
               return parsed;
             } catch (error) {
-              console.warn(`⚠️ [getAgent] Failed to parse ${fieldName} string:`, error);
+              logger.warn(`Failed to parse ${fieldName} string:`, error);
               return {};
             }
           }
@@ -81,11 +82,11 @@ export function useAgents() {
         
 
 
-        if (isSystemCreatedDefaultAssistant(assistant)) {
+        if (isGraphTemplateAssistant(assistant)) {
           return {
             ok: false,
-            errorCode: "SYSTEM_ASSISTANT",
-            errorMessage: "System-created default assistant",
+            errorCode: "GRAPH_TEMPLATE_ASSISTANT",
+            errorMessage: "Graph template assistant",
           };
         }
         
@@ -149,6 +150,59 @@ export function useAgents() {
     [session?.accessToken],
   );
 
+  const getGraphConfigSchema = useCallback(
+    async (graphId: string): Promise<AgentSchemaResponse | undefined> => {
+      if (!session?.accessToken) {
+        logger.warn(`No access token available for getGraphConfigSchema`);
+        return undefined;
+      }
+
+      const parseMaybeJson = (v: unknown) => {
+        if (v == null) return null as any;
+        if (typeof v === 'string') {
+          try { return JSON.parse(v); } catch { return null as any; }
+        }
+        return v as any;
+      };
+
+      try {
+        const url = `/api/langconnect/agents/mirror/graphs/${graphId}/schemas?ts=${Date.now()}`;
+
+        const response = await fetch(url, {
+          cache: 'no-store',
+          headers: {
+            Authorization: `Bearer ${session.accessToken}`,
+            "Content-Type": "application/json",
+            "Cache-Control": "no-cache",
+          },
+        });
+
+        if (response.status === 202) {
+          return undefined;
+        }
+        if (!response.ok) {
+          logger.warn(`Failed to fetch graph schema: ${response.status}`);
+          if (response.status === 403 || response.status === 404) return undefined;
+          return undefined;
+        }
+
+        const raw = await response.json();
+
+        const normalised: AgentSchemaResponse = {
+          input_schema: parseMaybeJson(raw.input_schema),
+          config_schema: parseMaybeJson(raw.config_schema),
+          state_schema: parseMaybeJson(raw.state_schema),
+        } as AgentSchemaResponse;
+
+        return normalised;
+      } catch (error) {
+        logger.error(`Exception in getGraphConfigSchema:`, error);
+        return undefined;
+      }
+    },
+    [session?.accessToken],
+  );
+
   const createAgent = useCallback(
     async (
       deploymentId: string,
@@ -157,6 +211,8 @@ export function useAgents() {
         name: string;
         description: string;
         config: Record<string, any>;
+        tags?: string[];
+        metadata?: Record<string, any>;
       },
     ): Promise<Result<Agent & { schemas_warming?: boolean; registrationWarning?: boolean }>> => {
       if (!session?.accessToken) {
@@ -178,6 +234,11 @@ export function useAgents() {
           description: formData.description,
           metadata: {
             owner: session.user?.id,
+            ...(formData.metadata || {}),
+            // Tags workaround: LangGraph SDK doesn't support native tags parameter.
+            // Store in metadata with _x_oap_ prefix. Sync service extracts these
+            // to the database tags column for fast queries.
+            _x_oap_tags: formData.tags || [],
           },
         });
 
@@ -197,6 +258,9 @@ export function useAgents() {
               name: formData.name,
               description: formData.description,
               config: formData.config, // Include config in registration
+              // Note: tags not sent here - already in metadata._x_oap_tags above.
+              // Registration triggers sync which extracts tags from metadata.
+              metadata: formData.metadata || {}, // Include metadata in registration
               reason: "Assistant created via UI",
             }),
           });
@@ -239,6 +303,8 @@ export function useAgents() {
         name?: string;
         description?: string;
         config?: Record<string, any>;
+        tags?: string[];
+        metadata?: Record<string, any>;
       },
     ): Promise<Result<Agent>> => {
       if (!session?.accessToken) {
@@ -259,6 +325,16 @@ export function useAgents() {
           // Prefer top-level description when supported
           (updatePayload as any).description = formData.description;
         }
+
+        // Build metadata with tags
+        const updatedMetadata = {
+          ...(formData.metadata || {}),
+          // Tags workaround: Update tags in metadata (same pattern as create).
+          // Sync service will extract to database tags column.
+          _x_oap_tags: formData.tags || [],
+        };
+        updatePayload.metadata = updatedMetadata;
+
         const updatedAssistant = await client.assistants.update(agentId, updatePayload);
 
         // Stage 2: Sync changes to LangConnect backend (this will update the mirror)
@@ -267,6 +343,9 @@ export function useAgents() {
           if (formData.name) syncPayload.name = formData.name;
           if (formData.description !== undefined) syncPayload.description = formData.description;
           if (formData.config) syncPayload.config = formData.config;
+          // Note: tags not sent here - already in metadata._x_oap_tags above.
+          // Sync will extract tags from metadata when mirroring to database.
+          if (formData.metadata) syncPayload.metadata = formData.metadata;
 
           const syncResponse = await fetch(`/api/langconnect/agents/assistants/${agentId}`, {
             method: "PATCH",
@@ -281,10 +360,10 @@ export function useAgents() {
           });
 
           if (!syncResponse.ok) {
-            console.warn(`Failed to sync assistant ${agentId} to LangConnect: ${syncResponse.status}`);
+            logger.warn(`Failed to sync assistant ${agentId} to LangConnect: ${syncResponse.status}`);
           }
         } catch (syncError) {
-          console.warn(`Failed to sync assistant ${agentId} to LangConnect:`, syncError);
+          logger.warn(`Failed to sync assistant ${agentId} to LangConnect:`, syncError);
           // Don't fail the update if sync fails - LangGraph update succeeded
         }
 
@@ -394,6 +473,7 @@ export function useAgents() {
   return {
     getAgent,
     getAgentConfigSchema,
+    getGraphConfigSchema,
     createAgent,
     updateAgent,
     deleteAgent,

@@ -10,6 +10,11 @@ from pydantic import BaseModel, Field
 from agent_platform.utils.model_utils import get_model_options_for_ui
 
 
+# Graph metadata
+GRAPH_NAME = "Deep Research Agent"
+GRAPH_DESCRIPTION = "A comprehensive research agent that conducts in-depth investigations using web search and analysis"
+
+
 class SearchAPI(Enum):
     """Enumeration of available search API providers."""
     
@@ -130,7 +135,30 @@ class MCPConfig(BaseModel):
 
 class Configuration(BaseModel):
     """Main configuration class for the Deep Research agent."""
-    
+
+    # Template Metadata
+    template_name: Optional[str] = Field(
+        default=GRAPH_NAME,
+        metadata={
+            "x_oap_ui_config": {
+                "type": "agent_name",
+                "description": "The name of the agent template.",
+            }
+        },
+    )
+    """The name of the agent template"""
+
+    template_description: Optional[str] = Field(
+        default=GRAPH_DESCRIPTION,
+        metadata={
+            "x_oap_ui_config": {
+                "type": "agent_description",
+                "description": "The description of the agent template.",
+            }
+        },
+    )
+    """The description of the agent template"""
+
     # General Configuration
     max_structured_output_retries: int = Field(
         default=3,

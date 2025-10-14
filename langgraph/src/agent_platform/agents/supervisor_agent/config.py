@@ -2,6 +2,10 @@ from typing import Optional, List
 from pydantic import BaseModel, Field
 
 
+# Graph metadata
+GRAPH_NAME = "Supervisor Agent"
+GRAPH_DESCRIPTION = "A coordinating agent that manages and delegates tasks to specialist sub-agents"
+
 # System prompts and constants
 UNEDITABLE_SYSTEM_PROMPT = """\nYou can invoke sub-agents by calling tools in this format:
 `delegate_to_<name>(user_query)`--replacing <name> with the agent's name--
@@ -60,19 +64,43 @@ class AgentsConfig(BaseModel):
 class GraphConfigPydantic(BaseModel):
     """
     Complete configuration schema for the supervisor agent.
-    
+
     This is the main configuration class that defines all available options
     for the supervisor agent, including sub-agent connections and behavior
     customization.
-    
+
     The configuration includes UI metadata for automatic form generation
     in the agent platform interface.
-    
+
     Attributes:
+        template_name: The name of the agent template
+        template_description: The description of the agent template
         agents: List of sub-agents available for delegation
         system_prompt: Custom system instructions for supervision behavior
     """
-    
+
+    template_name: Optional[str] = Field(
+        default=GRAPH_NAME,
+        metadata={
+            "x_oap_ui_config": {
+                "type": "agent_name",
+                "description": "The name of the agent template.",
+            }
+        },
+    )
+    """The name of the agent template"""
+
+    template_description: Optional[str] = Field(
+        default=GRAPH_DESCRIPTION,
+        metadata={
+            "x_oap_ui_config": {
+                "type": "agent_description",
+                "description": "The description of the agent template.",
+            }
+        },
+    )
+    """The description of the agent template"""
+
     agents: List[AgentsConfig] = Field(
         default=[],
         metadata={"x_oap_ui_config": {"type": "agents"}},

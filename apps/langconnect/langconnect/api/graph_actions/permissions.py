@@ -18,7 +18,8 @@ from langconnect.models.agent import (
     RevokeGraphAccessResponse,
 )
 from langconnect.services.langgraph_integration import get_langgraph_service, LangGraphService
- 
+
+from langconnect.services.permission_service import PermissionService
 from langconnect.database.permissions import GraphPermissionsManager
 from langconnect.database.notifications import NotificationManager
 
@@ -110,14 +111,25 @@ async def list_accessible_graphs(
             user_permission = user_permissions.get(graph_id)
             permission_level = user_permission.get("permission_level") if user_permission else None
             created_at = user_permission.get("created_at").isoformat() if user_permission and user_permission.get("created_at") else None
-            
+
+            # Get allowed actions (Phase 3: Centralized permissions)
+            if actor.actor_type == "service":
+                allowed_actions = ["view", "create_assistant", "manage_access"]
+            else:
+                allowed_actions = await PermissionService.get_allowed_actions(
+                    user_id=actor.identity,
+                    resource_type="graph",
+                    resource_id=graph_id
+                )
+
             graph_info = GraphInfo(
                 graph_id=graph_id,
                 schema_accessible=schema_accessible,
                 assistants_count=len(graph_assistants),
                 has_default_assistant=has_default_assistant,
                 user_permission_level=permission_level,
-                created_at=created_at
+                created_at=created_at,
+                allowed_actions=allowed_actions
             )
             graphs.append(graph_info)
         

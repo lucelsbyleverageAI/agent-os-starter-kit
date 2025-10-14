@@ -18,7 +18,7 @@ export const logger = {
     Sentry.logger.info(toMessage(args), { payload: args });
     if (process.env.NODE_ENV !== "production") {
       // Mirror to console only in development
-      // eslint-disable-next-line no-console
+       
       console.log(...args);
     }
   },
@@ -26,7 +26,7 @@ export const logger = {
   warn: (...args: unknown[]) => {
     Sentry.logger.warn(toMessage(args), { payload: args });
     if (process.env.NODE_ENV !== "production") {
-      // eslint-disable-next-line no-console
+       
       console.warn(...args);
     }
   },
@@ -44,7 +44,7 @@ export const logger = {
     }
     
     if (process.env.NODE_ENV !== "production") {
-      // eslint-disable-next-line no-console
+       
       console.error(...args);
     }
   },

@@ -78,3 +78,44 @@ For comprehensive usage and deployment instructions:
 
 - [Local Deployment Checklist](deployment_docs/local_deployment_checklist.md)
 - [Production Deployment Checklist (Coolify)](deployment_docs/cloud_deployment_checklist_coolify.md)
+
+## Extending and Configuring the Platform
+
+The Agent OS Starter Kit is designed to be completely open source and customizable, providing all the core components you need while allowing you to tailor every aspect to your specific use case. Think of it as a template stack that gives you enterprise-grade AI capabilities in one place, ready to be extended and configured to meet your needs.
+
+### 1. Extending Tools and Integrations
+
+**Arcade Integrations**: Quickly add pre-built, production-ready integrations by configuring the `enabled_arcade_services` environment variable in your environment file. Arcade provides authentication-handled integrations for popular services like Google Workspace, Slack, GitHub, and more.
+
+**Custom Tools**: Build your own tools in Python and add them to the MCP server at `apps/mcp/src/mcp_server/tools/custom_tools.py`. You can build anything that can be written in Python—from API integrations to complex business logic—and make it available to all your agents.
+
+### 2. Configuring New Agent Templates
+
+Create sophisticated agent orchestration by building new agent templates in LangGraph (`langgraph/src/agent_platform/agents/`). This is ideal for use cases requiring:
+- Advanced multi-step workflows with parallelized execution
+- Fine-grained control over agent behavior and decision-making
+- Hierarchical or multi-agent systems
+- Specialized routing and conditional logic
+
+Define your graph structure, configuration schema, and register it in `langgraph.json` to make it available as a template throughout the platform.
+
+### 3. Customizing Backend Endpoints
+
+Adapt the LangConnect backend (`apps/langconnect/`) to your specific requirements. While the platform includes a production-ready AI knowledge base with document ingestion, chunking, embedding, and retrieval out-of-the-box, you can customize:
+- Document processing and chunking strategies
+- Embedding models and vector search logic
+- Custom RAG pipelines and retrieval methods
+- Agent management and permissions APIs
+- Any business logic specific to your use case
+
+### 4. Extending the Frontend Interface
+
+The web frontend (`apps/web/`) is fully customizable to create the exact user experience you need:
+
+**Custom Tool Rendering**: Add custom components for different tool calls and interrupt messages. The platform includes a registry system—simply create your components and register them in the interrupt or tool call registry.
+
+**Pre-built Interfaces**: The starter kit includes a standard chat interface with streaming responses and a deep agent interface with file system access and planning tools (to-dos). These serve as templates you can extend.
+
+**Custom Workflows**: Build entirely new interfaces for your specific use case—whether that's code editing, work management, browser automation, or any other agentic workflow. The frontend is React-based and designed to be extended with custom components, pages, and interaction patterns.
+
+**Advanced Features**: Extend the platform to support capabilities like browser automation with real-time rendering, background agents, custom notification systems, or any other user interaction model your use case demands.

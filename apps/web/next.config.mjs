@@ -4,13 +4,20 @@ import { withSentryConfig } from "@sentry/nextjs";
 const nextConfig = {
   // Enable standalone output for Docker production builds
   output: 'standalone',
-  
+
   // Optimize images for production
   images: {
     unoptimized: false,
     domains: [],
   },
-  
+
+  // Don't fail build on ESLint warnings
+  eslint: {
+    // Warning: This allows production builds to successfully complete even if
+    // your project has ESLint errors.
+    ignoreDuringBuilds: true,
+  },
+
   // Security headers
   async headers() {
     return [

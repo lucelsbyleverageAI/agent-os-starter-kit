@@ -18,7 +18,7 @@ import { toast } from "sonner";
 
 import { cn } from "@/lib/utils";
 import { getScrollbarClasses } from "@/lib/scrollbar-styles";
-import { isUserSpecifiedDefaultAgent, isPrimaryAssistant, groupAgentsByGraphs, isUserCreatedDefaultAssistant, sortAgentGroup } from "@/lib/agent-utils";
+import { isUserSpecifiedDefaultAgent, isPrimaryAssistant, isUserDefaultAssistant, sortAgentGroup } from "@/lib/agent-utils";
 import { usePersistedExpandedGroups } from "@/hooks/use-persisted-expanded-groups";
 import {
   Select as _Select,
@@ -60,13 +60,6 @@ import { useThreadDeletion } from "@/hooks/use-thread-deletion";
 import { notify } from "@/utils/toast";
 import { threadMessages } from "@/utils/toast-messages";
 import * as Sentry from "@sentry/nextjs";
-
-// Function to convert graph_id to human-readable name
-const getGraphDisplayName = (graphId: string): string => {
-  return graphId
-    .replace(/_/g, ' ') // replace all underscores
-    .replace(/\b\w/g, l => l.toUpperCase()); // capitalise each word
-};
 
 const getMessageStringContent = (
   content: MessageContent | undefined,
@@ -171,20 +164,13 @@ function groupThreadsByTime(threads: Thread[]) {
 
 export function ChatHistory() {
   const { session, isLoading: authLoading } = useAuthContext();
-  const { agents, discoveryData } = useAgentsContext();
-  const graphNameById = useMemo(() => {
-    const map: Record<string, string> = {};
-    const graphs = discoveryData?.valid_graphs || [];
-    for (const g of graphs) {
-      if (g?.name) map[g.graph_id] = g.name;
-    }
-    return map;
-  }, [discoveryData?.valid_graphs]);
+  const { agents } = useAgentsContext();
   const router = useRouter();
   const deployments = getDeployments();
 
   const [threads, setThreads] = useState<Thread[]>([]);
   const [loading, setLoading] = useState(false);
+  const [isBackgroundRefresh, setIsBackgroundRefresh] = useState(false);
   const [selectedAgentValue, setSelectedAgentValue] = useState<string>("all");
   const [expandedGroups, setExpandedGroups] = usePersistedExpandedGroups();
   const [hasMore, setHasMore] = useState(true);
@@ -195,6 +181,10 @@ export function ChatHistory() {
   const latestThreadsVersionRef = useRef<number | undefined>(undefined);
   // Background cache of "All Agents" results to avoid stale UI when switching filters
   const allThreadsCacheRef = useRef<Thread[] | null>(null);
+  // Track if component is mounted to prevent cleanup from aborting during re-renders
+  const isMountedRef = useRef(true);
+  // Store session in ref to avoid fetchThreads recreation on token changes
+  const sessionRef = useRef(session);
   
   // Agent filter popover state
   const [filterOpen, setFilterOpen] = useState(false);
@@ -209,11 +199,23 @@ export function ChatHistory() {
   const [renameValue, setRenameValue] = useState<string>("");
   const [isRenaming, setIsRenaming] = useState(false);
 
-  // Fetch threads for all agents or filtered by agent using mirror endpoints
-  const fetchThreads = useCallback(async (agentFilter?: string, append = false, threadsVersion?: number) => {
-    if (authLoading || !session?.accessToken) return;
+  // Keep sessionRef in sync with latest session
+  useEffect(() => {
+    sessionRef.current = session;
+  }, [session]);
 
-    setLoading(true);
+  // Fetch threads for all agents or filtered by agent using mirror endpoints
+  const fetchThreads = useCallback(async (agentFilter?: string, append = false, threadsVersion?: number, backgroundRefresh = false) => {
+    // Use sessionRef.current to get latest session without recreating this callback
+    const currentSession = sessionRef.current;
+    if (authLoading || !currentSession?.accessToken) return;
+
+    // Only show loading skeleton for initial loads, not background refreshes
+    if (backgroundRefresh) {
+      setIsBackgroundRefresh(true);
+    } else {
+      setLoading(true);
+    }
     try {
       // Abort any in-flight request and start a new one
       if (abortControllerRef.current) {
@@ -240,7 +242,7 @@ export function ChatHistory() {
         const resp = await fetchWithAuth(url.toString(), {
           signal: controller.signal,
           cache: 'no-store',
-        }, session);
+        }, currentSession);
         
         if (!resp.ok) {
           // If 404, it's a valid case for a new user with no threads
@@ -278,8 +280,8 @@ export function ChatHistory() {
         const resp = await fetchWithAuth(url.toString(), {
           signal: controller.signal,
           cache: 'no-store',
-        }, session);
-        
+        }, currentSession);
+
         if (!resp.ok) {
           // If 404, it's a valid case for a new user with no threads
           if (resp.status === 404) {
@@ -326,19 +328,30 @@ export function ChatHistory() {
       }
     } catch (e: any) {
       // Silently ignore intentional aborts
-      if (e?.name === 'AbortError' || e === 'unmount') {
+      // Check for abort errors in multiple ways:
+      // 1. Standard DOMException with AbortError name
+      // 2. DOMException with ABORT_ERR code
+      // 3. Check if the abort controller's signal has a reason of 'unmount'
+      const isAbortError =
+        e?.name === 'AbortError' ||
+        (e instanceof DOMException && e.code === DOMException.ABORT_ERR) ||
+        abortControllerRef.current?.signal?.reason === 'unmount';
+
+      if (isAbortError) {
         return;
       }
       console.error("Failed to fetch threads", e);
       toast.error("Failed to fetch thread history");
     } finally {
       setLoading(false);
+      setIsBackgroundRefresh(false);
     }
-  }, [authLoading, session?.accessToken, offset]);
+  }, [authLoading, offset]); // Removed session?.accessToken - using sessionRef instead
 
   // Helper: Fetch "All Agents" list without mutating UI state (used to warm background cache)
   const fetchAllThreadsSilently = useCallback(async (threadsVersion?: number): Promise<Thread[] | null> => {
-    if (authLoading || !session?.accessToken) return null;
+    const currentSession = sessionRef.current;
+    if (authLoading || !currentSession?.accessToken) return null;
     try {
       const versionToUse = threadsVersion ?? latestThreadsVersionRef.current;
       const url = new URL(`/api/langconnect/agents/mirror/threads`, window.location.origin);
@@ -347,7 +360,7 @@ export function ChatHistory() {
       if (versionToUse != null) url.searchParams.set('v', String(versionToUse));
       const resp = await fetchWithAuth(url.toString(), {
         cache: 'no-store',
-      }, session);
+      }, currentSession);
       if (!resp.ok) return null;
       const data = await resp.json();
       const mapped: Thread[] = (data.threads || []).map((t: any) => ({
@@ -363,25 +376,27 @@ export function ChatHistory() {
     } catch {
       return null;
     }
-  }, [authLoading, session?.accessToken]);
+  }, [authLoading]); // Removed session?.accessToken - using sessionRef instead
 
-  // Initial load
+  // Initial load - only runs once on mount
   useEffect(() => {
     fetchThreads("all");
+    // Cleanup only on actual unmount, not on dependency changes
     return () => {
+      isMountedRef.current = false;
       if (abortControllerRef.current) {
         try { abortControllerRef.current.abort('unmount'); } catch { void 0; }
       }
     };
-  }, [fetchThreads]);
+  }, []); // Empty deps - only run on mount/unmount
 
   // Listen for custom refresh events triggered after thread creation
   useEffect(() => {
     const handleRefreshThreads = (e: any) => {
-      // Simple approach: reset pagination state and trigger a re-fetch
+      // Reset pagination state and trigger a background re-fetch
+      // Keep existing threads visible during refresh for smooth UX
       setOffset(0);
       setHasMore(true);
-      setThreads([]);
       try {
         const v = e?.detail?.threadsVersion as number | undefined;
         // Persist latest version so future fetches (including after filter toggles) carry it
@@ -390,7 +405,8 @@ export function ChatHistory() {
         }
         const currentFilter = selectedAgentRef.current;
         const agentFilter = currentFilter === "all" ? undefined : currentFilter;
-        fetchThreads(agentFilter, false, v);
+        // Use background refresh to keep threads visible during update
+        fetchThreads(agentFilter, false, v, true);
         // Also warm the "All Agents" cache in the background so switching filters shows fresh data
         fetchAllThreadsSilently(v).then((all) => {
           if (all) {
@@ -408,15 +424,16 @@ export function ChatHistory() {
   useEffect(() => {
     selectedAgentRef.current = selectedAgentValue;
   }, [selectedAgentValue]);
-  
-  // Separate effect to fetch when selection/auth changes (always refetch)
+
+  // Separate effect to fetch when selection changes (not on every session update)
+  // Only refetch when selectedAgentValue changes, not when session token refreshes
   useEffect(() => {
-    if (session?.accessToken) {
+    if (sessionRef.current?.accessToken) {
       const agentFilter = selectedAgentValue === "all" ? undefined : selectedAgentValue;
       // When toggling filters, carry forward the latest threads version to avoid stale results across filters
       fetchThreads(agentFilter, false, latestThreadsVersionRef.current);
     }
-  }, [selectedAgentValue, session?.accessToken, fetchThreads]);
+  }, [selectedAgentValue, fetchThreads]); // Removed session?.accessToken dependency
 
   // Handle agent filter change
   const handleAgentFilterChange = (value: string) => {
@@ -572,9 +589,9 @@ export function ChatHistory() {
         );
       }
 
-      // Force immediate refetch with new version to bypass browser cache
+      // Refetch in background to ensure consistency without showing loading skeleton
       const currentFilter = selectedAgentValue === "all" ? undefined : selectedAgentValue;
-      fetchThreads(currentFilter, false, result.threadsVersion);
+      fetchThreads(currentFilter, false, result.threadsVersion, true);
 
       // Check if we need to navigate away from the current thread
       const currentUrl = new URL(window.location.href);
@@ -728,65 +745,47 @@ export function ChatHistory() {
                           </div>
                         </CommandItem>
                         
-                        {/* Group all agents by graph type across all deployments */}
+                        {/* Flat list of all agents sorted by default status and updated date */}
                         {(() => {
-                          // Get all agents and group by graph_id
-                          const agentsGroupedByGraphs = groupAgentsByGraphs(agents);
-                          
-                          return agentsGroupedByGraphs.map((agentGroup) => {
-                            if (agentGroup.length === 0) return null;
-                            
-                            const graphId = agentGroup[0].graph_id;
-                            const sortedAgents = sortAgentGroup(agentGroup);
-                            
-                            return (
-                              <React.Fragment key={graphId}>
-                                {/* Graph Type Header */}
-                                <div className="px-3 py-1.5 text-xs font-medium text-foreground">
-                                  {graphNameById[graphId] || getGraphDisplayName(graphId)}
-                                </div>
-                              
-                                {/* Agents in this group */}
-                                {sortedAgents.map((item) => {
-                                  const itemValue = `${item.assistant_id}:${item.deploymentId}`;
-                                  const isSelected = selectedAgentValue === itemValue;
-                                  const isDefault = isUserCreatedDefaultAssistant(item);
-                                  const isPrimary = isPrimaryAssistant(item);
+                          const sortedAgents = sortAgentGroup(agents);
 
-                                  return (
-                                    <CommandItem
-                                      key={itemValue}
-                                      value={itemValue}
-                                      onSelect={handleAgentFilterChange}
-                                      className="flex w-full items-center justify-between px-4 py-1.5 text-muted-foreground hover:text-foreground hover:bg-accent cursor-pointer"
-                                    >
-                                      <div className="flex items-center gap-2 flex-1">
-                                        <Check
-                                          className={cn(
-                                            "h-3 w-3",
-                                            isSelected ? "opacity-100" : "opacity-0",
-                                          )}
-                                        />
-                                        
-                                        <span className="flex-1 truncate text-xs">
-                                          {item.name}
-                                        </span>
-                                      </div>
-                                      
-                                      <div className="flex items-center gap-1.5 flex-shrink-0">
-                                        {isPrimary && (
-                                          <Star className="h-3 w-3 text-yellow-500" />
-                                        )}
-                                        {isDefault && (
-                                          <span className="text-[10px] text-muted-foreground">
-                                            Default
-                                          </span>
-                                        )}
-                                      </div>
-                                    </CommandItem>
-                                  );
-                                })}
-                              </React.Fragment>
+                          return sortedAgents.map((item) => {
+                            const itemValue = `${item.assistant_id}:${item.deploymentId}`;
+                            const isSelected = selectedAgentValue === itemValue;
+                            const isDefault = isUserDefaultAssistant(item);
+                            const isPrimary = isPrimaryAssistant(item);
+
+                            return (
+                              <CommandItem
+                                key={itemValue}
+                                value={itemValue}
+                                onSelect={handleAgentFilterChange}
+                                className="flex w-full items-center justify-between px-4 py-1.5 text-muted-foreground hover:text-foreground hover:bg-accent cursor-pointer"
+                              >
+                                <div className="flex items-center gap-2 flex-1">
+                                  <Check
+                                    className={cn(
+                                      "h-3 w-3",
+                                      isSelected ? "opacity-100" : "opacity-0",
+                                    )}
+                                  />
+
+                                  <span className="flex-1 truncate text-xs">
+                                    {item.name}
+                                  </span>
+                                </div>
+
+                                <div className="flex items-center gap-1.5 flex-shrink-0">
+                                  {isPrimary && (
+                                    <Star className="h-3 w-3 text-yellow-500" />
+                                  )}
+                                  {isDefault && (
+                                    <span className="text-[10px] text-muted-foreground">
+                                      Default
+                                    </span>
+                                  )}
+                                </div>
+                              </CommandItem>
                             );
                           });
                         })()}
@@ -803,7 +802,7 @@ export function ChatHistory() {
         </SidebarMenuItem>
 
         {/* Thread History */}
-          {loading ? (
+          {loading && !isBackgroundRefresh ? (
             <div className="space-y-2 px-2">
               {Array.from({ length: 5 }).map((_, i) => (
                 <Skeleton key={i} className="h-8 w-full" />

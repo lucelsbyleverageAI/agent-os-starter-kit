@@ -13,7 +13,7 @@ import { getDeployments } from "@/lib/environment/deployments";
  * @returns Object with loading state information
  */
 export function useDefaultAgentSelection() {
-  const { agents, loading, error } = useAgentsContext();
+  const { agents, loading, error, defaultAssistant, defaultAssistantLoading } = useAgentsContext();
   const [agentId, setAgentId] = useQueryState("agentId");
   const [deploymentId, setDeploymentId] = useQueryState("deploymentId");
   const { isLoading: authLoading } = useAuthContext();
@@ -22,7 +22,7 @@ export function useDefaultAgentSelection() {
   // Only select default agent once, after loading is complete
   useEffect(() => {
     if (agentId || deploymentId) return;
-    if (loading || authLoading) return;
+    if (loading || authLoading || defaultAssistantLoading) return;
     if (agents.length === 0) {
       setLastError(error ? `Failed to load agents: ${error}` : null);
       return;
@@ -35,7 +35,20 @@ export function useDefaultAgentSelection() {
       return;
     }
 
-    // First try to find user-specified default agent
+    // First priority: User's database-backed default assistant
+    if (defaultAssistant) {
+      const dbDefaultAgent = agents.find(
+        (agent) => agent.assistant_id === defaultAssistant.assistant_id
+      );
+      if (dbDefaultAgent) {
+        setAgentId(dbDefaultAgent.assistant_id);
+        setDeploymentId(dbDefaultAgent.deploymentId);
+        setLastError(null);
+        return;
+      }
+    }
+
+    // Second priority: User-specified default agent (metadata-based, legacy)
     const defaultAgent = agents.find(isUserSpecifiedDefaultAgent);
     if (defaultAgent) {
       setAgentId(defaultAgent.assistant_id);
@@ -44,7 +57,7 @@ export function useDefaultAgentSelection() {
       return;
     }
 
-    // Fallback to primary assistant
+    // Third priority: Primary assistant
     const primaryAgent = agents.find(isPrimaryAssistant);
     if (primaryAgent) {
       setAgentId(primaryAgent.assistant_id);
@@ -62,10 +75,10 @@ export function useDefaultAgentSelection() {
       return;
     }
     setLastError("No suitable agents found");
-  }, [agents, loading, authLoading, agentId, deploymentId, setAgentId, setDeploymentId, error]);
+  }, [agents, loading, authLoading, defaultAssistantLoading, defaultAssistant, agentId, deploymentId, setAgentId, setDeploymentId, error]);
 
   return {
-    isLoading: loading,
+    isLoading: loading || defaultAssistantLoading,
     isAuthLoading: authLoading,
     hasAgents: agents.length > 0,
     hasUrlParams: !!(agentId || deploymentId),
