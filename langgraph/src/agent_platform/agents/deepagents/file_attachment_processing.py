@@ -54,13 +54,16 @@ def extract_file_attachments(
     if isinstance(latest_message.content, str):
         message_content = latest_message.content
     elif isinstance(latest_message.content, list):
-        # Look for text blocks that contain UserUploadedAttachment
+        # Collect ALL text blocks that contain UserUploadedAttachment
+        attachment_texts = []
         for content_item in latest_message.content:
             if isinstance(content_item, dict) and content_item.get('type') == 'text':
                 text = content_item.get('text', '')
                 if '<UserUploadedAttachment>' in text:
-                    message_content = text
-                    break
+                    attachment_texts.append(text)
+        # Concatenate all attachment texts
+        if attachment_texts:
+            message_content = '\n'.join(attachment_texts)
 
     if not message_content or '<UserUploadedAttachment>' not in message_content:
         logger.debug("[FILE_ATTACH] No file attachments found in message")
