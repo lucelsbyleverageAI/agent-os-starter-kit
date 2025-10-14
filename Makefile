@@ -39,15 +39,18 @@ start-dev:
 # Stop all services
 stop:
 	@echo "🛑 Stopping all services..."
+	@poetry install
 	@poetry run python scripts/stop_local_services.py
 
 # Force stop all services and remove ALL data (for stuck containers/volumes)
 clean-reset:
 	@echo "🔥 Complete Reset: Forcibly stopping services and removing ALL data..."
 	@echo "⚠️  WARNING: This is the most thorough cleanup and will reset everything!"
+	@poetry install
 	@poetry run python scripts/stop_local_services.py --complete-reset --yes
 
 # Export n8n workflows and credentials to repo folders
 export-n8n:
 	@echo "📁 Exporting n8n workflows and credentials..."
+	@poetry install
 	@./scripts/export-n8n.sh
