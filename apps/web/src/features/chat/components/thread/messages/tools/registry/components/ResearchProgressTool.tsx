@@ -111,7 +111,7 @@ export function ResearchProgressTool({
           <MinimalistBadge
             icon={Loader2}
             tooltip="Research in progress"
-            className={isLoading ? "animate-spin bg-transparent" : "bg-transparent"}
+            className={isLoading ? "animate-spin-slow bg-transparent" : "bg-transparent"}
           />
         )}
                   <div className="flex-1 w-full">

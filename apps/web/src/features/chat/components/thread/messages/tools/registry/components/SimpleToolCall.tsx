@@ -41,7 +41,7 @@ export function SimpleToolCall({
       <MinimalistBadge
         icon={Loader2}
         tooltip="Tool executing"
-        className="animate-spin"
+        className="animate-spin-slow"
       />
     );
   };
