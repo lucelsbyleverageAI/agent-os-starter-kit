@@ -82,6 +82,19 @@ CREATE TABLE IF NOT EXISTS langconnect.langchain_pg_collection (
   updated_at TIMESTAMP DEFAULT NOW()
 );
 
+-- Insert special system collection for text extraction (chat feature)
+-- This collection is used for TEXT_PROCESSING jobs that extract text for immediate use
+-- in chat messages, rather than saving to a knowledge base collection
+INSERT INTO langconnect.langchain_pg_collection (uuid, name, cmetadata, created_at, updated_at)
+VALUES (
+    '00000000-0000-0000-0000-000000000001'::UUID,
+    '_system_text_extraction',
+    '{"description": "Special system collection for text extraction jobs (chat feature)", "is_system": true, "purpose": "text_extraction"}'::JSONB,
+    NOW(),
+    NOW()
+)
+ON CONFLICT (uuid) DO NOTHING;
+
 CREATE TABLE IF NOT EXISTS langconnect.langchain_pg_document (
   id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
   collection_id UUID NOT NULL,

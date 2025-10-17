@@ -1,0 +1,11 @@
+# Poetry aliases to fix the empty constraint issue
+# Source this file in your shell: source .poetry_aliases
+
+alias poetry-lock='poetry lock && ./fix_poetry_lock.sh'
+alias poetry-install='./fix_poetry_lock.sh && poetry install'
+alias poetry-update='poetry update && ./fix_poetry_lock.sh'
+
+echo "Poetry aliases loaded. Use:"
+echo "  poetry-lock    - Run poetry lock and fix empty constraints"
+echo "  poetry-install - Fix constraints then run poetry install"
+echo "  poetry-update  - Run poetry update and fix empty constraints"
