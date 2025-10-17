@@ -35,6 +35,9 @@ from langgraph.prebuilt import InjectedState
 from agent_platform.sentry import get_logger
 logger = get_logger(__name__)
 
+# Default prompt for the general-purpose sub-agent
+GENERAL_PURPOSE_SUBAGENT_PROMPT = """You are a sub-agent with access to a variety of tools. You have been given a task by your supervisor. Please complete the task based on their instructions using the tools available to you if and when needed. Always produce your result as a file using the write_file tool and summarise your work in your final response, referencing any created or updated files. Do not ask for clarifications from the main agent unless absolutely necessary, try to do the task with the information provided."""
+
 
 async def _get_tools_for_sub_agent(
     sub_agent_config: Union[SerializableSubAgent, dict],
@@ -196,7 +199,7 @@ async def _get_agents(
     all_builtin_tools = [write_todos, write_file, read_file, ls, edit_file]
     agents = {
         "general-purpose": custom_create_react_agent(
-            model, prompt=instructions, tools=tools, state_schema=state_schema, checkpointer=False, post_model_hook=post_model_hook, enable_image_processing=False
+            model, prompt=GENERAL_PURPOSE_SUBAGENT_PROMPT, tools=tools, state_schema=state_schema, checkpointer=False, post_model_hook=post_model_hook, enable_image_processing=False
         )
     }
     # Parent tools (selected for main agent)
