@@ -194,7 +194,7 @@
 
   /* Text selection */
   ::selection {
-    background-color: hsl(var(--primary) / 0.15);
+    background-color: color-mix(in oklch, var(--primary) 30%, transparent);
     color: inherit;
   }
 
