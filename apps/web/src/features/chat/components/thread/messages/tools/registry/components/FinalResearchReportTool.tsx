@@ -419,7 +419,7 @@ export function FinalResearchReportTool({
           <MinimalistBadge
             icon={Loader2}
             tooltip="Compiling research report"
-            className="animate-spin"
+            className="animate-spin-slow"
           />
           <div>
             <h3 className="font-medium text-foreground">
