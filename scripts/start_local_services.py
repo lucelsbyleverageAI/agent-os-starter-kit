@@ -232,38 +232,73 @@ def check_development_servers():
 
 
 
+def fix_poetry_lock_files():
+    """Fix any corrupted poetry.lock files with <empty> constraints."""
+    print("🔧 Checking for poetry.lock files with empty constraints...")
+
+    script_dir = Path(__file__).parent
+    project_root = script_dir.parent
+
+    # Paths to check for poetry.lock files
+    poetry_lock_paths = [
+        project_root / "apps" / "langconnect" / "poetry.lock",
+        project_root / "apps" / "mcp" / "poetry.lock",
+        project_root / "langgraph" / "poetry.lock"
+    ]
+
+    for lock_path in poetry_lock_paths:
+        if lock_path.exists():
+            try:
+                with open(lock_path, 'r') as f:
+                    content = f.read()
+
+                if '<empty>' in content:
+                    print(f"  🔧 Fixing empty constraints in {lock_path}")
+                    fixed_content = content.replace('"optax (<empty>)"', '"optax"')
+
+                    with open(lock_path, 'w') as f:
+                        f.write(fixed_content)
+                    print(f"  ✅ Fixed {lock_path}")
+                else:
+                    print(f"  ✅ {lock_path} is clean")
+            except Exception as e:
+                print(f"  ⚠️  Could not check/fix {lock_path}: {e}")
+
 def main():
     """Main function to start all services."""
     parser = argparse.ArgumentParser(description="Start Agent Platform in local development mode")
     parser.add_argument('--skip-frontend', action='store_true', help='Skip starting web frontend')
     parser.add_argument('--skip-langgraph', action='store_true', help='Skip starting LangGraph')
     args = parser.parse_args()
-    
+
     print("🚀 Starting Agent Platform in LOCAL DEVELOPMENT mode...")
     print("🐋 Docker: All infrastructure services")
     print("💻 Local: LangGraph + Web Frontend (optional)")
     print("📋 Using streamlined .env.local with domain-first approach")
     print(f"🏷️  Project name: {get_project_name()}")
-    
+
     # Check dependencies
     if not check_dependencies():
         sys.exit(1)
-    
+
     if not check_docker_running():
         sys.exit(1)
-    
+
     # Load environment variables
     if not load_env_file():
         sys.exit(1)
-    
+
     print(f"🌐 Platform domain: {os.environ.get('PLATFORM_DOMAIN', 'localhost')}")
     print(f"🔗 Protocol: {os.environ.get('PLATFORM_PROTOCOL', 'http')}")
-    
+
     try:
+        # Fix any corrupted poetry.lock files before Docker build
+        fix_poetry_lock_files()
+
         # Stop existing containers
         project_name = get_project_name()
         stop_docker_services(project_name)
-        
+
         # Start all Docker services
         if not start_docker_services(project_name):
             sys.exit(1)
