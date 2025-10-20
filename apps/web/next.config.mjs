@@ -5,6 +5,9 @@ const nextConfig = {
   // Enable standalone output for Docker production builds
   output: 'standalone',
 
+  // Set the workspace root to silence lockfile warnings
+  outputFileTracingRoot: '../../',
+
   // Optimize images for production
   images: {
     unoptimized: false,
