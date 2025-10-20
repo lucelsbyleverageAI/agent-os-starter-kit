@@ -195,13 +195,26 @@ async def _get_agents(
     state_schema,
     post_model_hook: Optional[Callable] = None,
     config: Optional[RunnableConfig] = None,
+    include_general_purpose: bool = True,
 ):
+    print("\n" + "~"*80)
+    print("[_get_agents] Building sub-agents")
+    print("~"*80)
+    print(f"[_get_agents] Configuration:")
+    print(f"  - include_general_purpose: {include_general_purpose}")
+    print(f"  - custom subagents count: {len(subagents) if subagents else 0}")
+
     all_builtin_tools = [write_todos, write_file, read_file, ls, edit_file]
-    agents = {
-        "general-purpose": custom_create_react_agent(
+    agents = {}
+
+    # Only add general-purpose agent if enabled
+    if include_general_purpose:
+        print(f"[_get_agents] Adding 'general-purpose' agent")
+        agents["general-purpose"] = custom_create_react_agent(
             model, prompt=GENERAL_PURPOSE_SUBAGENT_PROMPT, tools=tools, state_schema=state_schema, checkpointer=False, post_model_hook=post_model_hook, enable_image_processing=False
         )
-    }
+    else:
+        print(f"[_get_agents] NOT adding 'general-purpose' agent (disabled)")
     # Parent tools (selected for main agent)
     parent_tools_by_name = {
         t.name: t
@@ -284,6 +297,7 @@ async def _get_agents(
             logger.info("[SUB_AGENT] model_initialized agent=%s source=parent", agent_name)
 
         logger.info("[SUB_AGENT] tools_assigned agent=%s total=%s", agent_name, len(_tools))
+        print(f"[_get_agents] Adding custom agent: '{agent_name}'")
         agents[agent_name] = custom_create_react_agent(
             sub_model,
             prompt=agent_prompt,
@@ -293,6 +307,9 @@ async def _get_agents(
             post_model_hook=post_model_hook,
             enable_image_processing=False,
         )
+
+    print(f"\n[_get_agents] Final agents dictionary keys: {list(agents.keys())}")
+    print("~"*80 + "\n")
     return agents
 
 
@@ -319,13 +336,45 @@ def _create_task_tool(
     state_schema,
     post_model_hook: Optional[Callable] = None,
     config: Optional[RunnableConfig] = None,
+    include_general_purpose: bool = True,
 ):
+    print("\n" + "-"*80)
+    print("[_create_task_tool] Creating async task tool")
+    print("-"*80)
+
     other_agents_string = _get_subagent_description(subagents)
 
-    @tool(
-        description=TASK_DESCRIPTION_PREFIX.format(other_agents=other_agents_string)
-        + TASK_DESCRIPTION_SUFFIX
-    )
+    print(f"[_create_task_tool] Configuration:")
+    print(f"  - subagents count: {len(subagents) if subagents else 0}")
+    print(f"  - include_general_purpose: {include_general_purpose}")
+    print(f"  - custom subagent descriptions: {other_agents_string}")
+
+    # Build description conditionally
+    if not include_general_purpose and not other_agents_string:
+        # No agents available - update description accordingly
+        print(f"[_create_task_tool] Scenario: NO agents (should not happen)")
+        task_description = """Launch a new agent to handle complex, multi-step tasks autonomously.
+
+Note: No sub-agents are currently configured. Please add custom sub-agents in the agent configuration to enable task delegation.
+""" + TASK_DESCRIPTION_SUFFIX
+    elif include_general_purpose:
+        print(f"[_create_task_tool] Scenario: General-purpose ENABLED")
+        task_description = TASK_DESCRIPTION_PREFIX.format(other_agents="\n".join(other_agents_string)) + TASK_DESCRIPTION_SUFFIX
+    else:
+        # Has custom subagents but no general-purpose
+        print(f"[_create_task_tool] Scenario: General-purpose DISABLED, custom agents only")
+        task_description_no_gp = """Launch a new agent to handle complex, multi-step tasks autonomously.
+
+Available agent types and the tools they have access to:
+{other_agents}
+"""
+        task_description = task_description_no_gp.format(other_agents="\n".join(other_agents_string)) + TASK_DESCRIPTION_SUFFIX
+
+    print(f"[_create_task_tool] Task description preview:")
+    print(f"  {task_description[:300]}...")
+    print("-"*80 + "\n")
+
+    @tool(description=task_description)
     async def task(
         description: str,
         subagent_type: str,
@@ -340,6 +389,7 @@ def _create_task_tool(
             state_schema,
             post_model_hook,
             config,
+            include_general_purpose,
         )
         if subagent_type not in agents:
             return f"Error: invoked agent of type {subagent_type}, the only allowed types are {[f'`{k}`' for k in agents]}"
@@ -370,7 +420,12 @@ def _create_sync_task_tool(
     state_schema,
     post_model_hook: Optional[Callable] = None,
     config: Optional[RunnableConfig] = None,
+    include_general_purpose: bool = True,
 ):
+    print("\n" + "-"*80)
+    print("[_create_sync_task_tool] Creating sync task tool")
+    print("-"*80)
+
     # This is a sync function, so we need to run the async _get_agents in an event loop.
     import asyncio
 
@@ -393,6 +448,7 @@ def _create_sync_task_tool(
                 state_schema,
                 post_model_hook,
                 config,
+                include_general_purpose,
             )
         )
     else:
@@ -405,15 +461,44 @@ def _create_sync_task_tool(
                 state_schema,
                 post_model_hook,
                 config,
+                include_general_purpose,
             )
         )
 
     other_agents_string = _get_subagent_description(subagents)
 
-    @tool(
-        description=TASK_DESCRIPTION_PREFIX.format(other_agents=other_agents_string)
-        + TASK_DESCRIPTION_SUFFIX
-    )
+    print(f"[_create_sync_task_tool] Configuration:")
+    print(f"  - subagents count: {len(subagents) if subagents else 0}")
+    print(f"  - include_general_purpose: {include_general_purpose}")
+    print(f"  - custom subagent descriptions: {other_agents_string}")
+    print(f"  - agents created: {list(agents.keys())}")
+
+    # Build description conditionally
+    if not include_general_purpose and not other_agents_string:
+        # No agents available - update description accordingly
+        print(f"[_create_sync_task_tool] Scenario: NO agents (should not happen)")
+        task_description = """Launch a new agent to handle complex, multi-step tasks autonomously.
+
+Note: No sub-agents are currently configured. Please add custom sub-agents in the agent configuration to enable task delegation.
+""" + TASK_DESCRIPTION_SUFFIX
+    elif include_general_purpose:
+        print(f"[_create_sync_task_tool] Scenario: General-purpose ENABLED")
+        task_description = TASK_DESCRIPTION_PREFIX.format(other_agents="\n".join(other_agents_string)) + TASK_DESCRIPTION_SUFFIX
+    else:
+        # Has custom subagents but no general-purpose
+        print(f"[_create_sync_task_tool] Scenario: General-purpose DISABLED, custom agents only")
+        task_description_no_gp = """Launch a new agent to handle complex, multi-step tasks autonomously.
+
+Available agent types and the tools they have access to:
+{other_agents}
+"""
+        task_description = task_description_no_gp.format(other_agents="\n".join(other_agents_string)) + TASK_DESCRIPTION_SUFFIX
+
+    print(f"[_create_sync_task_tool] Task description preview:")
+    print(f"  {task_description[:300]}...")
+    print("-"*80 + "\n")
+
+    @tool(description=task_description)
     def task(
         description: str,
         subagent_type: str,

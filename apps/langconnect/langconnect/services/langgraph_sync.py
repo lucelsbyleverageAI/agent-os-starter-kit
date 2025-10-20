@@ -306,6 +306,12 @@ class LangGraphSyncService:
                     # in metadata._x_oap_tags. We extract here and populate the database
                     # tags column for fast queries without hitting LangGraph API.
                     metadata = assistant_data.get("metadata", {})
+                    # Handle both dict and string metadata formats (defensive parsing)
+                    if isinstance(metadata, str):
+                        try:
+                            metadata = json.loads(metadata)
+                        except (json.JSONDecodeError, TypeError):
+                            metadata = {}
                     tags = metadata.get("_x_oap_tags", [])
 
                     # Upsert assistant
@@ -336,10 +342,10 @@ class LangGraphSyncService:
                         UUID(assistant_id),
                         assistant_data.get("graph_id"),
                         assistant_data.get("name"),
-                        assistant_data.get("description", assistant_data.get("metadata", {}).get("description")),
+                        assistant_data.get("description", metadata.get("description")),
                         tags,  # Add tags
                         json.dumps(assistant_data.get("config", {})),
-                        json.dumps(assistant_data.get("metadata", {})),
+                        json.dumps(metadata),  # Use parsed metadata dict, not raw assistant_data
                         json.dumps(assistant_data.get("context", {})),
                         assistant_data.get("version", 1),
                         created_at,
@@ -494,6 +500,12 @@ class LangGraphSyncService:
                             # in metadata._x_oap_tags. We extract here and populate the database
                             # tags column for fast queries without hitting LangGraph API.
                             metadata = assistant.get("metadata", {})
+                            # Handle both dict and string metadata formats (defensive parsing)
+                            if isinstance(metadata, str):
+                                try:
+                                    metadata = json.loads(metadata)
+                                except (json.JSONDecodeError, TypeError):
+                                    metadata = {}
                             tags = metadata.get("_x_oap_tags", [])
 
                             # Upsert assistant (include description; prefer top-level, fallback to metadata.description)
@@ -524,10 +536,10 @@ class LangGraphSyncService:
                                 UUID(assistant_id),
                                 graph_id,
                                 assistant.get("name"),
-                                assistant.get("description", assistant.get("metadata", {}).get("description")),
+                                assistant.get("description", metadata.get("description")),
                                 tags,  # Add tags
                                 json.dumps(assistant.get("config", {})),
-                                json.dumps(assistant.get("metadata", {})),
+                                json.dumps(metadata),  # Use parsed metadata dict, not raw assistant data
                                 json.dumps(assistant.get("context", {})),
                                 assistant.get("version", 1),
                                 created_at,
@@ -803,6 +815,12 @@ class LangGraphSyncService:
                         # in metadata._x_oap_tags. We extract here and populate the database
                         # tags column for fast queries without hitting LangGraph API.
                         metadata = assistant.get("metadata", {})
+                        # Handle both dict and string metadata formats (defensive parsing)
+                        if isinstance(metadata, str):
+                            try:
+                                metadata = json.loads(metadata)
+                            except (json.JSONDecodeError, TypeError):
+                                metadata = {}
                         tags = metadata.get("_x_oap_tags", [])
 
                         # Upsert assistant
@@ -833,10 +851,10 @@ class LangGraphSyncService:
                             UUID(assistant_id),
                             graph_id,
                             assistant.get("name"),
-                            assistant.get("description", assistant.get("metadata", {}).get("description")),
+                            assistant.get("description", metadata.get("description")),
                             tags,  # Add tags
                             json.dumps(assistant.get("config", {})),
-                            json.dumps(assistant.get("metadata", {})),
+                            json.dumps(metadata),  # Use parsed metadata dict, not raw assistant data
                             json.dumps(assistant.get("context", {})),
                             assistant.get("version", 1),
                             created_at,
