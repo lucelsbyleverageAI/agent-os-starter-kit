@@ -1,6 +1,7 @@
 import {
   Command,
   CommandEmpty,
+  CommandGroup,
   CommandInput,
   CommandItem,
   CommandList,
@@ -14,8 +15,8 @@ import {
 import { Button } from "@/components/ui/button";
 import { ChevronsUpDown, Loader2 } from "lucide-react";
 import _ from "lodash";
-import { Tool } from "@/types/tool";
-import { useState } from "react";
+import { Tool, Toolkit } from "@/types/tool";
+import { useState, useMemo } from "react";
 
 interface ToolListCommandProps {
   value: Tool;
@@ -31,6 +32,30 @@ export function ToolListCommand({
   const [open, setOpen] = useState(false);
   const [loadingMore, setLoadingMore] = useState(false);
   const { tools, loading, getTools, setTools, cursor } = useMCPContext();
+
+  // Group tools by toolkit
+  const toolkits = useMemo(() => {
+    return Object.values(
+      tools.reduce((acc, tool) => {
+        const toolkitName = tool.toolkit || "Other";
+        const toolkitDisplayName = tool.toolkit_display_name || toolkitName;
+
+        if (!acc[toolkitName]) {
+          acc[toolkitName] = {
+            name: toolkitName,
+            display_name: toolkitDisplayName,
+            tools: [],
+            count: 0,
+          };
+        }
+
+        acc[toolkitName].tools.push(tool);
+        acc[toolkitName].count = acc[toolkitName].tools.length;
+
+        return acc;
+      }, {} as Record<string, Toolkit>)
+    );
+  }, [tools]);
 
   return (
     <Popover
@@ -73,17 +98,21 @@ export function ToolListCommand({
                 Loading tools...
               </CommandEmpty>
             )}
-            {tools.map((tool, index) => (
-              <CommandItem
-                key={`${tool.name}:${index}`}
-                value={tool.name}
-                onSelect={() => {
-                  setValue(tool);
-                  setOpen(false);
-                }}
-              >
-                {_.startCase(tool.name)}
-              </CommandItem>
+            {toolkits.map((toolkit) => (
+              <CommandGroup key={toolkit.name} heading={toolkit.display_name}>
+                {toolkit.tools.map((tool, index) => (
+                  <CommandItem
+                    key={`${tool.name}:${index}`}
+                    value={tool.name}
+                    onSelect={() => {
+                      setValue(tool);
+                      setOpen(false);
+                    }}
+                  >
+                    {_.startCase(tool.name)}
+                  </CommandItem>
+                ))}
+              </CommandGroup>
             ))}
             {cursor && (
               <div className="border-t p-1">

@@ -104,17 +104,17 @@ export const AdminDashboard = () => {
 
   const fetchGraphs = useCallback(async () => {
     if (!session?.accessToken) return;
-    
+
     try {
       setIsLoadingGraphs(true);
       const data = await getPublicGraphs(session.accessToken);
-      
+
       // Enrich with display names: prefer saved name, fallback to graph_id
       const enrichedData = data.map(graph => ({
         ...graph,
         graph_display_name: graphNameById[graph.graph_id] || graph.graph_id,
       }));
-      
+
       setGraphs(enrichedData);
     } catch (error) {
       console.error("Failed to fetch public graphs:", error);
@@ -122,7 +122,7 @@ export const AdminDashboard = () => {
     } finally {
       setIsLoadingGraphs(false);
     }
-  }, [session?.accessToken]);
+  }, [session?.accessToken, graphNameById]);
 
   const fetchAssistants = useCallback(async () => {
     if (!session?.accessToken) return;
