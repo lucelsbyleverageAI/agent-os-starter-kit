@@ -53,8 +53,8 @@
   --transition-slower: 300ms cubic-bezier(0.4, 0, 0.2, 1);
 
   /* Core colors - Ultra Minimal Light Theme */
-  --canvas: oklch(0.98 0 0); /* Very light grey - viewport background visible in gaps */
-  --background: oklch(1 0 0); /* Pure white - main content panels */
+  --canvas: oklch(0.97 0 0); /* Base grey for gradient background */
+  --background: oklch(1 0 0); /* Pure white - main content panels that float on canvas */
   --foreground: oklch(0.40 0 0); /* Softer black - less harsh */
   --card: oklch(1 0 0); /* Pure white - matches background */
   --card-foreground: oklch(0.40 0 0);
@@ -81,7 +81,7 @@
   --radius: 1.25rem;
 
   /* Sidebar - Clean minimal */
-  --sidebar: oklch(0.995 0 0); /* Near-white - floating panel */
+  --sidebar: transparent; /* Transparent - shows gradient background through */
   --sidebar-foreground: oklch(0.45 0 0); /* BeeBot's subtle grey */
   --sidebar-primary: oklch(0.35 0 0);
   --sidebar-primary-foreground: oklch(0.98 0 0);
@@ -105,25 +105,25 @@
   --shadow-xl: 0 8px 16px rgba(0, 0, 0, 0.6), 0 16px 32px rgba(0, 0, 0, 0.5);
 
   /* Core colors - Clean Dark Theme */
-  --canvas: oklch(0.08 0 0); /* Very dark - viewport background */
-  --background: oklch(0.09 0 0); /* Dark grey - main content panels, lighter than canvas */
+  --canvas: oklch(0.05 0 0); /* Nearly black for strong contrast */
+  --background: oklch(0.22 0 0); /* Lighter grey - main content panels with strong contrast against black */
   --foreground: oklch(0.95 0 0); /* Brighter white for better visibility */
-  --card: oklch(0.09 0 0); /* Match background */
+  --card: oklch(0.14 0 0); /* Distinct from background for card elevation */
   --card-foreground: oklch(0.95 0 0);
-  --popover: oklch(0.10 0 0);
+  --popover: oklch(0.13 0 0);
   --popover-foreground: oklch(0.95 0 0);
   --primary: var(--brand-primary-dark);
   --primary-foreground: oklch(0.98 0 0);
-  --secondary: oklch(0.13 0 0); /* Subtle elevation */
+  --secondary: oklch(0.25 0 0); /* Better contrast for buttons */
   --secondary-foreground: oklch(0.95 0 0);
-  --muted: oklch(0.13 0 0);
+  --muted: oklch(0.28 0 0); /* Much more visible for selected states */
   --muted-foreground: oklch(0.50 0 0); /* Medium grey for hierarchy */
-  --accent: oklch(0.12 0 0); /* Very subtle hover */
+  --accent: oklch(0.22 0 0); /* Much clearer hover states */
   --accent-foreground: oklch(0.95 0 0);
   --destructive: oklch(0.50 0.20 25);
   --destructive-foreground: oklch(0.95 0 0);
-  --border: oklch(0.22 0 0); /* Visible borders for better contrast */
-  --input: oklch(0.18 0 0);
+  --border: oklch(0.28 0 0); /* More visible borders for better contrast */
+  --input: oklch(0.22 0 0); /* Clearer input fields */
   --ring: oklch(0.40 0 0);
   --chart-1: oklch(0.488 0.243 264.376);
   --chart-2: oklch(0.696 0.17 162.48);
@@ -131,14 +131,14 @@
   --chart-4: oklch(0.627 0.265 303.9);
   --chart-5: oklch(0.645 0.246 16.439);
 
-  /* Sidebar - Same as canvas (border provides separation) */
-  --sidebar: oklch(0.06 0 0); /* Matches canvas - border provides separation */
+  /* Sidebar - Seamless blend with canvas */
+  --sidebar: transparent; /* Transparent - shows gradient background through */
   --sidebar-foreground: oklch(0.75 0 0); /* Brighter grey text for visibility */
   --sidebar-primary: oklch(0.95 0 0);
   --sidebar-primary-foreground: oklch(0.10 0 0);
-  --sidebar-accent: oklch(0.12 0 0); /* Subtle hover */
+  --sidebar-accent: oklch(0.25 0 0); /* Much more visible hover states */
   --sidebar-accent-foreground: oklch(0.95 0 0);
-  --sidebar-border: oklch(0.22 0 0);
+  --sidebar-border: oklch(0.28 0 0); /* Match main border visibility */
   --sidebar-ring: oklch(0.40 0 0);
 }
 
@@ -217,7 +217,12 @@
   }
 
   body {
-    background-color: oklch(0.98 0 0); /* Very light grey canvas - visible in gaps */
+    /* Navy blue gradient - explicit OKLCH for reliable rendering */
+    background: radial-gradient(
+      ellipse 120% 100% at top,
+      oklch(0.85 0.04 270),  /* Light navy blue blend */
+      oklch(0.97 0 0) 60%
+    );
     @apply text-foreground;
     font-family: ui-sans-serif, -apple-system, system-ui, "Segoe UI", Helvetica, "Apple Color Emoji", Arial, sans-serif, "Segoe UI Emoji", "Segoe UI Symbol";
     -webkit-font-smoothing: antialiased;
@@ -227,7 +232,12 @@
   }
 
   .dark body {
-    background-color: oklch(0.08 0 0); /* Very dark canvas for dark mode */
+    /* Magenta gradient on black - bright and saturated for visibility */
+    background: radial-gradient(
+      ellipse 120% 100% at top,
+      oklch(0.35 0.20 350),  /* Much brighter and more saturated magenta */
+      oklch(0.05 0 0) 60%
+    );
   }
 
   /* Ensure consistent font rendering across all text elements */

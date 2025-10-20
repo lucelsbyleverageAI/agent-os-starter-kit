@@ -76,27 +76,12 @@ def _agent_builder(
     runnable_config: Optional[RunnableConfig] = None,
     include_general_purpose_agent: bool = True,
 ):
-    print("\n" + "="*80)
-    print("[DEEP_AGENT_BUILDER] Starting agent builder")
-    print("="*80)
-
     # Determine if any sub-agents are available
     has_subagents = (subagents and len(subagents) > 0) or include_general_purpose_agent
-
-    print(f"[DEEP_AGENT_BUILDER] Configuration:")
-    print(f"  - subagents: {subagents}")
-    print(f"  - subagents count: {len(subagents) if subagents else 0}")
-    print(f"  - include_general_purpose_agent: {include_general_purpose_agent}")
-    print(f"  - has_subagents (calculated): {has_subagents}")
-    print(f"  - is_async: {is_async}")
 
     # Use appropriate base prompt depending on whether task tool will be available
     base_prompt = base_prompt_with_task if has_subagents else base_prompt_without_task
     prompt = instructions + "\n\n" + base_prompt
-
-    print(f"\n[DEEP_AGENT_BUILDER] Prompt selection:")
-    print(f"  - Using base_prompt_with_task: {has_subagents}")
-    print(f"  - Prompt includes '## task' section: {'## `task`' in prompt}")
 
     all_builtin_tools = [write_todos, write_file, read_file, ls, edit_file]
 
@@ -131,13 +116,7 @@ def _agent_builder(
         selected_post_model_hook = None
 
     # Only create task tool if there are sub-agents available
-    print(f"\n[DEEP_AGENT_BUILDER] Task tool decision:")
-    print(f"  - has_subagents: {has_subagents}")
-
     if has_subagents:
-        print(f"  - Creating task tool (subagents available)")
-        print(f"  - Calling {'_create_sync_task_tool' if not is_async else '_create_task_tool'}")
-
         if not is_async:
             task_tool = _create_sync_task_tool(
                 list(tools) + built_in_tools,
@@ -161,19 +140,10 @@ def _agent_builder(
                 include_general_purpose_agent,
             )
 
-        print(f"  - Task tool created: {task_tool.name}")
-        print(f"  - Task tool description preview: {task_tool.description[:200]}...")
         all_tools = built_in_tools + list(tools) + [task_tool]
     else:
         # No sub-agents available, don't include task tool
-        print(f"  - NOT creating task tool (no subagents available)")
         all_tools = built_in_tools + list(tools)
-
-    print(f"\n[DEEP_AGENT_BUILDER] Final tools list:")
-    print(f"  - Total tools: {len(all_tools)}")
-    print(f"  - Tool names: {[t.name if hasattr(t, 'name') else str(t) for t in all_tools]}")
-    print(f"  - 'task' tool included: {'task' in [t.name if hasattr(t, 'name') else str(t) for t in all_tools]}")
-    print("="*80 + "\n")
 
     return custom_create_react_agent(
         model,

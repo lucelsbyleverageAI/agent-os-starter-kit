@@ -396,7 +396,7 @@ export function ConfigFieldTool({
   // If custom render function is provided, use it
   if (renderCustom) {
     return (
-      <div className={cn("w-full", className)}>
+      <div className={cn("", className)}>
         {renderCustom(defaults, handleChange)}
       </div>
     );
@@ -423,7 +423,7 @@ export function ConfigFieldTool({
   };
 
   return (
-    <div className={cn("w-full space-y-2", className)}>
+    <div className={cn("space-y-2", className)}>
       <div className="flex items-center justify-between">
         <Label
           htmlFor={id}
@@ -504,7 +504,7 @@ export function ConfigFieldRAG({
   };
 
   return (
-    <div className={cn("flex w-full flex-col items-start gap-2", className)}>
+    <div className={cn("flex flex-col items-start gap-2", className)}>
       <Label
         htmlFor={id}
         className="text-sm font-medium"
@@ -704,7 +704,7 @@ export function ConfigFieldAgents({
     };
 
     return (
-      <div className={cn("w-full space-y-3", className)}>
+      <div className={cn("space-y-3", className)}>
         <div className="flex items-center justify-between">
           <Label className="text-sm font-medium">Sub-Agents</Label>
           <Button
@@ -933,7 +933,7 @@ export function ConfigFieldAgents({
 
   // Default selector (supervisor) rendering
   return (
-    <div className={cn("w-full space-y-2", className)}>
+    <div className={cn("space-y-2", className)}>
       <AgentsCombobox
         agents={filteredAgents}
         agentsLoading={loading}
@@ -1154,7 +1154,7 @@ export function ConfigFieldRAGTools({
 
   if (!selectedCollections.length) {
     return (
-      <div className={cn("w-full", className)}>
+      <div className={cn("", className)}>
         <p className="text-sm text-muted-foreground">
           Select at least one collection to configure tools.
         </p>
@@ -1163,7 +1163,7 @@ export function ConfigFieldRAGTools({
   }
 
   return (
-    <div className={cn("w-full space-y-4", className)}>
+    <div className={cn("space-y-4", className)}>
       <div>
         <Label className="text-sm font-medium mb-2 block">
           Document Tools
