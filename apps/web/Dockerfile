@@ -75,8 +75,10 @@ RUN adduser --system --uid 1001 nextjs
 
 # Copy standalone build output - handling the nested app directory structure
 # The standalone build creates an 'app' subdirectory due to outputFileTracingRoot
-# This includes server.js, node_modules, .next, and public directories
+# This includes server.js, node_modules, and .next directories
 COPY --from=builder --chown=nextjs:nodejs /app/.next/standalone/app/. ./
+# Explicitly copy public directory to ensure all assets are available
+COPY --from=builder --chown=nextjs:nodejs /app/public ./public
 # Static files need to be copied separately as they're not included in standalone
 COPY --from=builder --chown=nextjs:nodejs /app/.next/static ./.next/static
 
