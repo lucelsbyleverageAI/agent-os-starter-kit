@@ -32,6 +32,14 @@ import {
   TooltipTrigger,
 } from "@/components/ui/tooltip";
 
+/**
+ * Truncates agent name to 50 characters with ellipsis
+ */
+function truncateAgentName(name: string, maxLength: number = 50): string {
+  if (name.length <= maxLength) return name;
+  return name.slice(0, maxLength) + "...";
+}
+
 export interface AgentsComboboxProps {
   agents: Agent[];
   agentsLoading: boolean;
@@ -92,8 +100,8 @@ const getSelectedAgentValue = (
 
   if (selectedAgent) {
     return (
-      <span className="flex w-full items-center gap-2 text-foreground font-normal">
-        {selectedAgent.name}
+      <span className="flex w-full items-center gap-2 text-foreground font-normal truncate" title={selectedAgent.name}>
+        {truncateAgentName(selectedAgent.name)}
       </span>
     );
   }
@@ -265,16 +273,16 @@ export function AgentsCombobox({
                     onSelect={handleSelect}
                     className="flex w-full items-center justify-between px-6 py-2 text-muted-foreground hover:text-foreground hover:bg-accent cursor-pointer"
                   >
-                    <div className="flex items-center gap-3 flex-1">
+                    <div className="flex items-center gap-3 flex-1 min-w-0">
                       <Check
                         className={cn(
-                          "h-4 w-4",
+                          "h-4 w-4 flex-shrink-0",
                           isSelected ? "opacity-100" : "opacity-0",
                         )}
                       />
 
-                      <span className="flex-1 truncate text-sm">
-                        {item.name}
+                      <span className="flex-1 truncate text-sm" title={item.name}>
+                        {truncateAgentName(item.name)}
                       </span>
                     </div>
 

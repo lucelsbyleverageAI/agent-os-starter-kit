@@ -34,7 +34,7 @@ export function NavMain({
             <SidebarMenuItem
               key={`${item.title}-${index}`}
               className={cn(
-                isActive && "bg-sidebar-accent text-sidebar-accent-foreground"
+                isActive && "bg-sidebar-accent text-sidebar-accent-foreground rounded-sm"
               )}
               suppressHydrationWarning
             >

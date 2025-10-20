@@ -48,6 +48,17 @@ interface AgentCardProps {
   showDeployment?: boolean;
 }
 
+// Helper function to truncate long names
+function truncateName(name: string, maxLength: number = 40): { truncated: boolean; displayName: string } {
+  if (name.length <= maxLength) {
+    return { truncated: false, displayName: name };
+  }
+  return {
+    truncated: true,
+    displayName: name.substring(0, maxLength) + "..."
+  };
+}
+
 export function AgentCard({ agent, showDeployment }: AgentCardProps) {
   const [showEditDialog, setShowEditDialog] = useState(false);
   const [showSharingDialog, setShowSharingDialog] = useState(false);
@@ -235,7 +246,7 @@ export function AgentCard({ agent, showDeployment }: AgentCardProps) {
     <>
       <Card
         key={agent.assistant_id}
-        className="group relative flex flex-col items-start gap-3 p-6 transition-all hover:border-primary hover:shadow-md vibrate-on-hover"
+        className="group relative flex flex-col items-start gap-3 p-6 transition-all hover:border-primary hover:shadow-lg hover:scale-[1.01] vibrate-on-hover"
       >
         {/* Three-dots menu - absolute positioned in top-right */}
         {!isDefaultAgent && (canEdit || canShare || canDelete || canRevokeOwnAccess) && (
@@ -313,7 +324,24 @@ export function AgentCard({ agent, showDeployment }: AgentCardProps) {
             <Bot className="text-muted-foreground h-5 w-5" />
           </div>
           <div className="min-w-0 flex-1 flex items-center gap-2">
-            <h4 className="font-semibold leading-none">{agent.name}</h4>
+            {(() => {
+              const { truncated, displayName } = truncateName(agent.name);
+
+              return truncated ? (
+                <TooltipProvider>
+                  <Tooltip>
+                    <TooltipTrigger asChild>
+                      <h4 className="font-semibold leading-none">{displayName}</h4>
+                    </TooltipTrigger>
+                    <TooltipContent>
+                      <span>{agent.name}</span>
+                    </TooltipContent>
+                  </Tooltip>
+                </TooltipProvider>
+              ) : (
+                <h4 className="font-semibold leading-none">{displayName}</h4>
+              );
+            })()}
             {isUserDefault && (
               <TooltipProvider>
                 <Tooltip>

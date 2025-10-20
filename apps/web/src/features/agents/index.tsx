@@ -2,38 +2,18 @@
 
 import { Suspense, useState } from "react";
 import { Button } from "@/components/ui/button";
-import { Plus, Layers } from "lucide-react";
+import { Plus } from "lucide-react";
 import { AgentMarketplace } from "./components/agent-marketplace";
 import { CreateAgentDialog } from "./components/create-edit-agent-dialogs/create-agent-dialog";
-import { AdminInitializeButton } from "./components/admin-initialize-button";
-import { ViewTemplatesDialog } from "./components/view-templates-dialog";
-import { useUserRole } from "@/providers/UserRole";
-import { useAgentsContext } from "@/providers/Agents";
 
 export default function AgentsInterfaceV2() {
   const [showCreateDialog, setShowCreateDialog] = useState(false);
-  const [showViewTemplatesDialog, setShowViewTemplatesDialog] = useState(false);
-  const { isDevAdmin } = useUserRole();
-  const { discoveryData } = useAgentsContext();
 
   return (
-    <div className="container mx-auto px-4 py-6">
-      {/* Admin Actions - Top Right */}
-      <div className="flex items-center justify-end gap-2 mb-8">
-        <Button
-          onClick={() => setShowViewTemplatesDialog(true)}
-          size="lg"
-          variant="outline"
-        >
-          <Layers className="mr-2 h-4 w-4" />
-          View Agent Templates
-        </Button>
-        {isDevAdmin && <AdminInitializeButton size="lg" />}
-      </div>
-
+    <div className="container mx-auto px-4 md:px-8 lg:px-12 py-3">
       {/* Hero Section */}
-      <div className="flex flex-col items-center justify-center text-center space-y-6 mb-12">
-        <div className="space-y-3">
+      <div className="flex flex-col items-center justify-center text-center space-y-4 mb-6">
+        <div className="space-y-2">
           <h1 className="text-5xl font-bold tracking-tight">Agents</h1>
           <p className="text-muted-foreground text-xl">
             Browse and manage your agents
@@ -50,7 +30,7 @@ export default function AgentsInterfaceV2() {
       </div>
 
       {/* Agent Marketplace */}
-      <div className="mt-8">
+      <div className="mt-6">
         <Suspense fallback={<p>Loading agents...</p>}>
           <AgentMarketplace onCreateAgent={() => setShowCreateDialog(true)} />
         </Suspense>
@@ -59,13 +39,6 @@ export default function AgentsInterfaceV2() {
       <CreateAgentDialog
         open={showCreateDialog}
         onOpenChange={setShowCreateDialog}
-      />
-
-      <ViewTemplatesDialog
-        open={showViewTemplatesDialog}
-        onOpenChange={setShowViewTemplatesDialog}
-        graphs={discoveryData?.valid_graphs || []}
-        userIsDevAdmin={isDevAdmin}
       />
     </div>
   );

@@ -104,7 +104,7 @@ export function ViewTemplatesDialog({
                       key={graph.graph_id}
                       className={cn(
                         "group relative flex flex-col gap-3 rounded-lg border p-6 transition-all",
-                        "border-border hover:border-primary/50 hover:shadow-md"
+                        "bg-card border-card-border hover:border-primary hover:shadow-lg hover:scale-[1.01]"
                       )}
                     >
                       {/* Permission Level Badge */}

@@ -24,7 +24,7 @@ export function ToolDetailsDialog({ tool, children }: ToolDetailsDialogProps) {
     <Dialog>
       <DialogTrigger asChild>{children}</DialogTrigger>
       <DialogContent className="sm:max-w-lg md:max-w-2xl lg:max-w-3xl">
-        <DialogHeader>
+        <DialogHeader className="mb-6">
           <DialogTitle className="text-lg font-semibold">
             {_.startCase(tool.name)}
           </DialogTitle>
@@ -32,7 +32,7 @@ export function ToolDetailsDialog({ tool, children }: ToolDetailsDialogProps) {
             {tool.description || "No description provided"}
           </DialogDescription>
         </DialogHeader>
-        <div className="w-full">
+        <div className="w-full mb-6">
           <SchemaRenderer schema={tool.inputSchema} />
         </div>
         <DialogFooter>

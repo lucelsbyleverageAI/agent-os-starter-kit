@@ -153,35 +153,37 @@ export function EnhancedUploadDialog({
         <div className="flex-1 min-h-0">
           {/* Content Upload Tabs */}
           <Tabs value={activeTab} onValueChange={(value) => setActiveTab(value as any)} className="flex flex-col h-full">
-            <TabsList className="grid w-full grid-cols-3 mb-6">
-              <TabsTrigger value="files" className="flex items-center space-x-2">
-                <Upload className="h-4 w-4" />
-                <span>Files</span>
-                {files.length > 0 && (
-                  <Badge variant="secondary" className="ml-1">
-                    {files.length}
-                  </Badge>
-                )}
-              </TabsTrigger>
-              <TabsTrigger value="urls" className="flex items-center space-x-2">
-                <Link className="h-4 w-4" />
-                <span>URLs</span>
-                {urls.length > 0 && (
-                  <Badge variant="secondary" className="ml-1">
-                    {urls.length}
-                  </Badge>
-                )}
-              </TabsTrigger>
-              <TabsTrigger value="text" className="flex items-center space-x-2">
-                <Type className="h-4 w-4" />
-                <span>Text</span>
-                {textContent.trim() && (
-                  <Badge variant="secondary" className="ml-1">
-                    1
-                  </Badge>
-                )}
-              </TabsTrigger>
-            </TabsList>
+            <div className="flex justify-center pt-2 pb-3">
+              <TabsList variant="branded" className="w-fit flex-shrink-0">
+                <TabsTrigger value="files" className="flex items-center space-x-2">
+                  <Upload className="h-4 w-4" />
+                  <span>Files</span>
+                  {files.length > 0 && (
+                    <Badge variant="secondary" className="ml-1">
+                      {files.length}
+                    </Badge>
+                  )}
+                </TabsTrigger>
+                <TabsTrigger value="urls" className="flex items-center space-x-2">
+                  <Link className="h-4 w-4" />
+                  <span>URLs</span>
+                  {urls.length > 0 && (
+                    <Badge variant="secondary" className="ml-1">
+                      {urls.length}
+                    </Badge>
+                  )}
+                </TabsTrigger>
+                <TabsTrigger value="text" className="flex items-center space-x-2">
+                  <Type className="h-4 w-4" />
+                  <span>Text</span>
+                  {textContent.trim() && (
+                    <Badge variant="secondary" className="ml-1">
+                      1
+                    </Badge>
+                  )}
+                </TabsTrigger>
+              </TabsList>
+            </div>
 
             <TabsContent value="files" className="flex-1 mt-0">
               <FileUploadSection 

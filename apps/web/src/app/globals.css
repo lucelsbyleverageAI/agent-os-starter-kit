@@ -56,8 +56,9 @@
   --canvas: oklch(0.97 0 0); /* Base grey for gradient background */
   --background: oklch(1 0 0); /* Pure white - main content panels that float on canvas */
   --foreground: oklch(0.40 0 0); /* Softer black - less harsh */
-  --card: oklch(1 0 0); /* Pure white - matches background */
+  --card: oklch(0.995 0 0); /* Very subtle off-white - slightly different from pure white */
   --card-foreground: oklch(0.40 0 0);
+  --card-border: oklch(0.88 0 0); /* Dedicated card border with better visibility */
   --popover: oklch(1 0 0);
   --popover-foreground: oklch(0.40 0 0);
   --primary: var(--brand-primary-light);
@@ -80,13 +81,13 @@
   --chart-5: oklch(0.769 0.188 70.08);
   --radius: 1.25rem;
 
-  /* Sidebar - Clean minimal */
-  --sidebar: transparent; /* Transparent - shows gradient background through */
+  /* Sidebar - Transparent with better contrast */
+  --sidebar: transparent; /* Keep transparent for gradient flow */
   --sidebar-foreground: oklch(0.45 0 0); /* BeeBot's subtle grey */
   --sidebar-primary: oklch(0.35 0 0);
   --sidebar-primary-foreground: oklch(0.98 0 0);
-  --sidebar-accent: oklch(0.97 0 0); /* Ultra-subtle hover */
-  --sidebar-accent-foreground: oklch(0.35 0 0);
+  --sidebar-accent: oklch(0.88 0.02 270); /* Stronger hover with navy tint */
+  --sidebar-accent-foreground: oklch(0.25 0 0);
   --sidebar-border: oklch(0.94 0 0); /* Minimal separation */
   --sidebar-ring: oklch(0.70 0 0);
 }
@@ -108,8 +109,9 @@
   --canvas: oklch(0.05 0 0); /* Nearly black for strong contrast */
   --background: oklch(0.22 0 0); /* Lighter grey - main content panels with strong contrast against black */
   --foreground: oklch(0.95 0 0); /* Brighter white for better visibility */
-  --card: oklch(0.14 0 0); /* Distinct from background for card elevation */
+  --card: oklch(0.18 0 0); /* Lighter grey for better visibility on black backgrounds */
   --card-foreground: oklch(0.95 0 0);
+  --card-border: oklch(0.35 0 0); /* Much more visible card border */
   --popover: oklch(0.13 0 0);
   --popover-foreground: oklch(0.95 0 0);
   --primary: var(--brand-primary-dark);
@@ -123,7 +125,7 @@
   --destructive: oklch(0.50 0.20 25);
   --destructive-foreground: oklch(0.95 0 0);
   --border: oklch(0.28 0 0); /* More visible borders for better contrast */
-  --input: oklch(0.22 0 0); /* Clearer input fields */
+  --input: oklch(0.15 0 0); /* Even darker than background for better contrast */
   --ring: oklch(0.40 0 0);
   --chart-1: oklch(0.488 0.243 264.376);
   --chart-2: oklch(0.696 0.17 162.48);
@@ -131,12 +133,12 @@
   --chart-4: oklch(0.627 0.265 303.9);
   --chart-5: oklch(0.645 0.246 16.439);
 
-  /* Sidebar - Seamless blend with canvas */
-  --sidebar: transparent; /* Transparent - shows gradient background through */
+  /* Sidebar - Transparent with strong contrast */
+  --sidebar: transparent; /* Keep transparent for gradient flow */
   --sidebar-foreground: oklch(0.75 0 0); /* Brighter grey text for visibility */
   --sidebar-primary: oklch(0.95 0 0);
   --sidebar-primary-foreground: oklch(0.10 0 0);
-  --sidebar-accent: oklch(0.25 0 0); /* Much more visible hover states */
+  --sidebar-accent: oklch(0.40 0.03 350); /* Much stronger hover with magenta tint */
   --sidebar-accent-foreground: oklch(0.95 0 0);
   --sidebar-border: oklch(0.28 0 0); /* Match main border visibility */
   --sidebar-ring: oklch(0.40 0 0);
@@ -147,6 +149,7 @@
   --color-foreground: var(--foreground);
   --color-card: var(--card);
   --color-card-foreground: var(--card-foreground);
+  --color-card-border: var(--card-border);
   --color-popover: var(--popover);
   --color-popover-foreground: var(--popover-foreground);
   --color-primary: var(--primary);
@@ -184,6 +187,44 @@
 @layer base {
   * {
     @apply border-border;
+  }
+
+  /* Global cursor pointer for all interactive elements */
+  button:not(:disabled),
+  [role="button"]:not([aria-disabled="true"]),
+  [role="combobox"]:not([aria-disabled="true"]),
+  [role="checkbox"]:not([aria-disabled="true"]),
+  [role="radio"]:not([aria-disabled="true"]),
+  [role="switch"]:not([aria-disabled="true"]),
+  [role="tab"]:not([aria-disabled="true"]),
+  [role="menuitem"]:not([aria-disabled="true"]),
+  [role="option"]:not([aria-disabled="true"]),
+  [data-slot="button"]:not(:disabled),
+  [data-slot="select-trigger"]:not(:disabled),
+  [data-slot="sidebar-trigger"]:not(:disabled),
+  [data-slot="sidebar-menu-button"]:not(:disabled),
+  [data-radix-collection-item]:not([data-disabled]),
+  input[type="button"]:not(:disabled),
+  input[type="submit"]:not(:disabled),
+  input[type="reset"]:not(:disabled),
+  input[type="file"]:not(:disabled),
+  input[type="checkbox"]:not(:disabled),
+  input[type="radio"]:not(:disabled),
+  select:not(:disabled),
+  a[href],
+  label[for]:not([aria-disabled="true"]),
+  summary:not([aria-disabled="true"]),
+  [onclick]:not([aria-disabled="true"]),
+  .clickable:not([aria-disabled="true"]) {
+    @apply cursor-pointer;
+  }
+
+  /* Maintain not-allowed cursor for disabled states */
+  button:disabled,
+  [role="button"][aria-disabled="true"],
+  [aria-disabled="true"],
+  :disabled {
+    @apply cursor-not-allowed;
   }
 
   /* Universal Interactive States */
@@ -644,7 +685,7 @@
 
   /* Card utilities */
   .card-minimal {
-    @apply bg-card border-border/30 rounded-xl shadow-[var(--shadow-sm)];
+    @apply bg-card border border-card-border rounded-xl shadow-[var(--shadow-md)] backdrop-blur-sm;
   }
 
   /* Hover effects */
@@ -678,5 +719,72 @@
   .dark .brand-glow {
     border: 1px solid hsl(var(--border));
     box-shadow: var(--glow-shadow-dark);
+  }
+
+  /* Branded Tab Components - Pill-style buttons in gray container */
+  .tabs-branded {
+    @apply flex flex-col gap-2;
+  }
+
+  .tabs-branded-list {
+    @apply bg-muted/40 p-0.5 rounded-lg;
+  }
+
+  .tabs-branded-trigger {
+    @apply text-foreground/70 hover:text-foreground;
+    @apply data-[state=active]:bg-primary data-[state=active]:text-primary-foreground;
+    @apply rounded-md px-4 py-2;
+  }
+
+  /* Tab content spacing - consistent padding */
+  .tabs-content-spacing {
+    @apply pt-4 pb-6;
+  }
+
+  /* Gradient-aware sidebar styles for better visibility */
+  .sidebar-item-hover {
+    @apply transition-all duration-150 rounded-sm;
+  }
+
+  .sidebar-item-hover:hover:not(.sidebar-item-selected) {
+    background-color: oklch(0.88 0.02 270 / 0.5); /* Stronger navy-tinted hover */
+  }
+
+  .dark .sidebar-item-hover:hover:not(.sidebar-item-selected) {
+    background-color: oklch(0.40 0.03 350 / 0.4); /* Stronger magenta-tinted hover */
+  }
+
+  .sidebar-item-selected {
+    background-color: oklch(0.85 0.03 270 / 0.7); /* Strong navy selection */
+    font-weight: 500;
+  }
+
+  .dark .sidebar-item-selected {
+    background-color: oklch(0.45 0.04 350 / 0.6); /* Strong magenta selection */
+    font-weight: 500;
+  }
+
+  /* Remove hover effects from logo button */
+  .logo-button-no-hover {
+    @apply !bg-transparent;
+  }
+
+  .logo-button-no-hover:hover {
+    @apply !bg-transparent !shadow-none;
+    transform: none !important;
+  }
+
+  .logo-button-no-hover[data-active="true"] {
+    @apply !bg-transparent !font-normal;
+  }
+
+  /* Remove hover effects from sidebar group labels */
+  [data-sidebar="group-label"] {
+    pointer-events: none !important;
+  }
+
+  [data-sidebar="group-label"]:hover {
+    background-color: transparent !important;
+    color: inherit !important;
   }
 }

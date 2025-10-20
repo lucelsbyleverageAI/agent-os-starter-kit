@@ -61,7 +61,7 @@ export function SchemaForm({ schema, onChange, values }: SchemaFormProps) {
   };
 
   if (!schema || !schema.properties) {
-    return <div className="text-gray-500">No input schema available</div>;
+    return <div className="text-muted-foreground">No input schema available</div>;
   }
 
   return (
@@ -89,12 +89,12 @@ export function SchemaForm({ schema, onChange, values }: SchemaFormProps) {
                     {_.startCase(label)}
                   </Label>
                   {isRequired && (
-                    <span className="text-xs text-gray-500">Required</span>
+                    <span className="text-xs text-muted-foreground">Required</span>
                   )}
                 </div>
 
                 {description && (
-                  <p className="text-xs text-gray-500">{description}</p>
+                  <p className="text-xs text-muted-foreground">{description}</p>
                 )}
 
                 {renderField(name, property, formValues[name], (value) =>
@@ -251,13 +251,13 @@ function ArrayInputField({
                 value={inputValue}
                 onChange={(e) => handleInputChange(e.target.value)}
                 onKeyPress={handleKeyPress}
-                className={inputError ? "border-red-300 focus:border-red-500" : ""}
+                className={inputError ? "border-destructive focus:border-destructive" : ""}
                 type={itemType === "number" || itemType === "integer" ? "number" : "text"}
                 step={itemType === "integer" ? 1 : undefined}
               />
             )}
             {inputError && (
-              <p className="text-sm text-red-600 mt-1">{inputError}</p>
+              <p className="text-sm text-destructive mt-1">{inputError}</p>
             )}
           </div>
           <Button
@@ -280,14 +280,14 @@ function ArrayInputField({
       {/* Array Items Display */}
       {arrayItems.length > 0 && (
         <div className="space-y-2">
-          <h4 className="font-medium text-sm text-gray-700">
+          <h4 className="font-medium text-sm text-foreground">
             Items ({arrayItems.length})
           </h4>
           <div className={cn("space-y-1 max-h-40", ...getScrollbarClasses("y"))}>
             {arrayItems.map((item) => (
               <div 
                 key={item.id} 
-                className="flex items-start gap-2 px-3 py-1.5 bg-gray-50 border border-gray-200 rounded-md transition-all hover:shadow-sm hover:bg-gray-100"
+                className="flex items-start gap-2 px-3 py-1.5 bg-muted dark:bg-background/40 border border-border dark:border-muted-foreground/30 rounded-md transition-all hover:shadow-sm hover:bg-accent"
               >
                 <div className="flex-1 min-w-0">
                   <p className="font-mono text-sm text-foreground break-words">
@@ -298,7 +298,7 @@ function ArrayInputField({
                   variant="ghost"
                   size="sm"
                   onClick={() => removeItem(item)}
-                  className="flex-shrink-0 h-6 w-6 p-0 text-gray-400 hover:text-red-600 hover:bg-red-50"
+                  className="flex-shrink-0 h-6 w-6 p-0 text-muted-foreground hover:text-destructive hover:bg-destructive/10"
                 >
                   <X className="h-3 w-3" />
                 </Button>
@@ -310,10 +310,10 @@ function ArrayInputField({
 
       {/* Empty State */}
       {arrayItems.length === 0 && (
-        <div className="text-center py-6 border-2 border-dashed border-gray-200 rounded-lg">
-          <Plus className="h-8 w-8 text-gray-400 mx-auto mb-2" />
-          <h3 className="font-medium text-gray-700 mb-1">No items added yet</h3>
-          <p className="text-sm text-gray-500">
+        <div className="text-center py-6 border-2 border-dashed border-border rounded-lg">
+          <Plus className="h-8 w-8 text-muted-foreground mx-auto mb-2" />
+          <h3 className="font-medium text-foreground mb-1">No items added yet</h3>
+          <p className="text-sm text-muted-foreground">
             Add {itemType} values to build your array
           </p>
         </div>
@@ -372,7 +372,7 @@ function renderField(
           onChange={(e) => onChange(e.target.value)}
           placeholder={property.example || `Enter ${name}`}
           rows={1}
-          className="block w-full rounded-md border border-input bg-background px-3 py-2 text-sm shadow-sm focus:border-primary focus:outline-none focus:ring-1 focus:ring-primary resize-y min-h-[2.25rem] max-h-40 overflow-auto"
+          className="block w-full rounded-md border border-input bg-transparent dark:border-muted-foreground/50 dark:bg-black/40 px-3 py-2 text-sm shadow-sm focus:border-primary focus:outline-none focus:ring-1 focus:ring-primary resize-y min-h-[2.25rem] max-h-40 overflow-auto"
           style={{ resize: 'vertical', overflowWrap: 'break-word', wordBreak: 'break-word' }}
         />
       );
@@ -390,7 +390,7 @@ function renderField(
               step={property.type === "integer" ? 1 : 0.1}
               onValueChange={(vals) => onChange(vals[0])}
             />
-            <div className="flex justify-between text-xs text-gray-500">
+            <div className="flex justify-between text-xs text-muted-foreground">
               <span>{property.minimum}</span>
               <span>{value !== undefined ? value : "-"}</span>
               <span>{property.maximum}</span>
@@ -451,12 +451,12 @@ function renderField(
                       {_.startCase(subLabel)}
                     </Label>
                     {isRequired && (
-                      <span className="text-xs text-gray-500">Required</span>
+                      <span className="text-xs text-muted-foreground">Required</span>
                     )}
                   </div>
 
                   {subDescription && (
-                    <p className="text-xs text-gray-500">{subDescription}</p>
+                    <p className="text-xs text-muted-foreground">{subDescription}</p>
                   )}
 
                   {renderField(subName, subProperty, objectValue[subName], (value) =>

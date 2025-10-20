@@ -96,6 +96,14 @@ function getFirstHumanMessageContent(thread: Thread) {
 }
 
 /**
+ * Truncates agent name to 30 characters with ellipsis
+ */
+function truncateAgentName(name: string, maxLength: number = 30): string {
+  if (name.length <= maxLength) return name;
+  return name.slice(0, maxLength) + "...";
+}
+
+/**
  * Groups threads by time periods
  */
 function groupThreadsByTime(threads: Thread[]) {
@@ -705,8 +713,10 @@ export function ChatHistory() {
                       aria-expanded={filterOpen}
                       className="h-8 w-full justify-between text-xs font-normal border-border bg-background text-foreground hover:bg-accent hover:text-foreground"
                     >
-                      {getSelectedAgentDisplay()}
-                      <ChevronDown className="h-4 w-4 opacity-50" />
+                      <span className="truncate">
+                        {truncateAgentName(getSelectedAgentDisplay())}
+                      </span>
+                      <ChevronDown className="h-4 w-4 opacity-50 flex-shrink-0" />
                     </Button>
                   </PopoverTrigger>
                   <PopoverContent
@@ -764,16 +774,16 @@ export function ChatHistory() {
                                 onSelect={handleAgentFilterChange}
                                 className="flex w-full items-center justify-between px-4 py-1.5 text-muted-foreground hover:text-foreground hover:bg-accent cursor-pointer"
                               >
-                                <div className="flex items-center gap-2 flex-1">
+                                <div className="flex items-center gap-2 flex-1 min-w-0">
                                   <Check
                                     className={cn(
-                                      "h-3 w-3",
+                                      "h-3 w-3 flex-shrink-0",
                                       isSelected ? "opacity-100" : "opacity-0",
                                     )}
                                   />
 
-                                  <span className="flex-1 truncate text-xs">
-                                    {item.name}
+                                  <span className="flex-1 truncate text-xs" title={item.name}>
+                                    {truncateAgentName(item.name)}
                                   </span>
                                 </div>
 
@@ -849,7 +859,8 @@ export function ChatHistory() {
                         <SidebarMenuItem
                           key={thread.thread_id}
                           className={cn(
-                            isSelected && "bg-sidebar-accent text-sidebar-accent-foreground rounded-md"
+                            "sidebar-item-hover",
+                            isSelected && "sidebar-item-selected text-sidebar-accent-foreground font-medium"
                           )}
                         >
                           <div className="group/thread-item flex w-full items-center justify-between">
@@ -874,7 +885,7 @@ export function ChatHistory() {
                             ) : (
                               <SidebarMenuButton
                                 onClick={() => handleThreadClick(thread)}
-                                className="flex-1 justify-start pl-2 text-xs pr-1"
+                                className="flex-1 justify-start pl-2 text-xs pr-1 hover:bg-transparent cursor-pointer"
                                 size="sm"
                               >
                                 <span className="truncate text-xs">{displayText}</span>

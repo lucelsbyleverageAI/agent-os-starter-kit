@@ -89,8 +89,8 @@ export function ResponseViewer({
 
   if (errorMessage) {
     return (
-      <div className="flex flex-col items-center justify-center rounded-md border border-red-200 bg-red-50 p-6 text-red-700 w-full max-w-full">
-        <AlertTriangle className="mb-3 h-8 w-8 text-red-500" />
+      <div className="flex flex-col items-center justify-center rounded-md border border-destructive/20 bg-destructive/10 p-6 text-destructive-foreground w-full max-w-full">
+        <AlertTriangle className="mb-3 h-8 w-8 text-destructive" />
         <p className="mb-1 text-lg font-semibold">Error</p>
         <p className="text-center text-sm break-words">{errorMessage}</p>
       </div>
@@ -101,15 +101,15 @@ export function ResponseViewer({
     return (
       <div className="flex flex-col items-center justify-center py-12 w-full">
         <Loader2 className="mb-4 h-8 w-8 animate-spin text-primary" />
-        <p className="text-gray-500">Executing tool...</p>
-        <p className="text-xs text-gray-400 mt-2">This may take several minutes for complex operations</p>
+        <p className="text-muted-foreground">Executing tool...</p>
+        <p className="text-xs text-muted-foreground/70 mt-2">This may take several minutes for complex operations</p>
       </div>
     );
   }
 
   if (!response) {
     return (
-      <div className="flex flex-col items-center justify-center py-12 text-gray-500 w-full">
+      <div className="flex flex-col items-center justify-center py-12 text-muted-foreground w-full">
         <p>No response yet. Run the tool to see results.</p>
       </div>
     );
@@ -162,7 +162,7 @@ export function ResponseViewer({
 
 function PrettyView({ response }: { response: any }) {
   return (
-    <div className={cn("rounded-md border bg-gray-50 p-4 w-full max-w-full h-full", ...getScrollbarClasses('both'))}>
+    <div className={cn("rounded-md border border-border dark:border-muted-foreground/50 bg-muted dark:bg-background/40 p-4 w-full max-w-full h-full", ...getScrollbarClasses('both'))}>
       <div className="min-w-0 max-w-full">
         {renderValue(response, true)}
       </div>
@@ -173,7 +173,7 @@ function PrettyView({ response }: { response: any }) {
 // Enhanced RawView with intelligent JSON viewer
 function RawView({ response }: { response: any }) {
   return (
-    <div className={cn("w-full max-w-full h-full rounded-md bg-gray-900", ...getScrollbarClasses('both'))}>
+    <div className={cn("w-full max-w-full h-full rounded-md border border-border dark:border-muted-foreground/50 bg-background dark:bg-background/40", ...getScrollbarClasses('both'))}>
       <div className={cn("p-4 text-sm font-mono min-w-0 max-w-full h-full", ...getScrollbarClasses('both'))}>
         <div className="min-w-0 max-w-full">
           <JsonViewer data={response} />
@@ -201,38 +201,38 @@ function JsonViewer({ data, level = 0, isLast = true, parentKey }: JsonViewerPro
 
   // Render primitive values
   if (data === null) {
-    return <span className="text-gray-400">null</span>;
+    return <span className="text-muted-foreground">null</span>;
   }
-  
+
   if (data === undefined) {
-    return <span className="text-gray-400">undefined</span>;
+    return <span className="text-muted-foreground">undefined</span>;
   }
-  
+
   if (typeof data === 'boolean') {
-    return <span className="text-yellow-400">{data.toString()}</span>;
+    return <span className="text-yellow-500 dark:text-yellow-400">{data.toString()}</span>;
   }
-  
+
   if (typeof data === 'number') {
-    return <span className="text-blue-400">{data}</span>;
+    return <span className="text-blue-600 dark:text-blue-400">{data}</span>;
   }
-  
+
   if (typeof data === 'string') {
-    return <span className="text-green-400 break-all">"{data}"</span>;
+    return <span className="text-green-600 dark:text-green-400 break-all">"{data}"</span>;
   }
 
   // Handle arrays
   if (Array.isArray(data)) {
     if (data.length === 0) {
-      return <span className="text-gray-300">[]</span>;
+      return <span className="text-muted-foreground">[]</span>;
     }
 
     return (
-      <div className="text-gray-100 min-w-0 max-w-full">
+      <div className="text-foreground min-w-0 max-w-full">
         <span className="flex items-center flex-wrap">
           {isCollapsible && (
             <button
               onClick={() => setIsCollapsed(!isCollapsed)}
-              className="mr-1 text-gray-400 hover:text-gray-200 transition-colors flex-shrink-0"
+              className="mr-1 text-muted-foreground hover:text-foreground transition-colors flex-shrink-0"
             >
               {isCollapsed ? (
                 <ChevronRight className="h-3 w-3" />
@@ -241,9 +241,9 @@ function JsonViewer({ data, level = 0, isLast = true, parentKey }: JsonViewerPro
               )}
             </button>
           )}
-          <span className="text-gray-300 flex-shrink-0">[</span>
+          <span className="text-muted-foreground flex-shrink-0">[</span>
           {isCollapsed && (
-            <span className="ml-1 text-gray-500 text-xs flex-shrink-0">
+            <span className="ml-1 text-muted-foreground/50 text-xs flex-shrink-0">
               {data.length} item{data.length !== 1 ? 's' : ''}
             </span>
           )}
@@ -253,14 +253,14 @@ function JsonViewer({ data, level = 0, isLast = true, parentKey }: JsonViewerPro
           <div className="ml-2 min-w-0 max-w-full">
             {data.map((item, index) => (
               <div key={index} className="flex min-w-0 max-w-full">
-                <span className="text-gray-500 mr-2 flex-shrink-0">{indent}  </span>
+                <span className="text-muted-foreground/50 mr-2 flex-shrink-0">{indent}  </span>
                 <div className="flex-1 min-w-0">
-                  <JsonViewer 
-                    data={item} 
-                    level={level + 1} 
+                  <JsonViewer
+                    data={item}
+                    level={level + 1}
                     isLast={index === data.length - 1}
                   />
-                  {index < data.length - 1 && <span className="text-gray-300">,</span>}
+                  {index < data.length - 1 && <span className="text-muted-foreground">,</span>}
                 </div>
               </div>
             ))}
@@ -268,8 +268,8 @@ function JsonViewer({ data, level = 0, isLast = true, parentKey }: JsonViewerPro
         )}
         
         <div className="flex">
-          <span className="text-gray-500 mr-2 flex-shrink-0">{indent}</span>
-          <span className="text-gray-300">]</span>
+          <span className="text-muted-foreground/50 mr-2 flex-shrink-0">{indent}</span>
+          <span className="text-muted-foreground">]</span>
         </div>
       </div>
     );
@@ -280,16 +280,16 @@ function JsonViewer({ data, level = 0, isLast = true, parentKey }: JsonViewerPro
     const entries = Object.entries(data);
     
     if (entries.length === 0) {
-      return <span className="text-gray-300">{"{}"}</span>;
+      return <span className="text-muted-foreground">{"{}"}</span>;
     }
 
     return (
-      <div className="text-gray-100 min-w-0 max-w-full">
+      <div className="text-foreground min-w-0 max-w-full">
         <span className="flex items-center flex-wrap">
           {isCollapsible && (
             <button
               onClick={() => setIsCollapsed(!isCollapsed)}
-              className="mr-1 text-gray-400 hover:text-gray-200 transition-colors flex-shrink-0"
+              className="mr-1 text-muted-foreground hover:text-foreground transition-colors flex-shrink-0"
             >
               {isCollapsed ? (
                 <ChevronRight className="h-3 w-3" />
@@ -298,9 +298,9 @@ function JsonViewer({ data, level = 0, isLast = true, parentKey }: JsonViewerPro
               )}
             </button>
           )}
-          <span className="text-gray-300 flex-shrink-0">{"{"}</span>
+          <span className="text-muted-foreground flex-shrink-0">{"{"}</span>
           {isCollapsed && (
-            <span className="ml-1 text-gray-500 text-xs flex-shrink-0">
+            <span className="ml-1 text-muted-foreground/50 text-xs flex-shrink-0">
               {entries.length} key{entries.length !== 1 ? 's' : ''}
             </span>
           )}
@@ -310,17 +310,17 @@ function JsonViewer({ data, level = 0, isLast = true, parentKey }: JsonViewerPro
           <div className="ml-2 min-w-0 max-w-full">
             {entries.map(([key, value], index) => (
               <div key={key} className="flex min-w-0 max-w-full">
-                <span className="text-gray-500 mr-2 flex-shrink-0">{indent}  </span>
+                <span className="text-muted-foreground/50 mr-2 flex-shrink-0">{indent}  </span>
                 <div className="flex-1 min-w-0">
-                  <span className="text-cyan-400 break-all">"{key}"</span>
-                  <span className="text-gray-300">: </span>
-                  <JsonViewer 
-                    data={value} 
-                    level={level + 1} 
+                  <span className="text-cyan-600 dark:text-cyan-400 break-all">"{key}"</span>
+                  <span className="text-muted-foreground">: </span>
+                  <JsonViewer
+                    data={value}
+                    level={level + 1}
                     isLast={index === entries.length - 1}
                     parentKey={key}
                   />
-                  {index < entries.length - 1 && <span className="text-gray-300">,</span>}
+                  {index < entries.length - 1 && <span className="text-muted-foreground">,</span>}
                 </div>
               </div>
             ))}
@@ -328,15 +328,15 @@ function JsonViewer({ data, level = 0, isLast = true, parentKey }: JsonViewerPro
         )}
         
         <div className="flex">
-          <span className="text-gray-500 mr-2 flex-shrink-0">{indent}</span>
-          <span className="text-gray-300">{"}"}</span>
+          <span className="text-muted-foreground/50 mr-2 flex-shrink-0">{indent}</span>
+          <span className="text-muted-foreground">{"}"}</span>
         </div>
       </div>
     );
   }
 
   // Fallback for any other types
-  return <span className="text-purple-400">{String(data)}</span>;
+  return <span className="text-purple-600 dark:text-purple-400">{String(data)}</span>;
 }
 
 // Component for collapsible long text content
@@ -357,7 +357,7 @@ function CollapsibleText({ text, maxLength = 500 }: { text: string; maxLength?: 
         variant="ghost"
         size="sm"
         onClick={() => setIsExpanded(!isExpanded)}
-        className="h-6 px-2 text-xs text-gray-600 hover:text-gray-800"
+        className="h-6 px-2 text-xs text-muted-foreground hover:text-foreground"
       >
         {isExpanded ? (
           <>
@@ -387,8 +387,8 @@ function renderStringValue(value: string): React.ReactNode {
       const parsed = JSON.parse(trimmedValue);
       return (
         <div className="space-y-2 min-w-0 max-w-full">
-          <div className="text-xs text-gray-500 font-medium">Parsed JSON content:</div>
-          <div className="border-l-2 border-blue-200 pl-3 min-w-0 max-w-full">
+          <div className="text-xs text-muted-foreground font-medium">Parsed JSON content:</div>
+          <div className="border-l-2 border-blue-600/20 dark:border-blue-400/20 pl-3 min-w-0 max-w-full">
             {renderValue(parsed, false)}
           </div>
         </div>
@@ -405,22 +405,22 @@ function renderStringValue(value: string): React.ReactNode {
 // Enhanced renderValue function with proper width constraints
 function renderValue(value: any, isRoot = false): React.ReactNode {
   if (value === null || value === undefined) {
-    return <span className="text-gray-400">null</span>;
+    return <span className="text-muted-foreground">null</span>;
   }
 
   if (typeof value === "object" && Array.isArray(value)) {
     return (
       <div className={cn(
         "space-y-1 min-w-0 max-w-full",
-        !isRoot && "border-l-2 border-gray-200 pl-3"
+        !isRoot && "border-l-2 border-border pl-3"
       )}>
         {value.length === 0 ? (
-          <span className="text-gray-400">[] (Empty array)</span>
+          <span className="text-muted-foreground">[] (Empty array)</span>
         ) : (
           value.map((item, index) => (
             <div key={index} className="min-w-0 max-w-full">
               <div className="flex items-start gap-2 min-w-0 max-w-full">
-                <span className="text-xs text-gray-500 font-mono flex-shrink-0">[{index}]</span>
+                <span className="text-xs text-muted-foreground font-mono flex-shrink-0">[{index}]</span>
                 <div className="min-w-0 flex-1 max-w-full">
                   {renderValue(item)}
                 </div>
@@ -437,10 +437,10 @@ function renderValue(value: any, isRoot = false): React.ReactNode {
     return (
       <div className={cn(
         "space-y-1 min-w-0 max-w-full",
-        !isRoot && "border-l-2 border-gray-200 pl-3"
+        !isRoot && "border-l-2 border-border pl-3"
       )}>
         {entries.length === 0 ? (
-          <span className="text-gray-400">{"{{}} (Empty object)"}</span>
+          <span className="text-muted-foreground">{"{{}} (Empty object)"}</span>
         ) : (
           entries.map(([k, v]) => {
             const valueRendersContainer = typeof v === "object" && v !== null;
@@ -448,7 +448,7 @@ function renderValue(value: any, isRoot = false): React.ReactNode {
               <div key={k} className="min-w-0 max-w-full">
                 <div className="flex flex-col gap-1 min-w-0 max-w-full">
                   <div className="flex items-start gap-2 min-w-0 max-w-full">
-                    <span className="font-medium text-gray-700 flex-shrink-0">{k}:</span>
+                    <span className="font-medium text-foreground flex-shrink-0">{k}:</span>
                     {!valueRendersContainer && (
                       <div className="min-w-0 flex-1 max-w-full">
                         {renderValue(v, false)}
@@ -471,14 +471,14 @@ function renderValue(value: any, isRoot = false): React.ReactNode {
 
   if (typeof value === "boolean") {
     return (
-      <span className={cn("font-mono", value ? "text-green-600" : "text-red-600")}>
+      <span className={cn("font-mono", value ? "text-green-600 dark:text-green-400" : "text-red-600 dark:text-red-400")}>
         {String(value)}
       </span>
     );
   }
 
   if (typeof value === "number") {
-    return <span className="font-mono text-blue-600">{value}</span>;
+    return <span className="font-mono text-blue-600 dark:text-blue-400">{value}</span>;
   }
 
   // Enhanced string rendering with JSON detection and wrapping
@@ -491,10 +491,10 @@ function ImagesView({ images }: { images: ExtractedImage[] }) {
     <div className={cn("w-full max-w-full h-full", ...getScrollbarClasses('both'))}>
       <div className="p-4">
         <div className="mb-4">
-          <h3 className="font-medium text-gray-900 mb-1">
+          <h3 className="font-medium text-foreground mb-1">
             Generated Images ({images.length})
           </h3>
-          <p className="text-sm text-gray-500">
+          <p className="text-sm text-muted-foreground">
             Click on any image to view it in full size
           </p>
         </div>
@@ -558,10 +558,10 @@ function ImageCard({ image, index }: { image: ExtractedImage; index: number }) {
 
   if (isLoading) {
     return (
-      <div className="aspect-square bg-gray-100 rounded-lg flex items-center justify-center">
+      <div className="aspect-square bg-muted rounded-lg flex items-center justify-center">
         <div className="text-center">
-          <Loader2 className="h-6 w-6 animate-spin text-gray-400 mx-auto mb-2" />
-          <p className="text-xs text-gray-500">Loading image...</p>
+          <Loader2 className="h-6 w-6 animate-spin text-muted-foreground mx-auto mb-2" />
+          <p className="text-xs text-muted-foreground">Loading image...</p>
         </div>
       </div>
     );
@@ -569,13 +569,13 @@ function ImageCard({ image, index }: { image: ExtractedImage; index: number }) {
 
   if (error || !imageUrl) {
     return (
-      <div className="aspect-square bg-red-50 border border-red-200 rounded-lg flex items-center justify-center">
+      <div className="aspect-square bg-destructive/10 border border-destructive/20 rounded-lg flex items-center justify-center">
         <div className="text-center p-4">
-          <AlertTriangle className="h-6 w-6 text-red-400 mx-auto mb-2" />
-          <p className="text-xs text-red-600 break-words">
+          <AlertTriangle className="h-6 w-6 text-destructive mx-auto mb-2" />
+          <p className="text-xs text-destructive break-words">
             {error || 'Failed to load image'}
           </p>
-          <p className="text-xs text-gray-400 mt-1 font-mono">
+          <p className="text-xs text-muted-foreground mt-1 font-mono">
             Type: {image.type}
           </p>
         </div>
@@ -585,15 +585,15 @@ function ImageCard({ image, index }: { image: ExtractedImage; index: number }) {
 
   return (
     <>
-      <div className="bg-white border border-gray-200 rounded-lg overflow-hidden hover:shadow-md transition-shadow">
-        <div 
-          className="aspect-square bg-gray-100 cursor-pointer relative group overflow-hidden"
+      <div className="bg-card border border-border rounded-lg overflow-hidden hover:shadow-md transition-shadow">
+        <div
+          className="aspect-square bg-muted cursor-pointer relative group overflow-hidden"
           onClick={() => setIsModalOpen(true)}
         >
           <img
             src={imageUrl}
             alt={displayName}
-            className="w-full h-full object-contain bg-white"
+            className="w-full h-full object-contain bg-background"
             style={{ display: 'block' }}
             onError={(e) => {
               console.error('Image failed to load:', imageUrl);
@@ -607,20 +607,20 @@ function ImageCard({ image, index }: { image: ExtractedImage; index: number }) {
         
         <div className="p-3">
           <div className="flex items-center justify-between mb-1">
-            <h4 className="font-medium text-sm text-gray-900 truncate">
+            <h4 className="font-medium text-sm text-foreground truncate">
               {displayName}
             </h4>
-            <span className="text-xs text-gray-500 bg-gray-100 px-2 py-0.5 rounded">
+            <span className="text-xs text-muted-foreground bg-muted px-2 py-0.5 rounded">
               {image.type.toUpperCase()}
             </span>
           </div>
           
           {imageSize && (
-            <p className="text-xs text-gray-500">{imageSize}</p>
+            <p className="text-xs text-muted-foreground">{imageSize}</p>
           )}
-          
+
           {image.metadata?.path && (
-            <p className="text-xs text-gray-400 mt-1 font-mono">
+            <p className="text-xs text-muted-foreground/70 mt-1 font-mono">
               Path: {image.metadata.path.join('.')}
             </p>
           )}
@@ -657,27 +657,27 @@ function ImageModal({
       className="fixed inset-0 flex items-center justify-center z-50 p-4"
       onClick={onClose}
     >
-      <div className="max-w-4xl max-h-full bg-white rounded-lg overflow-hidden shadow-2xl border">
-        <div className="flex items-center justify-between p-4 border-b bg-gray-50">
+      <div className="max-w-4xl max-h-full bg-card rounded-lg overflow-hidden shadow-2xl border border-border">
+        <div className="flex items-center justify-between p-4 border-b bg-muted">
           <div>
-            <h3 className="font-medium text-gray-900">{displayName}</h3>
-            <p className="text-sm text-gray-500">Type: {image.type}</p>
+            <h3 className="font-medium text-foreground">{displayName}</h3>
+            <p className="text-sm text-muted-foreground">Type: {image.type}</p>
           </div>
           <Button
             variant="ghost"
             size="sm"
             onClick={onClose}
-            className="h-8 w-8 p-0 hover:bg-gray-200"
+            className="h-8 w-8 p-0 hover:bg-accent"
           >
             ×
           </Button>
         </div>
         
-        <div className="p-4 bg-gray-50">
+        <div className="p-4 bg-muted/50">
           <img
             src={imageUrl}
             alt={displayName}
-            className="max-w-full max-h-[70vh] object-contain mx-auto bg-white rounded shadow-sm"
+            className="max-w-full max-h-[70vh] object-contain mx-auto bg-background rounded shadow-sm"
             onClick={(e) => e.stopPropagation()}
           />
         </div>

@@ -282,7 +282,7 @@ export function ToolPlayground({
             maxSize={60}
           >
             <div className="flex h-full flex-col border-r">
-              <div className="border-b bg-muted/20 px-4 py-3">
+              <div className="border-b bg-card dark:bg-card/50 px-4 py-3">
                 <h2 className="font-medium">Configuration</h2>
                 <p className="text-sm text-muted-foreground">
                   Configure the tool parameters
@@ -303,7 +303,7 @@ export function ToolPlayground({
                 )}
               </div>
 
-              <div className="border-t bg-muted/20 p-4">
+              <div className="border-t bg-card dark:bg-card/50 p-4">
                 <Button
                   onClick={isLoading ? stopExecution : runTool}
                   disabled={!isFormValid() && !isLoading}
@@ -340,7 +340,7 @@ export function ToolPlayground({
             minSize={40}
           >
             <div className="flex h-full flex-col">
-              <div className="border-b bg-muted/20 px-4 py-3">
+              <div className="border-b bg-card dark:bg-card/50 px-4 py-3">
                 <h2 className="font-medium">Response</h2>
                 <p className="text-sm text-muted-foreground">
                   Tool execution results will appear here

@@ -195,24 +195,24 @@ export function FileUploadSection({ files, onFilesChange }: FileUploadSectionPro
         {...getRootProps()}
         className={`
           border-2 border-dashed rounded-lg p-8 text-center cursor-pointer transition-all
-          ${(isDragActive || dragActive) 
-            ? 'border-blue-400 bg-blue-50' 
-            : 'border-gray-300 hover:border-gray-400 hover:bg-gray-50'
+          ${(isDragActive || dragActive)
+            ? 'border-blue-400 bg-blue-50 dark:bg-blue-950/20 dark:border-blue-500'
+            : 'border-border hover:border-border/80 hover:bg-muted/30'
           }
         `}
       >
         <input {...getInputProps()} />
         <Upload className={`h-12 w-12 mx-auto mb-4 ${
-          (isDragActive || dragActive) ? 'text-blue-500' : 'text-gray-400'
+          (isDragActive || dragActive) ? 'text-blue-500 dark:text-blue-400' : 'text-muted-foreground'
         }`} />
         <div className="space-y-2">
-          <h3 className="font-medium text-gray-700">
-            {(isDragActive || dragActive) 
-              ? 'Drop files here to upload' 
+          <h3 className="font-medium text-foreground">
+            {(isDragActive || dragActive)
+              ? 'Drop files here to upload'
               : 'Drag and drop files here, or click to browse'
             }
           </h3>
-          <p className="text-sm text-gray-500">
+          <p className="text-sm text-muted-foreground">
             Supports PDF, Word, PowerPoint, Excel, and text files up to 50MB each
           </p>
         </div>
@@ -268,7 +268,7 @@ export function FileUploadSection({ files, onFilesChange }: FileUploadSectionPro
       {/* File List */}
       {files.length > 0 && (
         <div className="space-y-2">
-          <h4 className="font-medium text-sm text-gray-700">
+          <h4 className="font-medium text-sm text-foreground">
             Files to Upload ({files.length})
           </h4>
           <div className={cn("space-y-2 max-h-60", ...getScrollbarClasses('y'))}>

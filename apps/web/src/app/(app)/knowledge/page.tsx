@@ -76,7 +76,7 @@ export default function KnowledgePage(): React.ReactNode {
         </Breadcrumb>
       </AppHeader>
       
-      <div className="container mx-auto px-4 py-6">
+      <div className="container mx-auto px-4 md:px-8 lg:px-12 py-6">
         <PageHeader
           title="Knowledge"
           description="Manage the knowledge bases of your agents"

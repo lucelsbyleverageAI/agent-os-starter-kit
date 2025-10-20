@@ -29,7 +29,7 @@ export default function AdminPage(): React.ReactNode {
         </Breadcrumb>
       </AppHeader>
       
-      <div className="container mx-auto px-4 py-6">
+      <div className="container mx-auto px-4 md:px-8 lg:px-12 py-6">
         <PageHeader
           title="Admin Dashboard"
           description="Manage public permissions for graphs, assistants, and collections"
