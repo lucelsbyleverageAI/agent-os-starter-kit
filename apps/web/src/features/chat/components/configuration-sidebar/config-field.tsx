@@ -1,6 +1,6 @@
 "use client";
 
-import { useState } from "react";
+import { useState, useEffect, useRef } from "react";
 import { Slider } from "@/components/ui/slider";
 import { Switch } from "@/components/ui/switch";
 import { Input } from "@/components/ui/input";
@@ -36,6 +36,7 @@ import { Button } from "@/components/ui/button";
 import { Checkbox } from "@/components/ui/checkbox";
 import _ from "lodash";
 import { cn } from "@/lib/utils";
+import { getScrollbarClasses } from "@/lib/scrollbar-styles";
 import {
   ConfigurableFieldAgentsMetadata,
   ConfigurableFieldMCPMetadata,
@@ -96,6 +97,7 @@ export function ConfigField({
 }: ConfigFieldProps) {
   const store = useConfigStore();
   const [jsonError, setJsonError] = useState<string | null>(null);
+  const fieldRef = useRef<HTMLDivElement>(null);
 
   // Determine whether to use external state or Zustand store
   const isExternallyManaged = externalSetValue !== undefined;
@@ -103,6 +105,38 @@ export function ConfigField({
   const currentValue = isExternallyManaged
     ? externalValue
     : store.configsByAgentId?.[agentId]?.[id];
+
+  // Debug logging for field overflow
+  useEffect(() => {
+    if (!fieldRef.current) return;
+
+    const checkFieldOverflow = () => {
+      const element = fieldRef.current;
+      if (!element) return;
+
+      const rect = element.getBoundingClientRect();
+      const parent = element.parentElement;
+      const parentRect = parent?.getBoundingClientRect();
+
+      if (parentRect && rect.width > parentRect.width) {
+        console.warn(`🔍 ConfigField OVERFLOW [${label}]:`, {
+          fieldType: type,
+          fieldLabel: label,
+          fieldWidth: rect.width,
+          parentWidth: parentRect.width,
+          overflow: rect.width - parentRect.width,
+          value: currentValue,
+          fieldElement: element
+        });
+      }
+    };
+
+    // Check after render and after value changes
+    checkFieldOverflow();
+    const timeoutId = setTimeout(checkFieldOverflow, 500);
+
+    return () => clearTimeout(timeoutId);
+  }, [label, type, currentValue]);
 
   const handleChange = (newValue: any) => {
     setJsonError(null); // Clear JSON error on any change
@@ -152,7 +186,7 @@ export function ConfigField({
   };
 
   return (
-    <div className={cn("space-y-2", className)}>
+    <div className={cn("space-y-2", className)} ref={fieldRef}>
       <div className="flex items-center justify-between">
         <Label
           htmlFor={id}
@@ -264,7 +298,10 @@ export function ConfigField({
       {type === "select" && (
         <Select
           value={currentValue ?? ""} // Use currentValue, provide default empty string if undefined/null
-          onValueChange={handleChange}
+          onValueChange={(value) => {
+            console.log(`📊 Select field [${label}] changed:`, { value, fieldWidth: fieldRef.current?.getBoundingClientRect().width });
+            handleChange(value);
+          }}
         >
           <SelectTrigger>
             {/* Display selected value or placeholder */}
@@ -870,7 +907,7 @@ export function ConfigFieldAgents({
                       onSearchChange={debouncedSetSearchTerm}
                       placeholder="Search toolkits and tools..."
                     />
-                    <div className="max-h-60 overflow-y-auto rounded-md border p-2">
+                    <div className={cn("max-h-60 rounded-md border p-2", ...getScrollbarClasses('y'))}>
                       <ConfigToolkitSelector
                         toolkits={(() => {
                           const grouped = (mcpTools || []).reduce((acc: Record<string, any>, tool: any) => {

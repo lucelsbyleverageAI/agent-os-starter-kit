@@ -516,7 +516,7 @@ export function Thread({ historyOpen = false, configOpen = false }: ThreadProps)
                       }}
                     />
                   </div> */}
-                  <h1 className="text-3xl md:text-4xl mt-2 font-semibold tracking-tight">
+                  <h1 className="text-3xl md:text-3xl mt-2 font-semibold tracking-tight">
                     <span className="text-foreground">Good {getTimeBasedGreeting()}, {getUserFirstName(user)}. </span>
                     <span className="text-primary">How Can I Help?</span>
                   </h1>

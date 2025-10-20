@@ -234,13 +234,15 @@ export function AgentFieldsForm({
 
   return (
     <div className="flex flex-col gap-6 py-2">
-      <Tabs defaultValue="general" className="flex flex-1 flex-col">
-        <TabsList className="flex-shrink-0 justify-start bg-transparent px-0">
-          <TabsTrigger value="general">General</TabsTrigger>
-          {hasTools && <TabsTrigger value="tools">Tools</TabsTrigger>}
-          {hasRag && <TabsTrigger value="rag">Knowledge</TabsTrigger>}
-          {hasAgents && <TabsTrigger value="supervisor">Sub-Agents</TabsTrigger>}
-        </TabsList>
+      <Tabs defaultValue="general" className="flex flex-1 flex-col min-h-0">
+        <div className="flex justify-center pt-2 pb-3">
+          <TabsList variant="branded" className="w-fit flex-shrink-0">
+            <TabsTrigger value="general">General</TabsTrigger>
+            {hasTools && <TabsTrigger value="tools">Tools</TabsTrigger>}
+            {hasRag && <TabsTrigger value="rag">Knowledge</TabsTrigger>}
+            {hasAgents && <TabsTrigger value="supervisor">Sub-Agents</TabsTrigger>}
+          </TabsList>
+        </div>
 
         <TabsContent value="general" className="m-0 pt-2">
           <div className="flex w-full flex-col items-start justify-start gap-2 space-y-2">
@@ -248,12 +250,26 @@ export function AgentFieldsForm({
             <div className="flex w-full flex-col items-start justify-start gap-2">
               <Label htmlFor="oap_name">
                 Name <span className="text-red-500">*</span>
+                <span className="ml-2 text-xs text-muted-foreground">
+                  ({form.watch("name")?.length || 0}/50)
+                </span>
               </Label>
               <Input
                 id="oap_name"
-                {...form.register("name")}
+                {...form.register("name", {
+                  maxLength: {
+                    value: 50,
+                    message: "Name must be 50 characters or less"
+                  }
+                })}
                 placeholder="Emails Agent"
+                maxLength={50}
               />
+              {form.formState.errors.name && (
+                <span className="text-xs text-red-500">
+                  {form.formState.errors.name.message}
+                </span>
+              )}
             </div>
             <div className="flex w-full flex-col items-start justify-start gap-2">
               <Label htmlFor="oap_description">

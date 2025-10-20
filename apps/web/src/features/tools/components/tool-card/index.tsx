@@ -17,7 +17,7 @@ interface ToolCardProps {
 
 export function ToolCard({ tool, showToolkit = false }: ToolCardProps) {
   return (
-    <Card className="group relative flex flex-col items-start gap-3 p-6 transition-all hover:border-primary hover:shadow-md vibrate-on-hover">
+    <Card className="group relative flex flex-col items-start gap-2.5 px-4 py-3 transition-all hover:border-primary hover:shadow-md vibrate-on-hover">
       {/* Icon and title */}
       <div className="flex items-center gap-3 w-full">
         <div className="bg-muted flex h-10 w-10 shrink-0 items-center justify-center rounded-md">
@@ -62,7 +62,7 @@ export function ToolCard({ tool, showToolkit = false }: ToolCardProps) {
 
 export function ToolCardLoading() {
   return (
-    <Card className="relative flex flex-col items-start gap-3 p-6">
+    <Card className="relative flex flex-col items-start gap-2.5 px-4 py-3">
       {/* Icon and title */}
       <div className="flex items-center gap-3 w-full">
         <Skeleton className="h-10 w-10 rounded-md" />

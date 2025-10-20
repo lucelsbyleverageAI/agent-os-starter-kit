@@ -96,7 +96,7 @@ export default function DocumentPage({ params }: DocumentPageProps): React.React
           </Breadcrumb>
         </AppHeader>
 
-        <div className="container mx-auto px-4 py-6">
+        <div className="container mx-auto px-4 md:px-8 lg:px-12 py-6">
           <div className="space-y-4">
             <Skeleton className="h-12 w-64" />
             <Skeleton className="h-4 w-96" />
@@ -125,7 +125,7 @@ export default function DocumentPage({ params }: DocumentPageProps): React.React
           </Breadcrumb>
         </AppHeader>
 
-        <div className="container mx-auto px-4 py-6">
+        <div className="container mx-auto px-4 md:px-8 lg:px-12 py-6">
           <div className="flex flex-col items-center justify-center gap-4 py-12">
             <h2 className="text-2xl font-semibold">Collection Not Found</h2>
             <p className="text-muted-foreground">
@@ -166,7 +166,7 @@ export default function DocumentPage({ params }: DocumentPageProps): React.React
         </Breadcrumb>
       </AppHeader>
 
-      <div className="container mx-auto px-4 py-6">
+      <div className="container mx-auto px-4 md:px-8 lg:px-12 py-6">
         <div className="mb-6">
           <Button
             onClick={() => router.push(`/knowledge/${collectionId}`)}
