@@ -355,6 +355,19 @@ class GraphConfigPydantic(BaseModel):
     )
     """Configuration for dynamic sub-agents"""
 
+    include_general_purpose_agent: Optional[bool] = Field(
+        default=True,
+        metadata={
+            "x_oap_ui_config": {
+                "type": "boolean",
+                "default": True,
+                "label": "Include General-Purpose Agent",
+                "description": "Enable the built-in general-purpose sub-agent for delegating complex, multi-step tasks. This agent has access to all available tools.",
+            }
+        },
+    )
+    """Whether to include the built-in general-purpose sub-agent"""
+
     recursion_limit: Optional[int] = Field(
         default=DEFAULT_RECURSION_LIMIT,
         metadata={

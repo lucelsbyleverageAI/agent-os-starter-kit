@@ -31,7 +31,6 @@ import {
   TooltipProvider,
   TooltipTrigger,
 } from "@/components/ui/tooltip";
-import { useAgentsContext } from "@/providers/Agents";
 
 export interface AgentsComboboxProps {
   agents: Agent[];

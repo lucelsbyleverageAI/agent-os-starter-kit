@@ -72,13 +72,13 @@ export const AddPermissionModal = ({
   }, [type]);
 
   // Get existing IDs to filter out items that already have permissions
-  const existingGraphIds = new Set(existingGraphPermissions.map(p => p.graph_id));
-  const existingAssistantIds = new Set(existingAssistantPermissions.map(p => p.assistant_id));
-  const existingCollectionIds = new Set(existingCollectionPermissions.map(p => p.collection_id));
+  const existingGraphIds = React.useMemo(() => new Set(existingGraphPermissions.map(p => p.graph_id)), [existingGraphPermissions]);
+  const existingAssistantIds = React.useMemo(() => new Set(existingAssistantPermissions.map(p => p.assistant_id)), [existingAssistantPermissions]);
+  const existingCollectionIds = React.useMemo(() => new Set(existingCollectionPermissions.map(p => p.collection_id)), [existingCollectionPermissions]);
 
-  // For assistants, also get graph IDs that have public permissions 
+  // For assistants, also get graph IDs that have public permissions
   // (since default assistants in those graphs don't need separate permissions)
-  const publicGraphIds = new Set(existingGraphPermissions.map(p => p.graph_id));
+  const publicGraphIds = React.useMemo(() => new Set(existingGraphPermissions.map(p => p.graph_id)), [existingGraphPermissions]);
 
   // Helper function to convert graph_id to human-readable name
   const getGraphDisplayName = (graphId: string): string => {

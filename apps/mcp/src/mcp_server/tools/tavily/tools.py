@@ -5,6 +5,7 @@ from typing import Any, Dict, List, Optional
 from ..base import CustomTool, ToolParameter
 from ...utils.logging import get_logger
 from ...utils.exceptions import ToolExecutionError
+from ...utils.excel_processor import is_excel_url, process_excel_url
 from .client import TavilyClient
 try:
     from docling.document_converter import DocumentConverter
@@ -224,23 +225,35 @@ class TavilyExtractTool(_TavilyBase):
                         if isinstance(r, dict) and r.get("url") == url and _is_meaningful(r):
                             has_for_url = True
                             break
-                if not has_for_url and _DOCLING_AVAILABLE:
-                    try:
-                        pipeline_options = PdfPipelineOptions(
-                            do_ocr=True,
-                            do_table_structure=True,
-                            do_picture_analysis=False,
-                        )
-                        converter = DocumentConverter(
-                            format_options={InputFormat.PDF: PdfFormatOption(pipeline_options=pipeline_options)}
-                        )
-                        conversion_result = converter.convert(url)
-                        if hasattr(conversion_result, "document") and conversion_result.document:
-                            content = conversion_result.document.export_to_markdown()
+                if not has_for_url:
+                    # Try Excel processing first for Excel files
+                    if is_excel_url(url):
+                        try:
+                            content = await process_excel_url(url)
                             if content.strip():
-                                fallback_sections.append(f"Fallback (Docling) Extracted Content for {url}:\n\n" + content)
-                    except Exception as _docling_err:
-                        logger.warning(f"Docling fallback failed for {url}: {_docling_err}")
+                                fallback_sections.append(f"Excel Extracted Content for {url}:\n\n" + content)
+                                continue
+                        except Exception as excel_err:
+                            logger.warning(f"Excel processing failed for {url}: {excel_err}")
+
+                    # Fall back to Docling for non-Excel files or if Excel processing failed
+                    if _DOCLING_AVAILABLE:
+                        try:
+                            pipeline_options = PdfPipelineOptions(
+                                do_ocr=True,
+                                do_table_structure=True,
+                                do_picture_analysis=False,
+                            )
+                            converter = DocumentConverter(
+                                format_options={InputFormat.PDF: PdfFormatOption(pipeline_options=pipeline_options)}
+                            )
+                            conversion_result = converter.convert(url)
+                            if hasattr(conversion_result, "document") and conversion_result.document:
+                                content = conversion_result.document.export_to_markdown()
+                                if content.strip():
+                                    fallback_sections.append(f"Fallback (Docling) Extracted Content for {url}:\n\n" + content)
+                        except Exception as _docling_err:
+                            logger.warning(f"Docling fallback failed for {url}: {_docling_err}")
 
             base_text = _format_results(response)
             if fallback_sections:

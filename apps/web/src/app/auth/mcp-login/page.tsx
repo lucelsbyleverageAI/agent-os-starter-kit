@@ -35,48 +35,6 @@ export default function MCPLoginPage() {
   const codeChallengeMethod = searchParams.get('code_challenge_method');
   const resource = searchParams.get('resource');
 
-  useEffect(() => {
-    // Check if user is already logged in
-    const checkSession = async () => {
-      try {
-        Sentry.addBreadcrumb({
-          message: 'MCP Login: Checking existing session',
-          category: 'auth.mcp',
-          level: 'info',
-          data: { clientId, redirectUri }
-        });
-
-        const { data: { session } } = await supabase.auth.getSession();
-        if (session) {
-          Sentry.addBreadcrumb({
-            message: 'MCP Login: User already authenticated, redirecting to OAuth flow',
-            category: 'auth.mcp',
-            level: 'info',
-            data: { userId: session.user?.id }
-          });
-          // User is already logged in, redirect back to authorization endpoint
-          await redirectToAuthorization();
-        } else {
-          Sentry.addBreadcrumb({
-            message: 'MCP Login: No existing session found, showing login form',
-            category: 'auth.mcp',
-            level: 'info'
-          });
-        }
-      } catch (error) {
-        Sentry.captureException(error, {
-          tags: { context: 'mcp_login_session_check' },
-          extra: { clientId, redirectUri }
-        });
-        console.error('Error checking session:', error);
-      } finally {
-        setIsCheckingSession(false);
-      }
-    };
-
-    checkSession();
-  }, []);
-
   const redirectToAuthorization = async () => {
     if (!clientId || !redirectUri) {
       const errorMsg = 'Invalid OAuth request parameters';
@@ -118,6 +76,48 @@ export default function MCPLoginPage() {
     
     router.push(authUrl);
   };
+
+  useEffect(() => {
+    // Check if user is already logged in
+    const checkSession = async () => {
+      try {
+        Sentry.addBreadcrumb({
+          message: 'MCP Login: Checking existing session',
+          category: 'auth.mcp',
+          level: 'info',
+          data: { clientId, redirectUri }
+        });
+
+        const { data: { session } } = await supabase.auth.getSession();
+        if (session) {
+          Sentry.addBreadcrumb({
+            message: 'MCP Login: User already authenticated, redirecting to OAuth flow',
+            category: 'auth.mcp',
+            level: 'info',
+            data: { userId: session.user?.id }
+          });
+          // User is already logged in, redirect back to authorization endpoint
+          await redirectToAuthorization();
+        } else {
+          Sentry.addBreadcrumb({
+            message: 'MCP Login: No existing session found, showing login form',
+            category: 'auth.mcp',
+            level: 'info'
+          });
+        }
+      } catch (error) {
+        Sentry.captureException(error, {
+          tags: { context: 'mcp_login_session_check' },
+          extra: { clientId, redirectUri }
+        });
+        console.error('Error checking session:', error);
+      } finally {
+        setIsCheckingSession(false);
+      }
+    };
+
+    checkSession();
+  }, [clientId, redirectUri, redirectToAuthorization, supabase.auth]);
 
   const handleSignIn = async (e: React.FormEvent) => {
     e.preventDefault();

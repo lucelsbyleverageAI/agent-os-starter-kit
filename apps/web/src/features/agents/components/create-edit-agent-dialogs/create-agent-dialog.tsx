@@ -23,7 +23,6 @@ import { useAgentConfig } from "@/hooks/use-agent-config";
 import { FormProvider, useForm } from "react-hook-form";
 import { cn } from "@/lib/utils";
 import { getScrollbarClasses } from "@/lib/scrollbar-styles";
-import { useAuthContext } from "@/providers/Auth";
 import { logger } from "@/lib/logger";
 
 interface CreateAgentDialogProps {
@@ -72,7 +71,6 @@ function CreateAgentFormContent(props: {
 
   const { createAgent } = useAgents();
   const { refreshAgents, invalidateAssistantListCache, invalidateAllAssistantCaches, addAgentToList } = useAgentsContext();
-  const { session } = useAuthContext();
   const {
     getGraphSchemaAndUpdateConfig,
     loading,
