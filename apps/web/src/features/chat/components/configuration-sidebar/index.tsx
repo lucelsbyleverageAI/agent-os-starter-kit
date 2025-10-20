@@ -134,12 +134,13 @@ function NameAndDescriptionAlertDialog({
 export interface AIConfigPanelProps {
   className?: string;
   open: boolean;
+  setOpen?: (open: boolean) => void;
 }
 
 export const ConfigurationSidebar = forwardRef<
   HTMLDivElement,
   AIConfigPanelProps
->(({ className, open }, ref: ForwardedRef<HTMLDivElement>) => {
+>(({ className, open, setOpen }, ref: ForwardedRef<HTMLDivElement>) => {
   const { configsByAgentId: _configsByAgentId, resetConfig } = useConfigStore();
   const store = useConfigStore();
   const { tools, setTools, getTools, cursor } = useMCPContext();
@@ -323,16 +324,16 @@ export const ConfigurationSidebar = forwardRef<
     <div
       ref={ref}
       className={cn(
-        "fixed top-0 right-0 z-10 h-screen border-l border-gray-200 bg-white shadow-lg transition-all duration-300",
-        open ? "w-80 md:w-xl" : "w-0 overflow-hidden border-l-0",
+        "fixed top-0 right-0 z-10 h-screen border-l bg-background dark:bg-background shadow-lg transition-all duration-300",
+        open ? "w-80 md:w-[36rem]" : "w-0 overflow-hidden border-l-0",
         className,
       )}
     >
       {open && (
         <div className="flex h-full flex-col">
-          <div className="flex flex-shrink-0 items-center justify-between border-b border-gray-200 p-4">
+          <div className="flex flex-shrink-0 items-center justify-between border-b p-4">
             <h2 className="text-lg font-semibold tracking-tight">Agent Configuration</h2>
-            <div className="flex gap-2">
+            <div className="flex gap-2 items-center">
               <TooltipProvider>
                 <Tooltip delayDuration={200}>
                   <TooltipTrigger asChild>
@@ -368,41 +369,72 @@ export const ConfigurationSidebar = forwardRef<
                   </TooltipContent>
                 </Tooltip>
               </TooltipProvider>
+              {setOpen && (
+                <Button
+                  variant="ghost"
+                  size="icon"
+                  onClick={() => setOpen(false)}
+                  className="h-8 w-8"
+                >
+                  <X className="h-4 w-4" />
+                  <span className="sr-only">Close configuration</span>
+                </Button>
+              )}
             </div>
           </div>
           <Tabs
             defaultValue="general"
-            className={cn("flex flex-1 flex-col", ...getScrollbarClasses('y'))}
+            className="flex flex-1 flex-col"
           >
-            <TabsList className="flex-shrink-0 justify-start bg-transparent px-4 pt-2">
-              <TabsTrigger value="general">General</TabsTrigger>
+            <TabsList className="flex-shrink-0 justify-start bg-muted/20 px-6 pt-2 pb-2 border-b">
+              <TabsTrigger
+                value="general"
+                className="data-[state=active]:bg-primary data-[state=active]:text-primary-foreground data-[state=active]:shadow-sm hover:bg-primary/10"
+              >
+                General
+              </TabsTrigger>
               {supportedConfigs.includes("tools") && (
-                <TabsTrigger value="tools">Tools</TabsTrigger>
+                <TabsTrigger
+                  value="tools"
+                  className="data-[state=active]:bg-primary data-[state=active]:text-primary-foreground data-[state=active]:shadow-sm hover:bg-primary/10"
+                >
+                  Tools
+                </TabsTrigger>
               )}
               {supportedConfigs.includes("rag") && (
-                <TabsTrigger value="rag">Knowledge</TabsTrigger>
+                <TabsTrigger
+                  value="rag"
+                  className="data-[state=active]:bg-primary data-[state=active]:text-primary-foreground data-[state=active]:shadow-sm hover:bg-primary/10"
+                >
+                  Knowledge
+                </TabsTrigger>
               )}
               {supportedConfigs.includes("supervisor") && (
-                <TabsTrigger value="supervisor">Sub-Agents</TabsTrigger>
+                <TabsTrigger
+                  value="supervisor"
+                  className="data-[state=active]:bg-primary data-[state=active]:text-primary-foreground data-[state=active]:shadow-sm hover:bg-primary/10"
+                >
+                  Sub-Agents
+                </TabsTrigger>
               )}
             </TabsList>
 
             <ScrollArea className="flex-1">
+              <div className="pr-6">
 
-              
               <TabsContent
                 value="general"
-                className="m-0 p-4"
+                className="m-0 pl-6 pr-8 pb-4 pt-2 space-y-6"
               >
                 <ConfigSection title="Tags">
-                  <div className="flex w-full flex-col items-start justify-start gap-2">
+                  <div className="flex flex-col items-start justify-start gap-2">
                     <Label htmlFor="agent_tags">
                       Select categories for your agent
                     </Label>
 
                     {/* Selected tags display */}
                     {tags.length > 0 && (
-                      <div className="flex flex-wrap gap-2 w-full">
+                      <div className="flex flex-wrap gap-2">
                         {tags.map((tag) => (
                           <Badge
                             key={tag}
@@ -425,7 +457,7 @@ export const ConfigurationSidebar = forwardRef<
                         <Button
                           variant="outline"
                           role="combobox"
-                          className="w-full justify-between"
+                          className="w-full max-w-full justify-between"
                         >
                           {tags.length > 0
                             ? `${tags.length} tag${tags.length > 1 ? 's' : ''} selected`
@@ -544,7 +576,7 @@ export const ConfigurationSidebar = forwardRef<
               {supportedConfigs.includes("tools") && (
                 <TabsContent
                   value="tools"
-                  className="m-0 p-4"
+                  className="m-0 pl-6 pr-8 pb-4 pt-2 space-y-6"
                 >
                   <ConfigSection title="Available Tools">
                     <Search
@@ -636,7 +668,7 @@ export const ConfigurationSidebar = forwardRef<
               {supportedConfigs.includes("rag") && (
                 <TabsContent
                   value="rag"
-                  className="m-0 p-4"
+                  className="m-0 pl-6 pr-8 pb-4 pt-2 space-y-6"
                 >
                   <ConfigSection title="Collections">
                     {agentId && ragConfigurations[0]?.label && (
@@ -699,7 +731,7 @@ export const ConfigurationSidebar = forwardRef<
               {supportedConfigs.includes("supervisor") && (
                 <TabsContent
                   value="supervisor"
-                  className="m-0 p-4"
+                  className="m-0 pl-6 pr-8 pb-4 pt-2 space-y-6"
                 >
                   <ConfigSection title="Sub-Agents">
                     {agentId && agentsConfigurations[0]?.label && (
@@ -713,6 +745,7 @@ export const ConfigurationSidebar = forwardRef<
                   </ConfigSection>
                 </TabsContent>
               )}
+              </div>
             </ScrollArea>
           </Tabs>
         </div>

@@ -41,7 +41,7 @@ import {
   PopoverTrigger,
 } from "@/components/ui/popover";
 import { getDeployments } from "@/lib/environment/deployments";
-import { useRouter } from "next/navigation";
+import { useRouter, useSearchParams } from "next/navigation";
 import { MessageContent } from "@langchain/core/messages";
 import { Message } from "@langchain/langgraph-sdk";
 import {
@@ -166,6 +166,8 @@ export function ChatHistory() {
   const { session, isLoading: authLoading } = useAuthContext();
   const { agents } = useAgentsContext();
   const router = useRouter();
+  const searchParams = useSearchParams();
+  const currentThreadId = searchParams.get('threadId');
   const deployments = getDeployments();
 
   const [threads, setThreads] = useState<Thread[]>([]);
@@ -841,13 +843,18 @@ export function ChatHistory() {
                       const mirrorName = (thread as any).name;
                       const firstMessage = getFirstHumanMessageContent(thread);
                       const displayText = mirrorName || firstMessage || "New chat";
-                      
+                      const isSelected = currentThreadId === thread.thread_id;
+
                       return (
-                        <SidebarMenuItem key={thread.thread_id}>
-                          <div className="group flex w-full items-center justify-between">
+                        <SidebarMenuItem
+                          key={thread.thread_id}
+                          className={cn(
+                            isSelected && "bg-sidebar-accent text-sidebar-accent-foreground rounded-md"
+                          )}
+                        >
+                          <div className="group/thread-item flex w-full items-center justify-between">
                             {renamingThreadId === thread.thread_id ? (
-                              <div className="flex w-full items-center gap-2 pl-2">
-                                <div className="h-1.5 w-1.5 rounded-full bg-muted-foreground/50" />
+                              <div className="flex w-full items-center pl-2">
                                 <Input
                                   value={renameValue}
                                   onChange={(e) => setRenameValue(e.target.value)}
@@ -870,16 +877,14 @@ export function ChatHistory() {
                                 className="flex-1 justify-start pl-2 text-xs pr-1"
                                 size="sm"
                               >
-                                <div className="flex w-full items-center gap-2">
-                                  <div className="h-1.5 w-1.5 rounded-full bg-muted-foreground/50" />
-                                  <span className="truncate text-xs">{displayText}</span>
-                                </div>
+                                <span className="truncate text-xs">{displayText}</span>
                               </SidebarMenuButton>
                             )}
                             <ThreadActionMenu
                               onDelete={() => handleDeleteThread(thread)}
                               onRename={() => handleRenameThread(thread)}
                               disabled={isDeleting || isRenaming}
+                              useNamedGroup={true}
                             />
                           </div>
                         </SidebarMenuItem>

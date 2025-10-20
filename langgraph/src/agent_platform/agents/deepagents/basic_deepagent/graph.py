@@ -29,33 +29,14 @@ logger = get_logger(__name__)
 
 async def graph(config: RunnableConfig):
     # Standard logging via Sentry integration; no verbosity overrides
-    print("\n" + "#"*80)
-    print("[BASIC_DEEPAGENT/GRAPH] Processing configuration")
-    print("#"*80)
-
     raw_config = config.get("configurable", {})
-    print(f"[BASIC_DEEPAGENT/GRAPH] Raw configurable dict keys: {list(raw_config.keys())}")
-    print(f"[BASIC_DEEPAGENT/GRAPH] include_general_purpose_agent in raw config: {'include_general_purpose_agent' in raw_config}")
-    if 'include_general_purpose_agent' in raw_config:
-        print(f"[BASIC_DEEPAGENT/GRAPH] Raw include_general_purpose_agent value: {raw_config['include_general_purpose_agent']}")
-
-    print(f"[BASIC_DEEPAGENT/GRAPH] sub_agents in raw config: {'sub_agents' in raw_config}")
-    if 'sub_agents' in raw_config:
-        print(f"[BASIC_DEEPAGENT/GRAPH] Raw sub_agents value: {raw_config['sub_agents']}")
 
     # Map UI field names to Pydantic field names
     # The UI sends fields with title case and spaces, but Pydantic expects snake_case
     if 'Include General-Purpose Agent' in raw_config:
         raw_config['include_general_purpose_agent'] = raw_config['Include General-Purpose Agent']
-        print(f"[BASIC_DEEPAGENT/GRAPH] Mapped 'Include General-Purpose Agent' -> 'include_general_purpose_agent': {raw_config['include_general_purpose_agent']}")
 
     cfg = GraphConfigPydantic(**raw_config)
-
-    print(f"\n[BASIC_DEEPAGENT/GRAPH] After parsing:")
-    print(f"  - cfg.include_general_purpose_agent: {cfg.include_general_purpose_agent}")
-    print(f"  - cfg.sub_agents: {cfg.sub_agents}")
-    print(f"  - cfg.sub_agents count: {len(cfg.sub_agents) if cfg.sub_agents else 0}")
-    print("#"*80 + "\n")
 
     tools = []
 

@@ -226,7 +226,7 @@ function Sidebar({
           "group-data-[collapsible=offcanvas]:w-0",
           "group-data-[side=right]:rotate-180",
           variant === "floating" || variant === "inset"
-            ? "group-data-[collapsible=icon]:w-[calc(var(--sidebar-width-icon)+(var(--spacing-md)*2))] group-hover:w-(--sidebar-width)"
+            ? "group-data-[collapsible=icon]:w-(--sidebar-width-icon) group-hover:w-(--sidebar-width)"
             : "group-data-[collapsible=icon]:w-(--sidebar-width-icon) group-hover:w-(--sidebar-width)",
         )}
       />
@@ -237,9 +237,9 @@ function Sidebar({
           side === "left"
             ? "left-0 group-data-[collapsible=offcanvas]:left-[calc(var(--sidebar-width)*-1)]"
             : "right-0 group-data-[collapsible=offcanvas]:right-[calc(var(--sidebar-width)*-1)]",
-          // Adjust the padding for floating and inset variants.
+          // Adjust the width for floating and inset variants (no padding for seamless blend)
           variant === "floating" || variant === "inset"
-            ? "p-[var(--spacing-md)] group-data-[collapsible=icon]:w-[calc(var(--sidebar-width-icon)+(var(--spacing-md)*2))] group-hover:w-(--sidebar-width)"
+            ? "group-data-[collapsible=icon]:w-(--sidebar-width-icon) group-hover:w-(--sidebar-width)"
             : "group-data-[collapsible=icon]:w-(--sidebar-width-icon) group-hover:w-(--sidebar-width) group-data-[side=left]:border-r group-data-[side=right]:border-l",
           className,
         )}
@@ -248,7 +248,7 @@ function Sidebar({
         <div
           data-sidebar="sidebar"
           data-slot="sidebar-inner"
-          className="bg-sidebar flex h-full w-full flex-col group-data-[variant=floating]:rounded-2xl group-data-[variant=floating]:border group-data-[variant=floating]:border-border group-data-[variant=floating]:[box-shadow:var(--glow-shadow-light)] group-data-[variant=floating]:dark:[box-shadow:var(--glow-shadow-dark)]"
+          className="bg-sidebar flex h-full w-full flex-col"
         >
           {children}
         </div>
@@ -320,8 +320,8 @@ function SidebarInset({ className, ...props }: React.ComponentProps<"main">) {
         // When sidebar is in floating/inset variant, left side doesn't need margin (sidebar gap handles it)
         "md:peer-data-[variant=floating]:ml-0",
         "md:peer-data-[variant=inset]:ml-0",
-        // Brand glow effect on desktop
-        "md:border md:border-border md:[box-shadow:var(--glow-shadow-light)] md:dark:[box-shadow:var(--glow-shadow-dark)]",
+        // Simple shadow for elevation
+        "md:border md:border-border md:shadow-md",
         ...getScrollbarClasses('y'),
         className,
       )}
@@ -488,13 +488,13 @@ function SidebarMenuItem({ className, ...props }: React.ComponentProps<"li">) {
 }
 
 const sidebarMenuButtonVariants = cva(
-  "peer/menu-button flex w-full items-center gap-2 group-data-[collapsible=icon]:gap-0 overflow-hidden rounded-md p-2 text-left text-sm outline-hidden transition-[width,height,padding,background-color,margin] duration-300 ease-[cubic-bezier(0.4,0,0.2,1)] focus-visible:outline-ring focus-visible:outline-2 disabled:pointer-events-none disabled:opacity-50 group-has-data-[sidebar=menu-action]/menu-item:pr-8 aria-disabled:pointer-events-none aria-disabled:opacity-50 group-data-[collapsible=icon]:!w-8 group-data-[collapsible=icon]:!h-8 group-data-[collapsible=icon]:mx-auto group-data-[collapsible=icon]:p-2! group-data-[collapsible=icon]:justify-center [&>span:last-child]:truncate [&>span:last-child]:transition-[opacity,transform] [&>span:last-child]:duration-300 [&>span:last-child]:ease-[cubic-bezier(0.4,0,0.2,1)] group-data-[collapsible=icon]:[&>span:last-child]:opacity-0 group-data-[collapsible=icon]:[&>span:last-child]:translate-x-[-8px] group-hover:[&>span:last-child]:opacity-100 group-hover:[&>span:last-child]:translate-x-0 [&>svg]:size-4 [&>svg]:shrink-0 [&>svg]:transition-none hover:bg-sidebar-accent/50 data-[active=true]:bg-sidebar-accent data-[active=true]:text-sidebar-accent-foreground data-[active=true]:font-medium",
+  "peer/menu-button flex w-full items-center gap-2 group-data-[collapsible=icon]:gap-0 overflow-hidden rounded-md p-2 text-left text-sm outline-hidden transition-[width,height,padding,background-color,margin] duration-300 ease-[cubic-bezier(0.4,0,0.2,1)] focus-visible:outline-ring focus-visible:outline-2 disabled:pointer-events-none disabled:opacity-50 group-has-data-[sidebar=menu-action]/menu-item:pr-8 aria-disabled:pointer-events-none aria-disabled:opacity-50 group-data-[collapsible=icon]:!w-8 group-data-[collapsible=icon]:!h-8 group-data-[collapsible=icon]:mx-auto group-data-[collapsible=icon]:p-2! group-data-[collapsible=icon]:justify-center [&>span:last-child]:truncate [&>span:last-child]:transition-[opacity,transform] [&>span:last-child]:duration-300 [&>span:last-child]:ease-[cubic-bezier(0.4,0,0.2,1)] group-data-[collapsible=icon]:[&>span:last-child]:opacity-0 group-data-[collapsible=icon]:[&>span:last-child]:translate-x-[-8px] group-hover:[&>span:last-child]:opacity-100 group-hover:[&>span:last-child]:translate-x-0 [&>svg]:size-4 [&>svg]:shrink-0 [&>svg]:transition-none hover:bg-sidebar-accent data-[active=true]:bg-sidebar-accent data-[active=true]:text-sidebar-accent-foreground data-[active=true]:font-medium",
   {
     variants: {
       variant: {
         default: "",
         outline:
-          "bg-background border border-sidebar-border hover:bg-sidebar-accent/50",
+          "bg-background border border-sidebar-border hover:bg-sidebar-accent",
       },
       size: {
         default: "h-8 text-sm",
