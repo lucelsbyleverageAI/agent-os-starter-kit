@@ -314,6 +314,11 @@ In Coolify dashboard:
 
 Copy all required environment variables from the `.env.production.coolify.example` file into **Developer View** and update values as needed.
 
+**IMPORTANT - VAULT_ENC_KEY Format:**
+The `VAULT_ENC_KEY` must be exactly 32 alphanumeric characters (NOT base64 encoded).
+Generate it with: `openssl rand -base64 48 | tr -dc 'A-Za-z0-9' | head -c32; echo`
+Using an incorrect format (like base64) will cause the pooler to crash with "Unknown cipher or invalid key size" error.
+
 ### Step 5: Deploy Application Stack
 
 1. **Click Deploy** in Coolify
