@@ -41,8 +41,8 @@ ARG NEXT_PUBLIC_USE_LANGSMITH_AUTH
 ARG NEXT_PUBLIC_GOOGLE_AUTH_DISABLED
 ARG NEXT_PUBLIC_BASE_URL
 # Set environment variables for build
-ENV NEXT_TELEMETRY_DISABLED 1
-ENV NODE_ENV production
+ENV NEXT_TELEMETRY_DISABLED=1
+ENV NODE_ENV=production
 ENV MCP_TOKEN_SIGNING_SECRET=$MCP_TOKEN_SIGNING_SECRET
 ENV NEXT_PUBLIC_SUPABASE_URL=$NEXT_PUBLIC_SUPABASE_URL
 ENV NEXT_PUBLIC_SUPABASE_ANON_KEY=$NEXT_PUBLIC_SUPABASE_ANON_KEY
@@ -66,18 +66,20 @@ FROM node:20-alpine AS runner
 WORKDIR /app
 
 # Set production environment
-ENV NODE_ENV production
-ENV NEXT_TELEMETRY_DISABLED 1
+ENV NODE_ENV=production
+ENV NEXT_TELEMETRY_DISABLED=1
 
 # Create non-root user for security
 RUN addgroup --system --gid 1001 nodejs
 RUN adduser --system --uid 1001 nextjs
 
-# Copy necessary files from builder stage
-COPY --from=builder /app/public ./public
-
-# Copy standalone build output
-COPY --from=builder --chown=nextjs:nodejs /app/.next/standalone ./
+# Copy standalone build output - handling the nested app directory structure
+# The standalone build creates an 'app' subdirectory due to outputFileTracingRoot
+# This includes server.js, node_modules, and .next directories
+COPY --from=builder --chown=nextjs:nodejs /app/.next/standalone/app/. ./
+# Explicitly copy public directory to ensure all assets are available
+COPY --from=builder --chown=nextjs:nodejs /app/public ./public
+# Static files need to be copied separately as they're not included in standalone
 COPY --from=builder --chown=nextjs:nodejs /app/.next/static ./.next/static
 
 # Switch to non-root user
@@ -87,8 +89,8 @@ USER nextjs
 EXPOSE 3000
 
 # Set hostname and port
-ENV HOSTNAME "0.0.0.0"
-ENV PORT 3000
+ENV HOSTNAME="0.0.0.0"
+ENV PORT=3000
 
 # Health check
 HEALTHCHECK --interval=30s --timeout=10s --start-period=30s --retries=3 \
