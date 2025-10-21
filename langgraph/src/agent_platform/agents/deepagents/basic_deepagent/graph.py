@@ -124,13 +124,10 @@ async def graph(config: RunnableConfig):
                     "[basic_deepagent] MCP connection/tool loading error"
                 )
 
-    # Initialize model with centralized config (no retry wrapper for .bind_tools())
-    model = init_model(
-        ModelConfig(
-            model_name=cfg.model_name,
-            retry=RetryConfig(max_retries=0),  # Disable retry wrapper
-        )
-    )
+    # Initialize model with centralized config using init_model_simple
+    # This ensures we get the correct max_tokens from the model registry
+    from agent_platform.utils.model_utils import init_model_simple
+    model = init_model_simple(model_name=cfg.model_name)
 
     sub_agents_config = json.loads(cfg.json()).get("sub_agents", [])
 
