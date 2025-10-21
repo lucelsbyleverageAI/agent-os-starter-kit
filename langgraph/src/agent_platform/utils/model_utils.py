@@ -912,17 +912,18 @@ def init_model_simple(
     # Get model info to use appropriate settings
     model_info = get_model_info(model_name)
     
-    # Set defaults based on model tier
+    # Use max_tokens from model registry instead of hardcoded tier-based values
+    # Temperature is still tier-based for now (could also move to registry later)
     if model_info.tier == ModelTier.FAST:
         temperature = 0.3
-        max_tokens = 4000
     elif model_info.tier == ModelTier.STANDARD:
         temperature = 0.3
-        max_tokens = 8000
     else:  # ADVANCED
         temperature = 0.3
-        max_tokens = 16000
-    
+
+    # Use the actual max_output_tokens from the model registry
+    max_tokens = model_info.max_output_tokens
+
     config = ModelConfig(
         model_name=model_name,
         temperature=temperature,

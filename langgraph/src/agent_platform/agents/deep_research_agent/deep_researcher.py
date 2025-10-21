@@ -52,6 +52,7 @@ from agent_platform.agents.deep_research_agent.utils import (
 )
 from agent_platform.utils.model_utils import (
     init_model,
+    init_model_simple,
     get_model_info,
     ModelConfig,
     RetryConfig,
@@ -83,13 +84,8 @@ async def clarify_with_user(state: AgentState, config: RunnableConfig) -> Comman
     # Step 2: Prepare the model for structured clarification analysis
     messages = state["messages"]
     
-    # Initialize model with centralized config (no retry wrapper for structured output compatibility)
-    base_model = init_model(
-        ModelConfig(
-            model_name=configurable.research_model,
-            retry=RetryConfig(max_retries=0),  # Disable retry wrapper
-        )
-    )
+    # Initialize model using init_model_simple to get correct max_tokens from registry
+    base_model = init_model_simple(model_name=configurable.research_model)
     
     # Configure model with structured output and retry logic
     clarification_model = (
@@ -139,13 +135,8 @@ async def write_research_brief(state: AgentState, config: RunnableConfig) -> Com
     # Step 1: Set up the research model for structured output
     configurable = Configuration.from_runnable_config(config)
     
-    # Initialize model with centralized config (no retry wrapper)
-    base_model = init_model(
-        ModelConfig(
-            model_name=configurable.research_model,
-            retry=RetryConfig(max_retries=0),  # Disable retry wrapper
-        )
-    )
+    # Initialize model using init_model_simple to get correct max_tokens from registry
+    base_model = init_model_simple(model_name=configurable.research_model)
     
     # Configure model for structured research question generation
     research_model = (
@@ -201,13 +192,8 @@ async def supervisor(state: SupervisorState, config: RunnableConfig) -> Command[
     # Step 1: Configure the supervisor model with available tools
     configurable = Configuration.from_runnable_config(config)
     
-    # Initialize model with centralized config (no retry wrapper)
-    base_model = init_model(
-        ModelConfig(
-            model_name=configurable.research_model,
-            retry=RetryConfig(max_retries=0),  # Disable retry wrapper
-        )
-    )
+    # Initialize model using init_model_simple to get correct max_tokens from registry
+    base_model = init_model_simple(model_name=configurable.research_model)
     
     # Available tools: research delegation, completion signaling, and strategic thinking
     lead_researcher_tools = [ConductResearch, ResearchComplete, think_tool]
@@ -404,13 +390,8 @@ async def researcher(state: ResearcherState, config: RunnableConfig) -> Command[
         )
     
     # Step 2: Configure the researcher model with tools
-    # Initialize model with centralized config (no retry wrapper)
-    base_model = init_model(
-        ModelConfig(
-            model_name=configurable.research_model,
-            retry=RetryConfig(max_retries=0),  # Disable retry wrapper
-        )
-    )
+    # Initialize model using init_model_simple to get correct max_tokens from registry
+    base_model = init_model_simple(model_name=configurable.research_model)
     
     # Prepare system prompt with MCP context if available
     researcher_prompt = research_system_prompt.format(
@@ -544,13 +525,8 @@ async def compress_research(state: ResearcherState, config: RunnableConfig):
     # Step 1: Configure the compression model
     configurable = Configuration.from_runnable_config(config)
     
-    # Initialize model with centralized config (no retry needed for simple invocation)
-    synthesizer_model = init_model(
-        ModelConfig(
-            model_name=configurable.compression_model,
-            retry=RetryConfig(max_retries=0),  # Disable retry wrapper
-        )
-    )
+    # Initialize model using init_model_simple to get correct max_tokens from registry
+    synthesizer_model = init_model_simple(model_name=configurable.compression_model)
     
     # Step 2: Prepare messages for compression
     researcher_messages = state.get("researcher_messages", [])
@@ -649,13 +625,8 @@ async def final_report_generation(state: AgentState, config: RunnableConfig):
     # Step 2: Configure the final report generation model
     configurable = Configuration.from_runnable_config(config)
     
-    # Initialize model with centralized config (no retry needed)
-    writer_model = init_model(
-        ModelConfig(
-            model_name=configurable.final_report_model,
-            retry=RetryConfig(max_retries=0),  # Disable retry wrapper
-        )
-    )
+    # Initialize model using init_model_simple to get correct max_tokens from registry
+    writer_model = init_model_simple(model_name=configurable.final_report_model)
     
     # Step 3: Attempt report generation with token limit retry logic
     max_retries = 3
