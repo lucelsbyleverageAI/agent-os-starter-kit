@@ -1,8 +1,9 @@
 from langchain_anthropic import ChatAnthropic
 from langchain_openai import ChatOpenAI
+from agent_platform.utils.model_utils import init_model_simple
 
 
 def get_default_model():
-    # Avoid passing temperature for gpt-5; rely on provider defaults
-    # return ChatOpenAI(model_name="gpt-5", max_tokens=None, timeout=None, max_retries=3)
-    return ChatAnthropic(model_name="claude-sonnet-4-20250514", max_tokens=64000)
+    # Use the centralized model initialization to ensure proper settings
+    # This will use the default STANDARD tier model (Claude Sonnet 4.5) with correct max_tokens
+    return init_model_simple()

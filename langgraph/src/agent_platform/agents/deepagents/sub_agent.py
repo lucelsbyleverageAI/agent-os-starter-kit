@@ -255,23 +255,17 @@ async def _get_agents(
         if agent_model:
             if isinstance(agent_model, str):
                 # Direct model name string (new centralized config format)
-                sub_model = init_model(
-                    ModelConfig(
-                        model_name=agent_model,
-                        retry=RetryConfig(max_retries=0),  # Disable retry wrapper for .bind_tools()
-                    )
-                )
+                # Use init_model_simple to get correct max_tokens from registry
+                from agent_platform.utils.model_utils import init_model_simple
+                sub_model = init_model_simple(model_name=agent_model)
                 logger.info("[SUB_AGENT] model_initialized agent=%s model=%s source=string", agent_name, agent_model)
             elif isinstance(agent_model, dict):
                 # Legacy dict format with 'model_name' or 'model' key
                 if 'model_name' in agent_model or 'model' in agent_model:
                     model_name = agent_model.get('model_name') or agent_model.get('model')
-                    sub_model = init_model(
-                        ModelConfig(
-                            model_name=model_name,
-                            retry=RetryConfig(max_retries=0),  # Disable retry wrapper for .bind_tools()
-                        )
-                    )
+                    # Use init_model_simple to get correct max_tokens from registry
+                    from agent_platform.utils.model_utils import init_model_simple
+                    sub_model = init_model_simple(model_name=model_name)
                     logger.info("[SUB_AGENT] model_initialized agent=%s model=%s source=dict", agent_name, model_name)
                 else:
                     # Fallback for legacy format

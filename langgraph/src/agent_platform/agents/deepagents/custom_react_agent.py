@@ -314,13 +314,9 @@ def custom_create_react_agent(
                 raise ImportError(
                     "Please install agent_platform.utils.model_utils to use '<provider>:<model>' string syntax"
                 )
-            # Initialize without retry wrapper for .bind_tools() compatibility
-            model = cast(BaseChatModel, init_model(
-                ModelConfig(
-                    model_name=model,
-                    retry=RetryConfig(max_retries=0),  # Disable retry wrapper
-                )
-            ))
+            # Initialize using init_model_simple to get correct max_tokens from registry
+            from agent_platform.utils.model_utils import init_model_simple
+            model = cast(BaseChatModel, init_model_simple(model_name=model))
 
         # Bind tools if needed
         if (
