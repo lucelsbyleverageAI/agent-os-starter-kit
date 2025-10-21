@@ -23,7 +23,14 @@ def init_sentry() -> None:
         return
 
     dsn = os.environ.get("SENTRY_DSN_MCP") or os.environ.get("SENTRY_DSN")
-    if not dsn:
+
+    # Skip Sentry if DSN is not set or is a placeholder value
+    if not dsn or dsn in ["your-sentry-dsn", ""]:
+        return
+
+    # Validate DSN format (should start with https:// or http://)
+    if not dsn.startswith(("https://", "http://")):
+        logging.warning(f"Invalid Sentry DSN format: {dsn[:20]}... (showing first 20 chars)")
         return
 
     sentry_sdk.init(  # type: ignore

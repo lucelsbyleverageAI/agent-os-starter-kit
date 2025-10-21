@@ -80,6 +80,20 @@ MODEL_REGISTRY: Dict[str, ModelInfo] = {
         trimming_max_tokens=150000,  # Conservative for 200k context window
     ),
     
+    "anthropic:claude-haiku-4-5-20251001": ModelInfo(
+        name="anthropic:claude-haiku-4-5-20251001",
+        display_name="Claude Haiku 4.5",
+        provider=ModelProvider.ANTHROPIC,
+        tier=ModelTier.FAST,
+        context_window=200000,
+        max_output_tokens=64000,
+        supports_caching=True,
+        supports_extended_thinking=False,  # Available but not enabled by default in FAST tier
+        description="Lightning-fast speed with near-frontier intelligence and exceptional cost-efficiency",
+        enable_trimming=True,
+        trimming_max_tokens=150000,  # Conservative for 200k context window
+    ),
+    
     # OpenAI Fast
     "openai:gpt-4.1-mini": ModelInfo(
         name="gpt-4.1-mini",  # Just model name, no provider prefix
