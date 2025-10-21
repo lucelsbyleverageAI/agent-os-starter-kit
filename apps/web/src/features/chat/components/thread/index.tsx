@@ -173,6 +173,11 @@ export function Thread({ historyOpen = false, configOpen = false }: ThreadProps)
         status: 'busy',
         name_if_absent: messageContent,
         last_message_at: timestamp,
+        // Background agent metadata: mark that user has sent a message
+        metadata: {
+          has_user_message: true,
+          last_user_message_at: timestamp,
+        },
       };
 
 
@@ -395,10 +400,15 @@ export function Thread({ historyOpen = false, configOpen = false }: ThreadProps)
           status: 'busy',
           name_if_absent: nameIfAbsent,
           last_message_at: nowIso,
+          // Background agent metadata: mark that user has sent a message
+          metadata: {
+            has_user_message: true,
+            last_user_message_at: nowIso,
+          },
         };
-        
-       
-        
+
+
+
         fetchWithAuth('/api/langconnect/agents/mirror/threads/touch', {
           method: 'POST',
           headers: {

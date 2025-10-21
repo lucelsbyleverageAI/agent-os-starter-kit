@@ -931,6 +931,14 @@ async def touch_thread_in_mirror(
     - status (optional, string)
     - name_if_absent (optional, string) -> will only be set when name is NULL
     - last_message_at (optional, ISO timestamp) -> defaults to NOW()
+
+    Background agent metadata fields (optional):
+    - metadata (optional, dict) -> can contain:
+      - is_background_run (bool) -> True if created by cron
+      - has_user_message (bool) -> True if user has sent a message
+      - opened_in_chat (bool) -> True if user clicked "Open in Chat"
+      - cron_id (str) -> ID of cron that created this thread
+      - last_user_message_at (str) -> ISO timestamp of last user message
     """
     try:
         if actor.actor_type != "user":
@@ -946,6 +954,14 @@ async def touch_thread_in_mirror(
         name_if_absent = body.get("name_if_absent")
         last_message_at_raw = body.get("last_message_at")
 
+        # Extract background agent metadata
+        metadata = body.get("metadata", {})
+        is_background_run = metadata.get("is_background_run")
+        has_user_message = metadata.get("has_user_message")
+        opened_in_chat = metadata.get("opened_in_chat")
+        cron_id = metadata.get("cron_id")
+        last_user_message_at_raw = metadata.get("last_user_message_at")
+
         # Parse values
         thread_id = UUID(thread_id_raw)
         assistant_id = UUID(assistant_id_raw) if assistant_id_raw else None
@@ -958,6 +974,15 @@ async def touch_thread_in_mirror(
                 last_message_at = datetime.fromisoformat(last_message_at_raw)
             except Exception:
                 last_message_at = None
+
+        # Parse last_user_message_at if provided
+        last_user_message_at = None
+        if last_user_message_at_raw:
+            try:
+                from datetime import datetime
+                last_user_message_at = datetime.fromisoformat(last_user_message_at_raw)
+            except Exception:
+                last_user_message_at = None
 
         async with get_db_connection() as conn:
             # Determine existing name; set name only if currently NULL
@@ -990,12 +1015,13 @@ async def touch_thread_in_mirror(
             # Provide sane defaults for created/updated timestamps when we do not yet have LG data
             # Use NOW() for both; later reconciliation can overwrite
             log.info(
-                f"[threads:touch] actor={actor.identity} thread_id={thread_id} assistant_id={assistant_id} graph_id={derived_graph_id} name_if_absent={(name_if_absent[:60]+'...') if name_if_absent and len(name_if_absent)>60 else name_if_absent} status={status} last_message_at={last_message_at}"
+                f"[threads:touch] actor={actor.identity} thread_id={thread_id} assistant_id={assistant_id} graph_id={derived_graph_id} name_if_absent={(name_if_absent[:60]+'...') if name_if_absent and len(name_if_absent)>60 else name_if_absent} status={status} has_user_message={has_user_message}"
             )
             await conn.execute(
                 """
                 SELECT langconnect.upsert_thread_mirror(
-                    $1, $2, $3, $4, $5, $6, $7, NOW(), NOW()
+                    $1, $2, $3, $4, $5, $6, $7, NOW(), NOW(),
+                    $8, $9, $10, $11, $12
                 )
                 """,
                 thread_id,
@@ -1005,6 +1031,11 @@ async def touch_thread_in_mirror(
                 effective_name,
                 status,
                 last_message_at,
+                is_background_run,
+                has_user_message,
+                opened_in_chat,
+                cron_id,
+                last_user_message_at,
             )
 
             # Return current threads_version for client cache invalidation
@@ -1136,6 +1167,121 @@ async def rename_thread_in_mirror(
     except Exception as e:
         log.error(f"Failed to rename thread {thread_id}: {e}")
         raise HTTPException(status_code=500, detail=f"Failed to rename thread: {str(e)}")
+
+
+@router.patch("/threads/{thread_id}/metadata")
+async def update_thread_metadata(
+    thread_id: str,
+    metadata: Annotated[Dict[str, Any], Body()],
+    actor: Annotated[AuthenticatedActor, Depends(resolve_user_or_service)],
+    db_pool: Annotated[asyncpg.Pool, Depends(get_db_pool)]
+) -> Dict[str, Any]:
+    """
+    Update thread metadata fields for background agent tracking.
+
+    Supported metadata fields:
+    - is_background_run (bool)
+    - has_user_message (bool)
+    - opened_in_chat (bool)
+    - cron_id (str)
+    - last_user_message_at (str, ISO timestamp)
+
+    Only the thread owner can update metadata.
+    """
+    try:
+        log.info(f"[threads:metadata] actor={actor.identity} thread_id={thread_id} metadata={metadata}")
+
+        if not metadata:
+            raise HTTPException(status_code=400, detail="Metadata cannot be empty")
+
+        async with db_pool.acquire() as conn:
+            # Check if thread exists and user owns it
+            existing = await conn.fetchrow(
+                "SELECT thread_id, user_id FROM langconnect.threads_mirror WHERE thread_id = $1",
+                thread_id
+            )
+
+            if not existing:
+                raise HTTPException(status_code=404, detail="Thread not found")
+
+            # Permission check - only thread owner can update metadata
+            if str(existing["user_id"]) != actor.identity:
+                raise HTTPException(status_code=403, detail="You can only update your own threads")
+
+            # Build dynamic UPDATE query for provided metadata fields
+            update_fields = []
+            params = [thread_id]
+            param_idx = 2
+
+            if "is_background_run" in metadata:
+                update_fields.append(f"is_background_run = ${param_idx}")
+                params.append(metadata["is_background_run"])
+                param_idx += 1
+
+            if "has_user_message" in metadata:
+                update_fields.append(f"has_user_message = ${param_idx}")
+                params.append(metadata["has_user_message"])
+                param_idx += 1
+
+            if "opened_in_chat" in metadata:
+                update_fields.append(f"opened_in_chat = ${param_idx}")
+                params.append(metadata["opened_in_chat"])
+                param_idx += 1
+
+            if "cron_id" in metadata:
+                update_fields.append(f"cron_id = ${param_idx}")
+                params.append(metadata["cron_id"])
+                param_idx += 1
+
+            if "last_user_message_at" in metadata:
+                try:
+                    from datetime import datetime
+                    last_user_message_at = datetime.fromisoformat(metadata["last_user_message_at"])
+                    update_fields.append(f"last_user_message_at = ${param_idx}")
+                    params.append(last_user_message_at)
+                    param_idx += 1
+                except Exception as e:
+                    log.warning(f"Invalid last_user_message_at format: {e}")
+
+            if not update_fields:
+                raise HTTPException(status_code=400, detail="No valid metadata fields provided")
+
+            # Always update mirror_updated_at and updated_at
+            update_fields.append("mirror_updated_at = NOW()")
+            update_fields.append("updated_at = NOW()")
+
+            query = f"""
+                UPDATE langconnect.threads_mirror
+                SET {', '.join(update_fields)}
+                WHERE thread_id = $1
+            """
+
+            await conn.execute(query, *params)
+
+            # Increment cache version
+            await conn.execute(
+                "SELECT langconnect.increment_cache_version('threads')"
+            )
+
+            cache_state = await conn.fetchrow(
+                "SELECT threads_version FROM langconnect.cache_state WHERE id = 1"
+            )
+            threads_version = cache_state["threads_version"] if cache_state else 1
+
+        log.info(f"[threads:metadata] Successfully updated metadata for thread {thread_id}")
+
+        return {
+            "success": True,
+            "thread_id": thread_id,
+            "updated_fields": list(metadata.keys()),
+            "threads_version": threads_version
+        }
+
+    except HTTPException:
+        raise
+    except Exception as e:
+        log.error(f"Failed to update thread metadata {thread_id}: {e}")
+        raise HTTPException(status_code=500, detail=f"Failed to update thread metadata: {str(e)}")
 
 
 @router.post("/sync/assistant/{assistant_id}")
