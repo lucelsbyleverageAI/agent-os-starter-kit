@@ -614,6 +614,7 @@ services:
       - OPENAI_API_KEY=${OPENAI_API_KEY}
       - TAVILY_API_KEY=${TAVILY_API_KEY}
       - E2B_API_KEY=${E2B_API_KEY}
+      - SUPADATA_API_TOKEN=${SUPADATA_API_TOKEN}
       - LANGCONNECT_BASE_URL=http://langconnect-prod:8080
       # MCP configuration
       - ENABLE_OAUTH_DISCOVERY=true
