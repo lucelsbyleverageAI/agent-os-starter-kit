@@ -15,7 +15,7 @@ export interface AgentSchemaResponse {
 /**
  * Input mode for dynamic input composer
  */
-export type InputMode = 'chat' | 'form' | 'loading';
+export type InputMode = 'chat' | 'form' | 'chat-with-config' | 'loading';
 
 /**
  * Agent - Primary type used throughout the frontend for agent instances.

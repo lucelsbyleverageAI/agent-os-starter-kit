@@ -185,12 +185,24 @@ export function useAgentConfig() {
         }
         
         setInputSchema(effectiveInputSchema);
-    
-        
-        if (effectiveInputSchema?.properties?.messages) {
-          setInputMode('chat');
-        } else if (effectiveInputSchema) {
-          setInputMode('form');
+
+        // Determine input mode based on schema properties
+        if (effectiveInputSchema?.properties) {
+          const hasMessages = 'messages' in effectiveInputSchema.properties;
+          const otherFields = Object.keys(effectiveInputSchema.properties).filter(
+            key => key !== 'messages'
+          );
+          const hasOtherFields = otherFields.length > 0;
+
+          if (hasMessages && hasOtherFields) {
+            setInputMode('chat-with-config');
+          } else if (hasMessages) {
+            setInputMode('chat');
+          } else if (hasOtherFields) {
+            setInputMode('form');
+          } else {
+            setInputMode('chat'); // Fallback to chat if no fields
+          }
         } else {
           setInputMode('chat'); // Fallback to chat if no schema
         }
@@ -264,7 +276,24 @@ export function useAgentConfig() {
         setSupportedConfigs(supportedConfigs);
         // debug logs removed
 
-        // Update cache for other hook instances
+        // Update cache for other hook instances - use same logic as above
+        let cachedInputMode: InputMode = 'chat';
+        if (effectiveInputSchema?.properties) {
+          const hasMessages = 'messages' in effectiveInputSchema.properties;
+          const otherFields = Object.keys(effectiveInputSchema.properties).filter(
+            key => key !== 'messages'
+          );
+          const hasOtherFields = otherFields.length > 0;
+
+          if (hasMessages && hasOtherFields) {
+            cachedInputMode = 'chat-with-config';
+          } else if (hasMessages) {
+            cachedInputMode = 'chat';
+          } else if (hasOtherFields) {
+            cachedInputMode = 'form';
+          }
+        }
+
         lastExtractedByAssistantId.set(agent.assistant_id, {
           configurations: configFields,
           toolConfigurations: toolConfig,
@@ -272,7 +301,7 @@ export function useAgentConfig() {
           agentsConfigurations: agentsConfig,
           supportedConfigs,
           inputSchema: effectiveInputSchema ?? null,
-          inputMode: effectiveInputSchema?.properties?.messages ? 'chat' : (effectiveInputSchema ? 'form' : 'chat'),
+          inputMode: cachedInputMode,
         });
 
         const configurableDefaults = getConfigurableDefaults(
@@ -379,12 +408,25 @@ export function useAgentConfig() {
 
         setInputSchema(effectiveInputSchema);
 
-        if (effectiveInputSchema?.properties?.messages) {
-          setInputMode('chat');
-        } else if (effectiveInputSchema) {
-          setInputMode('form');
+        // Determine input mode based on schema properties (same logic as agent schema)
+        if (effectiveInputSchema?.properties) {
+          const hasMessages = 'messages' in effectiveInputSchema.properties;
+          const otherFields = Object.keys(effectiveInputSchema.properties).filter(
+            key => key !== 'messages'
+          );
+          const hasOtherFields = otherFields.length > 0;
+
+          if (hasMessages && hasOtherFields) {
+            setInputMode('chat-with-config');
+          } else if (hasMessages) {
+            setInputMode('chat');
+          } else if (hasOtherFields) {
+            setInputMode('form');
+          } else {
+            setInputMode('chat'); // Fallback to chat if no fields
+          }
         } else {
-          setInputMode('chat');
+          setInputMode('chat'); // Fallback to chat if no schema
         }
 
         // Extract config fields using empty config (since this is a template)
