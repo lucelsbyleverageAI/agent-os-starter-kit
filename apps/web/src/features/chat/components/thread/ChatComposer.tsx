@@ -4,7 +4,7 @@ import { getScrollbarClasses } from "@/lib/scrollbar-styles";
 import { Button } from "@/components/ui/button";
 import { Label } from "@/components/ui/label";
 import { Switch } from "@/components/ui/switch";
-import { LoaderCircle, Plus } from "lucide-react";
+import { LoaderCircle, Plus, Settings } from "lucide-react";
 import {
   DropdownMenu,
   DropdownMenuContent,
@@ -15,10 +15,13 @@ import { ContentBlocksPreview } from "./messages/ContentBlocksPreview";
 import { Base64ContentBlock } from "@langchain/core/messages";
 import { ProcessingAttachment } from "@/hooks/use-file-upload";
 import { LargeMessageWarningDialog } from "@/components/ui/confirmation-dialog";
-import { 
-  calculateMessageCharacterCount, 
-  LARGE_MESSAGE_WARNING_THRESHOLD 
+import {
+  calculateMessageCharacterCount,
+  LARGE_MESSAGE_WARNING_THRESHOLD
 } from "@/features/chat/utils/content-string";
+import { ConfigureInputsDialog } from "./ConfigureInputsDialog";
+import { GraphSchema } from "@langchain/langgraph-sdk";
+import { InputMode } from "@/types/agent";
 
 interface ChatComposerProps {
   dropRef: RefObject<HTMLDivElement | null>;
@@ -40,6 +43,10 @@ interface ChatComposerProps {
   onStop: () => void;
   // When true, disables uploads (images/documents) and related UI controls
   disableUploads?: boolean;
+  // New props for chat-with-config mode
+  inputMode?: InputMode;
+  inputSchema?: GraphSchema["input_schema"] | null;
+  agentId?: string;
 }
 
 export function ChatComposer({
@@ -61,12 +68,19 @@ export function ChatComposer({
   hasInput,
   onStop,
   disableUploads = false,
+  inputMode,
+  inputSchema,
+  agentId,
 }: ChatComposerProps) {
   const [showSizeWarning, setShowSizeWarning] = useState(false);
   const [pendingSubmission, setPendingSubmission] = useState<{
     event: FormEvent;
     characterCount: number;
   } | null>(null);
+  const [showConfigDialog, setShowConfigDialog] = useState(false);
+
+  // Determine if we should show the configure inputs button
+  const showConfigButton = inputMode === 'chat-with-config' && inputSchema && agentId;
 
   // Determine if we should disable the send button
   const hasProcessingAttachments = processingAttachments.some(
@@ -204,7 +218,20 @@ export function ChatComposer({
                 </DropdownMenuContent>
               </DropdownMenu>
             )}
-            
+
+            {showConfigButton && (
+              <Button
+                variant="ghost"
+                size="icon"
+                className="size-8 text-muted-foreground hover:bg-accent"
+                onClick={() => setShowConfigDialog(true)}
+                type="button"
+                title="Configure Additional Inputs"
+              >
+                <Settings className="size-5" />
+              </Button>
+            )}
+
             <div className="flex items-center gap-2">
               <Switch
                 id="render-tool-calls"
@@ -269,9 +296,19 @@ export function ChatComposer({
         onOpenChange={setShowSizeWarning}
         onConfirm={handleConfirmLargeMessage}
         characterCount={pendingSubmission?.characterCount || 0}
-        
+
         isLoading={isLoading}
       />
+
+      {/* Configure Inputs Dialog */}
+      {showConfigButton && (
+        <ConfigureInputsDialog
+          open={showConfigDialog}
+          onOpenChange={setShowConfigDialog}
+          agentId={agentId!}
+          inputSchema={inputSchema!}
+        />
+      )}
     </div>
   );
 } 

@@ -75,7 +75,19 @@ export function DynamicInputComposer(props: DynamicInputComposerProps) {
   switch (inputMode) {
     case 'chat':
       return <ChatComposer {...props} disableUploads={!!isN8NAgent} />;
-    
+
+    case 'chat-with-config':
+      // Extract non-message fields from schema
+      return (
+        <ChatComposer
+          {...props}
+          disableUploads={!!isN8NAgent}
+          inputMode={inputMode}
+          inputSchema={inputSchema}
+          agentId={agentId || undefined}
+        />
+      );
+
     case 'form':
       return (
         <FormInputComposer
@@ -86,7 +98,7 @@ export function DynamicInputComposer(props: DynamicInputComposerProps) {
           hasMessages={props.hasMessages}
         />
       );
-    
+
     default:
       // Fallback to chat mode for unknown input modes
       return <ChatComposer {...props} disableUploads={!!isN8NAgent} />;
