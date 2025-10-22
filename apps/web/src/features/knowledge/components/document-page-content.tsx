@@ -5,11 +5,12 @@ import { Card, CardContent } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Skeleton } from "@/components/ui/skeleton";
 import { toast } from "sonner";
-import { Eye, Layers, Edit, Trash2 } from "lucide-react";
+import { Eye, Layers, Edit, FileEdit, Trash2 } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { getScrollbarClasses } from "@/lib/scrollbar-styles";
 import { MinimalistIconButton } from "@/components/ui/minimalist-icon-button";
 import { MarkdownText } from "@/components/ui/markdown-text";
+import { DocumentContentEditor } from "@/components/ui/document-content-editor";
 import { ViewDocumentMetadataDialog } from "./documents-card/view-document-metadata-dialog";
 import { ViewDocumentChunksDialog } from "./documents-card/view-document-chunks-dialog";
 import { EditDocumentDialog } from "./documents-card/edit-document-dialog";
@@ -72,6 +73,9 @@ export function DocumentPageContent({
   const [showMetadata, setShowMetadata] = useState(false);
   const [showChunks, setShowChunks] = useState(false);
   const [showEditDialog, setShowEditDialog] = useState(false);
+  const [showContentEditor, setShowContentEditor] = useState(false);
+  const [editedContent, setEditedContent] = useState("");
+  const [savingContent, setSavingContent] = useState(false);
   const [deleting, setDeleting] = useState(false);
 
   // Fetch document details
@@ -152,6 +156,60 @@ export function DocumentPageContent({
         description: "Please reload the page",
         richColors: true,
       });
+    }
+  };
+
+  // Save document content changes
+  const handleSaveContent = async (newContent: string) => {
+    if (!session?.accessToken || !document) return;
+
+    setSavingContent(true);
+    const loadingToast = toast.loading("Updating document content", {
+      richColors: true,
+      description: "Saving changes and re-processing chunks...",
+    });
+
+    try {
+      const formData = new FormData();
+      formData.append("content", newContent);
+
+      const response = await fetch(
+        `/api/langconnect/collections/${collectionId}/documents/${documentId}/content`,
+        {
+          method: "PUT",
+          headers: {
+            Authorization: `Bearer ${session.accessToken}`,
+          },
+          body: formData,
+        }
+      );
+
+      if (!response.ok) {
+        const errorData = await response.json().catch(() => ({}));
+        throw new Error(errorData.detail || errorData.error || "Failed to update document content");
+      }
+
+      const result = await response.json();
+
+      toast.dismiss(loadingToast);
+      toast.success("Document content updated successfully", {
+        richColors: true,
+        description: result.message || "Document is being re-processed in the background",
+      });
+
+      setShowContentEditor(false);
+
+      // Refresh document to show updated content
+      await handleDocumentUpdated();
+    } catch (error) {
+      toast.dismiss(loadingToast);
+      console.error("Failed to update document content:", error);
+      toast.error("Failed to update document content", {
+        richColors: true,
+        description: error instanceof Error ? error.message : "An error occurred",
+      });
+    } finally {
+      setSavingContent(false);
     }
   };
 
@@ -260,8 +318,16 @@ export function DocumentPageContent({
           />
           <MinimalistIconButton
             icon={Edit}
-            tooltip="Edit Document"
+            tooltip="Edit Metadata"
             onClick={() => setShowEditDialog(true)}
+          />
+          <MinimalistIconButton
+            icon={FileEdit}
+            tooltip="Edit Content"
+            onClick={() => {
+              setEditedContent(document.content);
+              setShowContentEditor(true);
+            }}
           />
           <AlertDialog>
             <AlertDialogTrigger asChild>
@@ -333,7 +399,7 @@ export function DocumentPageContent({
         />
       )}
 
-      {/* Edit Dialog */}
+      {/* Edit Metadata Dialog */}
       <EditDocumentDialog
         documentId={documentId}
         collectionId={collectionId}
@@ -342,6 +408,18 @@ export function DocumentPageContent({
         open={showEditDialog}
         onOpenChange={setShowEditDialog}
         onSuccess={handleDocumentUpdated}
+      />
+
+      {/* Edit Content Dialog */}
+      <DocumentContentEditor
+        open={showContentEditor}
+        onOpenChange={setShowContentEditor}
+        value={editedContent}
+        onChange={setEditedContent}
+        onSave={handleSaveContent}
+        title={`Edit: ${document.title}`}
+        placeholder="Enter document content here..."
+        saving={savingContent}
       />
     </>
   );

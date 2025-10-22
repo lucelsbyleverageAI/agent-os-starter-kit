@@ -292,6 +292,138 @@ async def update_document_metadata(
     return {"success": success}
 
 
+@router.put(
+    "/collections/{collection_id}/documents/{document_id}/content",
+    response_model=JobSubmissionResponse,
+    status_code=202,
+)
+async def update_document_content(
+    actor: Annotated[AuthenticatedActor, Depends(resolve_user_or_service)],
+    collection_id: UUID,
+    document_id: str,
+    content: str = Form(..., description="New document content"),
+):
+    """Update document content and trigger re-chunking/re-embedding.
+
+    This endpoint:
+    1. Updates the document content
+    2. Deletes existing chunks/embeddings
+    3. Creates a background job to re-chunk and re-embed the document
+
+    Returns a job ID for tracking the re-processing status.
+    """
+
+    sentry_sdk.add_breadcrumb(
+        category="api.request",
+        data={
+            "endpoint": "update_document_content",
+            "collection_id": str(collection_id),
+            "document_id": document_id,
+            "actor_type": actor.actor_type,
+            "content_length": len(content)
+        },
+        level="info"
+    )
+
+    # Resolve effective user ID for service accounts
+    if isinstance(actor, ServiceAccount):
+        collections_manager = CollectionsManager(actor.identity)
+        collections_manager._is_service_account = True
+        collection_details = await collections_manager.get(str(collection_id))
+        if not collection_details:
+            raise HTTPException(status_code=404, detail="Collection not found or access denied")
+        effective_user_id = collection_details["metadata"].get("owner_id")
+        if not effective_user_id:
+            raise HTTPException(status_code=400, detail="Collection missing owner_id in metadata")
+    else:
+        effective_user_id = actor.identity
+
+    # Check edit permissions
+    permissions_manager = CollectionPermissionsManager(effective_user_id)
+    permission_level = await permissions_manager.get_user_permission_level(str(collection_id))
+    if permission_level not in ["owner", "editor"]:
+        raise HTTPException(
+            status_code=403,
+            detail="Edit permission required for this collection"
+        )
+
+    # Get document manager
+    collection = Collection(str(collection_id), effective_user_id)
+    if isinstance(actor, ServiceAccount):
+        collection._is_service_account = True
+        collection.permissions_manager._is_service_account = True
+
+    document_manager = collection.get_document_manager()
+
+    # Get current document to preserve metadata
+    current_doc = await document_manager.get_document(document_id)
+    if not current_doc:
+        raise HTTPException(status_code=404, detail="Document not found")
+
+    try:
+        # Update document content (this sets processing_status to 'pending')
+        update_success = await document_manager.update_document_content(document_id, content)
+
+        if not update_success:
+            raise HTTPException(status_code=500, detail="Failed to update document content")
+
+        # Delete existing embeddings/chunks
+        deleted_count = await document_manager.delete_document_embeddings(document_id)
+        logger.info(f"Deleted {deleted_count} embeddings for document {document_id}")
+
+        # Get processing options from document metadata or use defaults
+        metadata = current_doc.get("metadata", {})
+        processing_mode = metadata.get("processing_mode", "balanced")
+        chunking_strategy = metadata.get("chunking_strategy", "markdown_aware")
+
+        processing_options = ProcessingOptions(
+            processing_mode=processing_mode,
+            image_processing="placeholders",
+            chunking_strategy=chunking_strategy,
+            ocr_enabled=True,
+            extract_tables=True,
+            extract_figures=True,
+        )
+
+        # Create job for re-processing
+        input_data = {
+            "document_id": document_id,
+            "collection_id": str(collection_id),
+            "title": metadata.get("title", "Untitled"),
+            "description": f"Re-processing document after content update",
+        }
+
+        job_data = JobCreate(
+            user_id=effective_user_id,
+            collection_id=collection_id,
+            job_type=JobType.REPROCESS_DOCUMENT,
+            title=f"Re-processing: {metadata.get('title', 'Untitled')}",
+            description="Re-chunking and re-embedding document after content update",
+            processing_options=processing_options,
+            input_data=input_data
+        )
+
+        job = await job_service.create_job(job_data, effective_user_id)
+        started = await job_service.start_job_processing(job.id)
+
+        return JobSubmissionResponse(
+            job_id=job.id,
+            status=job.status,
+            message="Document content updated. Re-processing chunks..." if started else "Content updated but re-processing failed to start",
+            estimated_duration_seconds=job.estimated_duration_seconds
+        )
+
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Failed to update document content: {str(e)}", exc_info=True)
+        sentry_sdk.capture_exception(e)
+        raise HTTPException(
+            status_code=500,
+            detail=f"Failed to update document content: {str(e)}"
+        )
+
+
 @router.delete(
     "/collections/{collection_id}/documents/{document_id}",
     response_model=dict[str, bool]
