@@ -231,7 +231,7 @@ function ThreadsProviderInternal<
         setLoading(false);
       }
     },
-    [offsetParam, limitParam],
+    [offsetParam, limitParam, session?.accessToken, agentInboxId, inboxParam],
   );
 
   // Effect to fetch threads when parameters change
@@ -335,7 +335,7 @@ function ThreadsProviderInternal<
         return undefined;
       }
     },
-    [inboxParam],
+    [inboxParam, session?.accessToken, agentInboxId],
   );
 
   const ignoreThread = async (threadId: string) => {

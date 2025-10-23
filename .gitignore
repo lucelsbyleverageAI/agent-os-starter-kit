@@ -88,6 +88,11 @@ docs/
 
 .cursor/
 
+# Claude Code
+.claude/settings.local.json
+
+# TypeScript build artifacts
+*.tsbuildinfo
 
 node_modules/
 

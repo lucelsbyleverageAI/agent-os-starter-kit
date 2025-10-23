@@ -5,7 +5,9 @@ from typing import Any, Dict, List, Optional
 from ..base import CustomTool, ToolParameter
 from ...utils.logging import get_logger
 from ...utils.exceptions import ToolExecutionError
+from ...utils.excel_processor import is_excel_url, process_excel_url
 from .client import TavilyClient
+from ..youtube_service import youtube_service
 try:
     from docling.document_converter import DocumentConverter
     from docling.datamodel.base_models import InputFormat
@@ -42,6 +44,31 @@ def _format_results(response: Dict[str, Any]) -> str:
     for result in response.get("results", []) or []:
         output.append(f"\nTitle: {result.get('title')}")
         output.append(f"URL: {result.get('url')}")
+
+        # Add metadata information if available
+        metadata = result.get("metadata", {})
+        if metadata:
+            if metadata.get("source_type") == "youtube":
+                output.append(f"Type: YouTube Video")
+                output.append(f"Video ID: {metadata.get('video_id', 'N/A')}")
+                if metadata.get("duration_seconds"):
+                    duration = metadata.get("duration_seconds")
+                    minutes = duration // 60
+                    seconds = duration % 60
+                    output.append(f"Duration: {minutes}m {seconds}s")
+                if metadata.get("total_word_count"):
+                    output.append(f"Total Words: {metadata.get('total_word_count')}")
+                if metadata.get("returned_word_count"):
+                    output.append(f"Returned Words: {metadata.get('returned_word_count')}")
+                if metadata.get("has_more_content"):
+                    output.append(f"Has More Content: Yes (use offset_words={metadata.get('offset_words', 0) + metadata.get('returned_word_count', 0)} to continue)")
+            elif result.get("content_truncated"):
+                output.append(f"Content Truncated: Yes")
+                if result.get("total_words"):
+                    output.append(f"Total Words: {result.get('total_words')}")
+                if result.get("returned_words"):
+                    output.append(f"Returned Words: {result.get('returned_words')}")
+
         output.append(f"Content: {result.get('content')}")
         raw_content = result.get("raw_content")
         if raw_content:
@@ -182,30 +209,90 @@ class TavilyExtractTool(_TavilyBase):
     @property
     def description(self) -> str:
         return (
-            "A powerful web content extraction tool that retrieves and processes raw content from "
-            "specified URLs, ideal for data collection, content analysis, and research tasks."
+            "A powerful content extraction tool that retrieves and processes raw content from "
+            "specified URLs including YouTube videos (extracts transcripts), web pages, and documents. "
+            "Ideal for data collection, content analysis, and research tasks. Supports content length "
+            "controls for managing large documents."
         )
 
     def get_parameters(self) -> List[ToolParameter]:
         return [
-            ToolParameter(name="urls", type="array", description="List of URLs to extract content from", required=True, items={"type":"string"}),
+            ToolParameter(name="urls", type="array", description="List of URLs to extract content from (including YouTube videos)", required=True, items={"type":"string"}),
             ToolParameter(name="extract_depth", type="string", description="Depth of extraction - 'basic' or 'advanced', if usrls are linkedin use 'advanced' or if explicitly told to use advanced", required=False, default="basic", enum=["basic","advanced"]),
             ToolParameter(name="include_images", type="boolean", description="Include a list of images extracted from the urls in the response", required=False, default=False),
             ToolParameter(name="format", type="string", description="The format of the extracted web page content. markdown returns content in markdown format. text returns plain text and may increase latency.", required=False, default="markdown", enum=["markdown","text"]),
             ToolParameter(name="include_favicon", type="boolean", description="Whether to include the favicon URL for each result", required=False, default=False),
+            ToolParameter(name="max_words", type="number", description="Maximum number of words to return per URL (default: 5000). Use 0 for unlimited. For long content, use offset_words to get subsequent sections.", required=False, default=5000),
+            ToolParameter(name="offset_words", type="number", description="Number of words to skip from beginning (for pagination of long content). Default: 0", required=False, default=0),
         ]
 
     async def _execute_impl(self, user_id: str, **kwargs: Any) -> str:
         try:
             args = dict(kwargs)
             args["urls"] = _ensure_array(args.get("urls"))
-            response = await self.client.extract({
-                "urls": args.get("urls"),
-                "extract_depth": args.get("extract_depth"),
-                "include_images": args.get("include_images"),
-                "format": args.get("format"),
-                "include_favicon": args.get("include_favicon"),
-            })
+            max_words = args.get("max_words", 5000)
+            offset_words = args.get("offset_words", 0)
+
+            # Convert max_words 0 to None for unlimited
+            if max_words == 0:
+                max_words = None
+
+            # Separate YouTube URLs from other URLs
+            youtube_urls = []
+            regular_urls = []
+            for url in args.get("urls", []):
+                if youtube_service.is_youtube_url(url):
+                    youtube_urls.append(url)
+                else:
+                    regular_urls.append(url)
+
+            # Process regular URLs with Tavily
+            response = None
+            if regular_urls:
+                response = await self.client.extract({
+                    "urls": regular_urls,
+                    "extract_depth": args.get("extract_depth"),
+                    "include_images": args.get("include_images"),
+                    "format": args.get("format"),
+                    "include_favicon": args.get("include_favicon"),
+                })
+
+            # Process YouTube URLs separately
+            youtube_results = []
+            for youtube_url in youtube_urls:
+                try:
+                    transcript = await youtube_service.extract_transcript(
+                        youtube_url,
+                        max_words=max_words,
+                        offset_words=offset_words
+                    )
+                    youtube_result = {
+                        "url": youtube_url,
+                        "title": f"YouTube Video {transcript.metadata.get('video_id', '')}",
+                        "content": transcript.content,
+                        "raw_content": transcript.content,
+                        "metadata": transcript.metadata
+                    }
+                    youtube_results.append(youtube_result)
+                except Exception as e:
+                    logger.warning(f"Failed to extract YouTube transcript for {youtube_url}: {e}")
+                    # Add failed YouTube URL to the results with error message
+                    youtube_results.append({
+                        "url": youtube_url,
+                        "title": "YouTube Video (Failed)",
+                        "content": f"Failed to extract transcript: {str(e)}",
+                        "raw_content": "",
+                        "metadata": {"error": str(e)}
+                    })
+
+            # Merge results
+            if response is None:
+                response = {"results": youtube_results}
+            else:
+                if "results" not in response:
+                    response["results"] = []
+                response["results"].extend(youtube_results)
+
             # Check each requested URL; if Tavily has no meaningful content for it, fallback to Docling when available
             results = response.get("results") if isinstance(response, dict) else None
             urls: List[str] = list(args.get("urls") or [])
@@ -224,27 +311,72 @@ class TavilyExtractTool(_TavilyBase):
                         if isinstance(r, dict) and r.get("url") == url and _is_meaningful(r):
                             has_for_url = True
                             break
-                if not has_for_url and _DOCLING_AVAILABLE:
-                    try:
-                        pipeline_options = PdfPipelineOptions(
-                            do_ocr=True,
-                            do_table_structure=True,
-                            do_picture_analysis=False,
-                        )
-                        converter = DocumentConverter(
-                            format_options={InputFormat.PDF: PdfFormatOption(pipeline_options=pipeline_options)}
-                        )
-                        conversion_result = converter.convert(url)
-                        if hasattr(conversion_result, "document") and conversion_result.document:
-                            content = conversion_result.document.export_to_markdown()
+                if not has_for_url:
+                    # Try Excel processing first for Excel files
+                    if is_excel_url(url):
+                        try:
+                            content = await process_excel_url(url)
                             if content.strip():
-                                fallback_sections.append(f"Fallback (Docling) Extracted Content for {url}:\n\n" + content)
-                    except Exception as _docling_err:
-                        logger.warning(f"Docling fallback failed for {url}: {_docling_err}")
+                                fallback_sections.append(f"Excel Extracted Content for {url}:\n\n" + content)
+                                continue
+                        except Exception as excel_err:
+                            logger.warning(f"Excel processing failed for {url}: {excel_err}")
+
+                    # Fall back to Docling for non-Excel files or if Excel processing failed
+                    if _DOCLING_AVAILABLE:
+                        try:
+                            pipeline_options = PdfPipelineOptions(
+                                do_ocr=True,
+                                do_table_structure=True,
+                                do_picture_analysis=False,
+                            )
+                            converter = DocumentConverter(
+                                format_options={InputFormat.PDF: PdfFormatOption(pipeline_options=pipeline_options)}
+                            )
+                            conversion_result = converter.convert(url)
+                            if hasattr(conversion_result, "document") and conversion_result.document:
+                                content = conversion_result.document.export_to_markdown()
+                                if content.strip():
+                                    fallback_sections.append(f"Fallback (Docling) Extracted Content for {url}:\n\n" + content)
+                        except Exception as _docling_err:
+                            logger.warning(f"Docling fallback failed for {url}: {_docling_err}")
+
+            # Apply content length controls to all results
+            if max_words and results:
+                for result in results:
+                    if isinstance(result, dict) and "content" in result:
+                        content = result.get("content", "")
+                        words = content.split()
+                        if offset_words > 0 or (max_words and len(words) > max_words):
+                            trimmed_words = words[offset_words:offset_words + max_words] if max_words else words[offset_words:]
+                            result["content"] = " ".join(trimmed_words)
+                            result["content_truncated"] = True
+                            result["total_words"] = len(words)
+                            result["returned_words"] = len(trimmed_words)
+                    if isinstance(result, dict) and "raw_content" in result:
+                        raw_content = result.get("raw_content", "")
+                        words = raw_content.split()
+                        if offset_words > 0 or (max_words and len(words) > max_words):
+                            trimmed_words = words[offset_words:offset_words + max_words] if max_words else words[offset_words:]
+                            result["raw_content"] = " ".join(trimmed_words)
 
             base_text = _format_results(response)
             if fallback_sections:
-                return base_text + "\n\n" + "\n\n".join(fallback_sections)
+                # Apply word limits to fallback sections
+                if max_words:
+                    limited_sections = []
+                    for section in fallback_sections:
+                        words = section.split()
+                        if offset_words > 0 or len(words) > max_words:
+                            trimmed_words = words[offset_words:offset_words + max_words] if max_words else words[offset_words:]
+                            section_text = " ".join(trimmed_words)
+                            section_text += f"\n\n[Content truncated. Total words: {len(words)}, Returned: {len(trimmed_words)}]"
+                            limited_sections.append(section_text)
+                        else:
+                            limited_sections.append(section)
+                    return base_text + "\n\n" + "\n\n".join(limited_sections)
+                else:
+                    return base_text + "\n\n" + "\n\n".join(fallback_sections)
             return base_text
         except Exception as e:
             if isinstance(e, ToolExecutionError):

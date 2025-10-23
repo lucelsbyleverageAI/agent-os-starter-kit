@@ -29,7 +29,15 @@ logger = get_logger(__name__)
 
 async def graph(config: RunnableConfig):
     # Standard logging via Sentry integration; no verbosity overrides
-    cfg = GraphConfigPydantic(**config.get("configurable", {}))
+    raw_config = config.get("configurable", {})
+
+    # Map UI field names to Pydantic field names
+    # The UI sends fields with title case and spaces, but Pydantic expects snake_case
+    if 'Include General-Purpose Agent' in raw_config:
+        raw_config['include_general_purpose_agent'] = raw_config['Include General-Purpose Agent']
+
+    cfg = GraphConfigPydantic(**raw_config)
+
     tools = []
 
     supabase_token = config.get("configurable", {}).get(
@@ -116,13 +124,10 @@ async def graph(config: RunnableConfig):
                     "[basic_deepagent] MCP connection/tool loading error"
                 )
 
-    # Initialize model with centralized config (no retry wrapper for .bind_tools())
-    model = init_model(
-        ModelConfig(
-            model_name=cfg.model_name,
-            retry=RetryConfig(max_retries=0),  # Disable retry wrapper
-        )
-    )
+    # Initialize model with centralized config using init_model_simple
+    # This ensures we get the correct max_tokens from the model registry
+    from agent_platform.utils.model_utils import init_model_simple
+    model = init_model_simple(model_name=cfg.model_name)
 
     sub_agents_config = json.loads(cfg.json()).get("sub_agents", [])
 
@@ -134,6 +139,7 @@ async def graph(config: RunnableConfig):
         subagents=sub_agents_config,
         config_schema=GraphConfigPydantic,
         runnable_config=config,
+        include_general_purpose_agent=cfg.include_general_purpose_agent,
     )
 
     return agent

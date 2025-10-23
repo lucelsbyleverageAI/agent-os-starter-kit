@@ -1308,9 +1308,38 @@ class EnhancedDocumentProcessor:
                 # Check if it's a YouTube URL
                 if self.youtube_service.is_youtube_url(url):
                     processing_metadata["youtube_urls"] += 1
+                    # Process YouTube URL (initially with temporary title)
                     documents = await self.youtube_service.process_youtube_url(
-                        url, title, description, progress_callback
+                        url, "", "", progress_callback  # Empty title/description for now
                     )
+
+                    # Generate AI metadata if requested and we have documents
+                    if documents and processing_options.use_ai_metadata:
+                        full_content = documents[0].page_content if documents else ""
+
+                        # Generate individual metadata for YouTube video
+                        individual_title, individual_description = await self._generate_individual_document_metadata(
+                            filename=url,
+                            content=full_content,
+                            use_ai_metadata=True,
+                            processing_mode=processing_options.processing_mode
+                        )
+
+                        # Update the document metadata with AI-generated title and description
+                        for doc in documents:
+                            doc.metadata["title"] = individual_title
+                            doc.metadata["description"] = individual_description
+                    elif documents and title:
+                        # Use user-provided title if no AI metadata
+                        for doc in documents:
+                            doc.metadata["title"] = title
+                            doc.metadata["description"] = description or ""
+                    elif documents:
+                        # Fallback: Use video ID as title
+                        video_id = documents[0].metadata.get('video_id', 'unknown')
+                        for doc in documents:
+                            doc.metadata["title"] = title or f"YouTube Video {video_id}"
+                            doc.metadata["description"] = description or ""
                 else:
                     processing_metadata["web_urls"] += 1
                     # Process regular URL with Docling
@@ -1677,10 +1706,17 @@ class EnhancedDocumentProcessor:
             try:
                 if progress_callback:
                     progress_callback(f"Processing batch item {i+1}/{len(batch_items)}: {item.get('title', 'Untitled')}")
-                
+
                 item_type = item.get("type", "").lower()
-                item_title = item.get("title", f"Batch Item {i+1}")
-                item_description = item.get("description", "")
+
+                # If AI metadata is enabled, use empty strings to trigger AI generation
+                # Otherwise, use provided title or generic "Batch Item N"
+                if processing_options.use_ai_metadata:
+                    item_title = item.get("title", "")
+                    item_description = item.get("description", "")
+                else:
+                    item_title = item.get("title", f"Batch Item {i+1}")
+                    item_description = item.get("description", "")
                 
                 if item_type == "file":
                     # Handle file items with either direct content or filename reference

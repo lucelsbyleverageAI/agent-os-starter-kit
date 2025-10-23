@@ -268,14 +268,14 @@ export const ThreadHistorySidebar = forwardRef<
     <div
       ref={ref}
       className={cn(
-        "fixed top-0 right-0 z-10 h-screen border-l border-gray-200 bg-white shadow-lg transition-all duration-300",
-        open ? "w-80 md:w-xl" : "w-0 overflow-hidden border-l-0",
+        "fixed top-0 right-0 z-10 h-screen border-l bg-background dark:bg-background shadow-lg transition-all duration-300",
+        open ? "w-80 md:w-[36rem]" : "w-0 overflow-hidden border-l-0",
         className,
       )}
     >
       {open && (
         <div className="flex h-full flex-col">
-          <div className="flex flex-shrink-0 items-center justify-between border-b border-gray-200 p-4">
+          <div className="flex flex-shrink-0 items-center justify-between border-b p-4">
             <h2 className="text-lg font-semibold tracking-tight">History</h2>
             <Button
               variant="ghost"
@@ -313,15 +313,14 @@ export const ThreadHistorySidebar = forwardRef<
                   <div
                     key={thread.thread_id}
                     className={cn(
-                      "group flex items-center justify-between p-4 transition-all duration-300 hover:cursor-pointer hover:bg-gray-50",
+                      "group flex items-center justify-between p-4 transition-all duration-300 hover:cursor-pointer hover:bg-accent border-l-2 border-transparent",
                       isSelected
-                        ? "bg-gray-100 hover:cursor-default hover:bg-gray-100"
+                        ? "bg-muted hover:cursor-default hover:bg-muted border-l-primary"
                         : "",
                     )}
                     onClick={() => handleChangeThread(thread.thread_id)}
                   >
-                    <div className="flex items-center gap-2 flex-1 min-w-0">
-                      <div className="size-2 rounded-full bg-gray-200" />
+                    <div className="flex items-center flex-1 min-w-0">
                       <div className="flex flex-col min-w-0 flex-1">
                         {/* Thread name with inline editing */}
                         {renamingThreadId === thread.thread_id ? (

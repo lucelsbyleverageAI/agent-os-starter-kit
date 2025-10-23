@@ -27,7 +27,7 @@ StateSchema = TypeVar("StateSchema", bound=DeepAgentState)
 StateSchemaType = Type[StateSchema]
 
 
-base_prompt = """You have access to a number of standard tools
+base_prompt_with_task = """You have access to a number of standard tools
 
 ## `write_todos`
 
@@ -35,9 +35,24 @@ You have access to the `write_todos` tools to help you manage and plan tasks. Us
 These tools are also EXTREMELY helpful for planning tasks, and for breaking down larger complex tasks into smaller steps. If you do not use this tool when planning, you may forget to do important tasks - and that is unacceptable.
 
 It is critical that you mark todos as completed as soon as you are done with a task. Do not batch up multiple tasks before marking them as completed.
+
 ## `task`
 
 - When doing web search, prefer to use the `task` tool in order to reduce context usage.
+
+## Tool Authentication Errors
+
+If a tool throws an error requiring authentication, provide the user with a Markdown link to the authentication page and prompt them to authenticate (but never make up an authentication URL, only use the one provided by the tool).
+"""
+
+base_prompt_without_task = """You have access to a number of standard tools
+
+## `write_todos`
+
+You have access to the `write_todos` tools to help you manage and plan tasks. Use these tools VERY frequently to ensure that you are tracking your tasks and giving the user visibility into your progress.
+These tools are also EXTREMELY helpful for planning tasks, and for breaking down larger complex tasks into smaller steps. If you do not use this tool when planning, you may forget to do important tasks - and that is unacceptable.
+
+It is critical that you mark todos as completed as soon as you are done with a task. Do not batch up multiple tasks before marking them as completed.
 
 ## Tool Authentication Errors
 
@@ -59,8 +74,14 @@ def _agent_builder(
     is_async: bool = False,
     enable_image_processing: bool = False,
     runnable_config: Optional[RunnableConfig] = None,
+    include_general_purpose_agent: bool = True,
 ):
-    prompt = instructions + base_prompt
+    # Determine if any sub-agents are available
+    has_subagents = (subagents and len(subagents) > 0) or include_general_purpose_agent
+
+    # Use appropriate base prompt depending on whether task tool will be available
+    base_prompt = base_prompt_with_task if has_subagents else base_prompt_without_task
+    prompt = instructions + "\n\n" + base_prompt
 
     all_builtin_tools = [write_todos, write_file, read_file, ls, edit_file]
 
@@ -78,9 +99,9 @@ def _agent_builder(
     if model is None:
         model = get_default_model()
 
-    
+
     state_schema = state_schema or DeepAgentState
-    
+
     # Should never be the case that both are specified
     if post_model_hook and interrupt_config:
         raise ValueError(
@@ -93,28 +114,36 @@ def _agent_builder(
         selected_post_model_hook = create_interrupt_hook(interrupt_config)
     else:
         selected_post_model_hook = None
-    
-    if not is_async:
-        task_tool = _create_sync_task_tool(
-            list(tools) + built_in_tools,
-            instructions,
-            subagents or [],
-            model,
-            state_schema,
-            selected_post_model_hook,
-            runnable_config,
-        )
+
+    # Only create task tool if there are sub-agents available
+    if has_subagents:
+        if not is_async:
+            task_tool = _create_sync_task_tool(
+                list(tools) + built_in_tools,
+                instructions,
+                subagents or [],
+                model,
+                state_schema,
+                selected_post_model_hook,
+                runnable_config,
+                include_general_purpose_agent,
+            )
+        else:
+            task_tool = _create_task_tool(
+                list(tools) + built_in_tools,
+                instructions,
+                subagents or [],
+                model,
+                state_schema,
+                selected_post_model_hook,
+                runnable_config,
+                include_general_purpose_agent,
+            )
+
+        all_tools = built_in_tools + list(tools) + [task_tool]
     else:
-        task_tool = _create_task_tool(
-            list(tools) + built_in_tools,
-            instructions,
-            subagents or [],
-            model,
-            state_schema,
-            selected_post_model_hook,
-            runnable_config,
-        )
-    all_tools = built_in_tools + list(tools) + [task_tool]
+        # No sub-agents available, don't include task tool
+        all_tools = built_in_tools + list(tools)
 
     return custom_create_react_agent(
         model,
@@ -140,6 +169,7 @@ def create_deep_agent(
     checkpointer: Optional[Checkpointer] = None,
     post_model_hook: Optional[Callable] = None,
     enable_image_processing: bool = False,
+    include_general_purpose_agent: bool = True,
     **kwargs,
 ):
     """Create a deep agent.
@@ -182,6 +212,7 @@ def create_deep_agent(
         is_async=False,
         enable_image_processing=enable_image_processing,
         runnable_config=kwargs.get("runnable_config"),
+        include_general_purpose_agent=include_general_purpose_agent,
     )
 
 
@@ -197,6 +228,7 @@ def async_create_deep_agent(
     checkpointer: Optional[Checkpointer] = None,
     post_model_hook: Optional[Callable] = None,
     enable_image_processing: bool = False,
+    include_general_purpose_agent: bool = True,
     **kwargs,
 ):
     """Create a deep agent.
@@ -239,4 +271,5 @@ def async_create_deep_agent(
         is_async=True,
         enable_image_processing=enable_image_processing,
         runnable_config=kwargs.get("runnable_config"),
+        include_general_purpose_agent=include_general_purpose_agent,
     )

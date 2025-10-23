@@ -12,7 +12,7 @@ export default function ToolsInterface(): React.ReactNode {
   return (
     <div className="flex w-full flex-col gap-6">
       <Tabs defaultValue="toolkits" className="w-full">
-        <TabsList className="grid w-full max-w-md grid-cols-2">
+        <TabsList variant="branded">
           <TabsTrigger value="toolkits">Toolkits</TabsTrigger>
           <TabsTrigger value="all-tools">All Tools</TabsTrigger>
         </TabsList>

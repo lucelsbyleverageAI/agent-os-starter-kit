@@ -216,7 +216,7 @@ export default function ChatInterface({
           />
         )}
         <ThreadHistorySidebar ref={historyRef} open={historyOpen} setOpen={setHistoryOpen} />
-        <ConfigurationSidebar ref={configRef} open={configOpen} />
+        <ConfigurationSidebar ref={configRef} open={configOpen} setOpen={setConfigOpen} />
       </div>
     </>
   );

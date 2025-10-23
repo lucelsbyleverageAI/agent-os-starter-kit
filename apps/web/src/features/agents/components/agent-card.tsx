@@ -3,6 +3,7 @@
 import { useState } from "react";
 import {
   Bot,
+  Copy,
   Edit,
   MessageSquare,
   MoreVertical,
@@ -35,15 +36,27 @@ import {
 import { isUserDefaultAssistant, canUserDeleteAssistant, canUserEditAssistant, canUserRevokeOwnAccess } from "@/lib/agent-utils";
 import { useAgents } from "@/hooks/use-agents";
 import { useAgentsContext } from "@/providers/Agents";
-import { notify } from "@/utils/toast";
+import { useAuthContext } from "@/providers/Auth";
+import { notify, rawToast } from "@/utils/toast";
 import { agentMessages } from "@/utils/toast-messages";
 import { ConfirmationDialog } from "@/components/ui/confirmation-dialog";
-import { cn } from "@/lib/utils";
 import { getTagLabel } from "@/lib/agent-tags";
+import { logger } from "@/lib/logger";
 
 interface AgentCardProps {
   agent: Agent;
   showDeployment?: boolean;
+}
+
+// Helper function to truncate long names
+function truncateName(name: string, maxLength: number = 40): { truncated: boolean; displayName: string } {
+  if (name.length <= maxLength) {
+    return { truncated: false, displayName: name };
+  }
+  return {
+    truncated: true,
+    displayName: name.substring(0, maxLength) + "..."
+  };
 }
 
 export function AgentCard({ agent, showDeployment }: AgentCardProps) {
@@ -51,12 +64,13 @@ export function AgentCard({ agent, showDeployment }: AgentCardProps) {
   const [showSharingDialog, setShowSharingDialog] = useState(false);
   const [showDeleteConfirmation, setShowDeleteConfirmation] = useState(false);
   const [showRevokeConfirmation, setShowRevokeConfirmation] = useState(false);
-  const { deleteAgent, revokeMyAccess } = useAgents();
-  const { refreshAgents, invalidateAssistantListCache, invalidateAssistantCaches, defaultAssistant, setDefaultAssistant, refreshDefaultAssistant } = useAgentsContext();
+  const { session } = useAuthContext();
+  const { getAgent, createAgent, deleteAgent, revokeMyAccess } = useAgents();
+  const { refreshAgents, invalidateAssistantListCache, invalidateAssistantCaches, invalidateAllAssistantCaches, addAgentToList, defaultAssistant, setDefaultAssistant, refreshDefaultAssistant } = useAgentsContext();
 
   const isDefaultAgent = isUserDefaultAssistant(agent);
   const isUserDefault = defaultAssistant?.assistant_id === agent.assistant_id;
-  
+
   // Get permission information from agent metadata
   const permissionLevel = agent.permission_level as 'owner' | 'editor' | 'viewer' | undefined;
   const isOwner = permissionLevel === 'owner';
@@ -137,6 +151,91 @@ export function AgentCard({ agent, showDeployment }: AgentCardProps) {
     }
   };
 
+  const handleDuplicateAgent = async () => {
+    // Show loading toast
+    const toastId = rawToast.loading("Duplicating Agent", {
+      description: `Creating a copy of "${agent.name}"...`,
+    });
+
+    try {
+      // Fetch full agent data (including config)
+      const fullAgentResult = await getAgent(agent.assistant_id, agent.deploymentId);
+
+      if (!fullAgentResult.ok || !fullAgentResult.data) {
+        throw new Error("Failed to fetch agent configuration");
+      }
+
+      const originalAgent = fullAgentResult.data;
+
+      // Handle long agent names (LangGraph has 255 char limit)
+      const MAX_NAME_LENGTH = 255;
+      const COPY_SUFFIX = " - Copy";
+      const maxOriginalLength = MAX_NAME_LENGTH - COPY_SUFFIX.length;
+
+      let duplicateName = `${agent.name}${COPY_SUFFIX}`;
+      if (duplicateName.length > MAX_NAME_LENGTH) {
+        duplicateName = `${agent.name.substring(0, maxOriginalLength)}...${COPY_SUFFIX}`;
+      }
+
+      // Create duplicate with modified name
+      const result = await createAgent(
+        agent.deploymentId,
+        agent.graph_id,
+        {
+          name: duplicateName,
+          description: originalAgent.description || "",
+          config: originalAgent.config || {},
+          tags: originalAgent.tags || [],
+          // Exclude owner-specific metadata
+          metadata: {},
+        }
+      );
+
+      if (!result.ok) {
+        throw new Error(result.errorMessage || "Failed to duplicate agent");
+      }
+
+      // Dismiss loading toast
+      rawToast.dismiss(toastId);
+
+      // Show success notification
+      const message = agentMessages.duplicate.success(duplicateName);
+      notify.success(message.title, {
+        description: message.description,
+        key: message.key,
+      });
+
+      // Optimistically add to agent list
+      const newAgent = result.data!;
+      addAgentToList({
+        ...newAgent,
+        deploymentId: agent.deploymentId,
+        permission_level: "owner",
+        allowed_actions: ["view", "chat", "edit", "delete", "share", "manage_access"],
+        owner_id: session?.user?.id || "",
+        owner_display_name: "You",
+      });
+
+      // Invalidate and refresh
+      invalidateAssistantListCache();
+      invalidateAllAssistantCaches();
+      await refreshAgents(true);
+
+    } catch (error) {
+      // Dismiss loading toast
+      rawToast.dismiss(toastId);
+
+      // Show error notification
+      const message = agentMessages.duplicate.error();
+      notify.error(message.title, {
+        description: message.description,
+        key: message.key,
+      });
+
+      logger.error("Failed to duplicate agent:", error);
+    }
+  };
+
   // Use shared utility functions for consistent permission checking
   const canEdit = canUserEditAssistant(agent);
   const canShare = isDefaultAgent ? false : isOwner;
@@ -147,7 +246,7 @@ export function AgentCard({ agent, showDeployment }: AgentCardProps) {
     <>
       <Card
         key={agent.assistant_id}
-        className="group relative flex flex-col items-start gap-3 p-6 transition-all hover:border-primary hover:shadow-md vibrate-on-hover"
+        className="group relative flex flex-col items-start gap-3 p-6 transition-all hover:border-primary hover:shadow-lg hover:scale-[1.01] vibrate-on-hover"
       >
         {/* Three-dots menu - absolute positioned in top-right */}
         {!isDefaultAgent && (canEdit || canShare || canDelete || canRevokeOwnAccess) && (
@@ -180,6 +279,10 @@ export function AgentCard({ agent, showDeployment }: AgentCardProps) {
                     Manage Access
                   </DropdownMenuItem>
                 )}
+                <DropdownMenuItem onClick={handleDuplicateAgent}>
+                  <Copy className="h-4 w-4 mr-2" />
+                  Duplicate Agent
+                </DropdownMenuItem>
                 {!isDefaultAgent && !isUserDefault && (
                   <DropdownMenuItem onClick={handleSetDefault}>
                     <Star className="h-4 w-4 mr-2" />
@@ -221,7 +324,24 @@ export function AgentCard({ agent, showDeployment }: AgentCardProps) {
             <Bot className="text-muted-foreground h-5 w-5" />
           </div>
           <div className="min-w-0 flex-1 flex items-center gap-2">
-            <h4 className="font-semibold leading-none">{agent.name}</h4>
+            {(() => {
+              const { truncated, displayName } = truncateName(agent.name);
+
+              return truncated ? (
+                <TooltipProvider>
+                  <Tooltip>
+                    <TooltipTrigger asChild>
+                      <h4 className="font-semibold leading-none">{displayName}</h4>
+                    </TooltipTrigger>
+                    <TooltipContent>
+                      <span>{agent.name}</span>
+                    </TooltipContent>
+                  </Tooltip>
+                </TooltipProvider>
+              ) : (
+                <h4 className="font-semibold leading-none">{displayName}</h4>
+              );
+            })()}
             {isUserDefault && (
               <TooltipProvider>
                 <Tooltip>

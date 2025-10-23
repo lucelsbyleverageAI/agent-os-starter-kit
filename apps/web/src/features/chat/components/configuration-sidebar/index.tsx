@@ -12,7 +12,6 @@ import {
 } from "@/features/chat/components/configuration-sidebar/config-field";
 import { ConfigSection } from "@/features/chat/components/configuration-sidebar/config-section";
 import { useConfigStore } from "@/features/chat/hooks/use-config-store";
-import { ScrollArea } from "@/components/ui/scroll-area";
 import { cn } from "@/lib/utils";
 import { useQueryState } from "nuqs";
 import { Skeleton } from "@/components/ui/skeleton";
@@ -134,12 +133,13 @@ function NameAndDescriptionAlertDialog({
 export interface AIConfigPanelProps {
   className?: string;
   open: boolean;
+  setOpen?: (open: boolean) => void;
 }
 
 export const ConfigurationSidebar = forwardRef<
   HTMLDivElement,
   AIConfigPanelProps
->(({ className, open }, ref: ForwardedRef<HTMLDivElement>) => {
+>(({ className, open, setOpen }, ref: ForwardedRef<HTMLDivElement>) => {
   const { configsByAgentId: _configsByAgentId, resetConfig } = useConfigStore();
   const store = useConfigStore();
   const { tools, setTools, getTools, cursor } = useMCPContext();
@@ -322,17 +322,18 @@ export const ConfigurationSidebar = forwardRef<
   return (
     <div
       ref={ref}
+      data-slot="configuration-sidebar"
       className={cn(
-        "fixed top-0 right-0 z-10 h-screen border-l border-gray-200 bg-white shadow-lg transition-all duration-300",
-        open ? "w-80 md:w-xl" : "w-0 overflow-hidden border-l-0",
+        "fixed top-0 right-0 z-10 h-screen border-l bg-background dark:bg-background shadow-lg transition-all duration-300",
+        open ? "w-80 md:w-[36rem]" : "w-0 overflow-hidden border-l-0",
         className,
       )}
     >
       {open && (
-        <div className="flex h-full flex-col">
-          <div className="flex flex-shrink-0 items-center justify-between border-b border-gray-200 p-4">
-            <h2 className="text-lg font-semibold tracking-tight">Agent Configuration</h2>
-            <div className="flex gap-2">
+        <div className="flex h-full flex-col min-w-0">
+          <div className="flex flex-shrink-0 items-center justify-between border-b p-4 min-w-0">
+            <h2 className="text-lg font-semibold tracking-tight truncate">Agent Configuration</h2>
+            <div className="flex gap-2 items-center flex-shrink-0">
               <TooltipProvider>
                 <Tooltip delayDuration={200}>
                   <TooltipTrigger asChild>
@@ -368,41 +369,62 @@ export const ConfigurationSidebar = forwardRef<
                   </TooltipContent>
                 </Tooltip>
               </TooltipProvider>
+              {setOpen && (
+                <Button
+                  variant="ghost"
+                  size="icon"
+                  onClick={() => setOpen(false)}
+                  className="h-8 w-8"
+                >
+                  <X className="h-4 w-4" />
+                  <span className="sr-only">Close configuration</span>
+                </Button>
+              )}
             </div>
           </div>
           <Tabs
             defaultValue="general"
-            className={cn("flex flex-1 flex-col", ...getScrollbarClasses('y'))}
+            className="flex flex-1 flex-col min-h-0"
           >
-            <TabsList className="flex-shrink-0 justify-start bg-transparent px-4 pt-2">
-              <TabsTrigger value="general">General</TabsTrigger>
-              {supportedConfigs.includes("tools") && (
-                <TabsTrigger value="tools">Tools</TabsTrigger>
-              )}
-              {supportedConfigs.includes("rag") && (
-                <TabsTrigger value="rag">Knowledge</TabsTrigger>
-              )}
-              {supportedConfigs.includes("supervisor") && (
-                <TabsTrigger value="supervisor">Sub-Agents</TabsTrigger>
-              )}
-            </TabsList>
+            <div className="flex justify-center px-6 pt-4 pb-3 border-b">
+              <TabsList variant="branded" className="w-fit flex-shrink-0">
+                <TabsTrigger value="general">
+                  General
+                </TabsTrigger>
+                {supportedConfigs.includes("tools") && (
+                  <TabsTrigger value="tools">
+                    Tools
+                  </TabsTrigger>
+                )}
+                {supportedConfigs.includes("rag") && (
+                  <TabsTrigger value="rag">
+                    Knowledge
+                  </TabsTrigger>
+                )}
+                {supportedConfigs.includes("supervisor") && (
+                  <TabsTrigger value="supervisor">
+                    Sub-Agents
+                  </TabsTrigger>
+                )}
+              </TabsList>
+            </div>
 
-            <ScrollArea className="flex-1">
+            <div className={cn("flex-1 min-h-0", ...getScrollbarClasses('y'))}>
+              <div className="px-6">
 
-              
               <TabsContent
                 value="general"
-                className="m-0 p-4"
+                className="m-0 pb-4 pt-2"
               >
                 <ConfigSection title="Tags">
-                  <div className="flex w-full flex-col items-start justify-start gap-2">
+                  <div className="flex flex-col items-start justify-start gap-2 min-w-0 w-full">
                     <Label htmlFor="agent_tags">
                       Select categories for your agent
                     </Label>
 
                     {/* Selected tags display */}
                     {tags.length > 0 && (
-                      <div className="flex flex-wrap gap-2 w-full">
+                      <div className="flex flex-wrap gap-2">
                         {tags.map((tag) => (
                           <Badge
                             key={tag}
@@ -425,14 +447,16 @@ export const ConfigurationSidebar = forwardRef<
                         <Button
                           variant="outline"
                           role="combobox"
-                          className="w-full justify-between"
+                          className="w-full justify-between truncate"
                         >
-                          {tags.length > 0
-                            ? `${tags.length} tag${tags.length > 1 ? 's' : ''} selected`
-                            : "Select tags..."}
+                          <span className="truncate">
+                            {tags.length > 0
+                              ? `${tags.length} tag${tags.length > 1 ? 's' : ''} selected`
+                              : "Select tags..."}
+                          </span>
                         </Button>
                       </PopoverTrigger>
-                      <PopoverContent className="w-[350px] p-0" align="start">
+                      <PopoverContent className="w-full max-w-[350px] p-0" align="start">
                         <Command className="h-auto max-h-[350px]">
                           <CommandInput placeholder="Search tags..." />
                           <CommandEmpty>No tags found.</CommandEmpty>
@@ -457,7 +481,7 @@ export const ConfigurationSidebar = forwardRef<
                                       }
                                     }}
                                   >
-                                    <div className="flex items-center gap-2 flex-1">
+                                    <div className="flex items-center gap-2 flex-1 min-w-0">
                                       <div className={`flex h-4 w-4 items-center justify-center rounded-sm border ${
                                         tags.includes(tag.value)
                                           ? "bg-primary border-primary text-primary-foreground"
@@ -467,9 +491,9 @@ export const ConfigurationSidebar = forwardRef<
                                           <Check className="h-3 w-3" />
                                         )}
                                       </div>
-                                      <div className="flex flex-col flex-1">
+                                      <div className="flex flex-col flex-1 min-w-0">
                                         <span className="text-sm font-medium">{tag.label}</span>
-                                        <span className="text-xs text-muted-foreground">
+                                        <span className="text-xs text-muted-foreground line-clamp-2">
                                           {tag.description}
                                         </span>
                                       </div>
@@ -485,7 +509,7 @@ export const ConfigurationSidebar = forwardRef<
                   </div>
                 </ConfigSection>
 
-                <ConfigSection title="Configuration">
+                <ConfigSection title="Configuration" className="min-w-0">
                   {loading || !agentId ? (
                     <div className="space-y-4">
                       <Skeleton className="h-8 w-full" />
@@ -544,7 +568,7 @@ export const ConfigurationSidebar = forwardRef<
               {supportedConfigs.includes("tools") && (
                 <TabsContent
                   value="tools"
-                  className="m-0 p-4"
+                  className="m-0 pb-4 pt-2 space-y-6"
                 >
                   <ConfigSection title="Available Tools">
                     <Search
@@ -636,7 +660,7 @@ export const ConfigurationSidebar = forwardRef<
               {supportedConfigs.includes("rag") && (
                 <TabsContent
                   value="rag"
-                  className="m-0 p-4"
+                  className="m-0 pb-4 pt-2 space-y-6"
                 >
                   <ConfigSection title="Collections">
                     {agentId && ragConfigurations[0]?.label && (
@@ -699,7 +723,7 @@ export const ConfigurationSidebar = forwardRef<
               {supportedConfigs.includes("supervisor") && (
                 <TabsContent
                   value="supervisor"
-                  className="m-0 p-4"
+                  className="m-0 pb-4 pt-2 space-y-6"
                 >
                   <ConfigSection title="Sub-Agents">
                     {agentId && agentsConfigurations[0]?.label && (
@@ -713,7 +737,8 @@ export const ConfigurationSidebar = forwardRef<
                   </ConfigSection>
                 </TabsContent>
               )}
-            </ScrollArea>
+              </div>
+            </div>
           </Tabs>
         </div>
       )}

@@ -62,6 +62,18 @@ export const agentMessages = {
       key: "agent:revoke:error",
     }),
   },
+  duplicate: {
+    success: (name: string) => ({
+      title: "Agent duplicated successfully!",
+      description: `"${name}" has been created.`,
+      key: `agent:duplicate:${name}`,
+    }),
+    error: () => ({
+      title: "Failed to duplicate agent",
+      description: "Please try again or contact support if the problem persists.",
+      key: "agent:duplicate:error",
+    }),
+  },
   fetch: {
     error: () => ({
       title: "Failed to load agent",

@@ -1,4 +1,4 @@
-import { useState, useRef, useEffect, ChangeEvent } from "react";
+import { useState, useRef, useEffect, ChangeEvent, useCallback } from "react";
 import { toast } from "sonner";
 import type { Base64ContentBlock } from "@langchain/core/messages";
 import { fileToContentBlock } from "@/lib/multimodal-utils";
@@ -69,7 +69,7 @@ export function useFileUpload({
     };
   }, []);
 
-  const isDuplicate = (file: File, blocks: Base64ContentBlock[]) => {
+  const isDuplicate = useCallback((file: File, blocks: Base64ContentBlock[]) => {
     // Check for duplicates in content blocks
     const isDuplicateInBlocks = blocks.some(
       (b) => {
@@ -89,7 +89,7 @@ export function useFileUpload({
     );
 
     return isDuplicateInBlocks || isDuplicateProcessing;
-  };
+  }, [processingAttachments]);
 
   const isFileTypeSupported = (file: File) => {
     return [...SUPPORTED_FILE_TYPES.images, ...SUPPORTED_FILE_TYPES.documents].includes(file.type);
@@ -103,10 +103,10 @@ export function useFileUpload({
     return SUPPORTED_FILE_TYPES.documents.includes(file.type);
   };
 
-  const calculateTotalAttachmentsSize = () => {
+  const calculateTotalAttachmentsSize = useCallback(() => {
     // Calculate size from existing content blocks
     let totalSize = 0;
-    
+
     contentBlocks.forEach(block => {
       if (block.type === "image" && block.source_type === "base64") {
         // Estimate original file size from base64 (base64 is ~33% larger)
@@ -120,14 +120,14 @@ export function useFileUpload({
         totalSize += originalSize;
       }
     });
-    
+
     // Add size from processing attachments
     processingAttachments.forEach(attachment => {
       totalSize += attachment.file.size;
     });
-    
+
     return totalSize;
-  };
+  }, [contentBlocks, processingAttachments]);
 
   const formatFileSize = (bytes: number): string => {
     if (bytes === 0) return '0 B';
@@ -137,7 +137,7 @@ export function useFileUpload({
     return parseFloat((bytes / Math.pow(k, i)).toFixed(1)) + ' ' + sizes[i];
   };
 
-  const startJobPolling = async (jobId: string, attachmentId: string) => {
+  const startJobPolling = useCallback(async (jobId: string, attachmentId: string) => {
     const pollInterval = setInterval(async () => {
       try {
         
@@ -233,9 +233,9 @@ ${extractedContent}
     }, 2000); // Poll every 2 seconds
 
     pollingIntervals.current[attachmentId] = pollInterval;
-  };
+  }, [session?.accessToken]);
 
-  const processDocument = async (file: File) => {
+  const processDocument = useCallback(async (file: File) => {
     if (!session?.accessToken) {
       toast.error("No session found", {
         description: "Failed to process document. Please try again.",
@@ -244,7 +244,7 @@ ${extractedContent}
     }
 
     const attachmentId = crypto.randomUUID();
-    
+
     // Add to processing attachments immediately
     setProcessingAttachments(prev => [...prev, {
       id: attachmentId,
@@ -270,7 +270,7 @@ ${extractedContent}
       }
 
       const data = await response.json();
-      
+
       // Start polling immediately
       startJobPolling(data.job_id, attachmentId);
 
@@ -288,7 +288,7 @@ ${extractedContent}
       toast.info(`Processing ${file.name}...`);
     } catch (error) {
       console.error('Error processing document:', error);
-      
+
       setProcessingAttachments(prev => prev.map(att => {
         if (att.id === attachmentId) {
           return {
@@ -304,7 +304,7 @@ ${extractedContent}
         description: error instanceof Error ? error.message : 'An error occurred'
       });
     }
-  };
+  }, [session?.accessToken, startJobPolling]);
 
   const handleFileUpload = async (e: ChangeEvent<HTMLInputElement>) => {
     const files = e.target.files;

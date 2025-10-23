@@ -13,16 +13,17 @@ interface ThreadActionMenuProps {
   onDelete: () => void;
   onRename: () => void;
   disabled?: boolean;
+  useNamedGroup?: boolean;
 }
 
-export function ThreadActionMenu({ onDelete, onRename, disabled = false }: ThreadActionMenuProps) {
+export function ThreadActionMenu({ onDelete, onRename, disabled = false, useNamedGroup = false }: ThreadActionMenuProps) {
   return (
     <DropdownMenu>
       <DropdownMenuTrigger asChild>
         <Button
           variant="ghost"
           size="sm"
-          className="h-8 w-8 p-0 opacity-0 group-hover:opacity-100 transition-opacity"
+          className={`h-8 w-8 p-0 opacity-0 ${useNamedGroup ? 'group-hover/thread-item:opacity-100' : 'group-hover:opacity-100'} transition-opacity hover:bg-transparent`}
           disabled={disabled}
           onClick={(e) => e.stopPropagation()}
         >

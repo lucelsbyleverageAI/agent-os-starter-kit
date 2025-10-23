@@ -502,7 +502,7 @@ export function Thread({ historyOpen = false, configOpen = false }: ThreadProps)
               <div className={cn("flex flex-col items-center gap-12 px-2 md:px-4 w-full", chatWidth)}>
                 <div className="flex flex-col items-center justify-center text-center">
                   {/* Gradient Orb Visual */}
-                  <div className="relative flex items-center justify-center mb-10">
+                  {/* <div className="relative flex items-center justify-center mb-10">
                     <div
                       className="absolute w-24 h-24 md:w-28 md:h-28 rounded-full opacity-80 blur-2xl"
                       style={{
@@ -515,14 +515,10 @@ export function Thread({ historyOpen = false, configOpen = false }: ThreadProps)
                         background: 'radial-gradient(circle, var(--color-primary) 0%, transparent 70%)',
                       }}
                     />
-                  </div>
-
-                  <p className="text-2xl md:text-3xl font-medium text-foreground">
-                    Good {getTimeBasedGreeting()}, {getUserFirstName(user)}
-                  </p>
-                  <h1 className="text-3xl md:text-4xl mt-2 font-semibold tracking-tight">
-                    <span className="text-foreground">How Can I </span>
-                    <span className="text-primary">Assist You Today?</span>
+                  </div> */}
+                  <h1 className="text-3xl md:text-3xl mt-2 font-semibold tracking-tight">
+                    <span className="text-foreground">Good {getTimeBasedGreeting()}, {getUserFirstName(user)}. </span>
+                    <span className="text-primary">How Can I Help?</span>
                   </h1>
                 </div>
 

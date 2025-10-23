@@ -57,7 +57,7 @@ export default function MemoriesInterface() {
   // Show service error if memory service is not available
   if (serviceError && initialSearchExecuted && memories.length === 0) {
     return (
-      <div className="container mx-auto px-4 py-6">
+      <div className="container mx-auto px-4 md:px-8 lg:px-12 py-6">
         <PageHeader
           title="Memories"
           description="Manage your AI memories that help agents remember information about you across conversations"
@@ -80,7 +80,7 @@ export default function MemoriesInterface() {
   }
 
   return (
-    <div className="container mx-auto px-4 py-6">
+    <div className="container mx-auto px-4 md:px-8 lg:px-12 py-6">
       <PageHeader
         title="Memories"
         description="Manage your AI memories that help agents remember information about you across conversations"

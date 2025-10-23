@@ -12,7 +12,7 @@ function Input({ className, type, ...props }: React.ComponentProps<"input">) {
         "placeholder:text-muted-foreground",
         "focus-visible:outline-ring focus-visible:outline-2 focus-visible:outline-offset-0 focus-visible:border-ring",
         "disabled:cursor-not-allowed disabled:opacity-50",
-        "dark:bg-background/50",
+        "dark:border-muted-foreground/50 dark:bg-black/40",
         "file:inline-flex file:h-7 file:border-0 file:bg-transparent file:text-sm file:font-medium file:text-foreground",
         className,
       )}

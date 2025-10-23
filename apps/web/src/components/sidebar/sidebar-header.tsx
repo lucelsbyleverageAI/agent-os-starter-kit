@@ -40,6 +40,7 @@ export function SiteHeader() {
           <SidebarMenuButton
             size="lg"
             asChild
+            className="logo-button-no-hover"
           >
             <NextLink href="/" className="flex items-center justify-start">
               <Image

@@ -195,13 +195,16 @@ async def _get_agents(
     state_schema,
     post_model_hook: Optional[Callable] = None,
     config: Optional[RunnableConfig] = None,
+    include_general_purpose: bool = True,
 ):
     all_builtin_tools = [write_todos, write_file, read_file, ls, edit_file]
-    agents = {
-        "general-purpose": custom_create_react_agent(
+    agents = {}
+
+    # Only add general-purpose agent if enabled
+    if include_general_purpose:
+        agents["general-purpose"] = custom_create_react_agent(
             model, prompt=GENERAL_PURPOSE_SUBAGENT_PROMPT, tools=tools, state_schema=state_schema, checkpointer=False, post_model_hook=post_model_hook, enable_image_processing=False
         )
-    }
     # Parent tools (selected for main agent)
     parent_tools_by_name = {
         t.name: t
@@ -252,23 +255,17 @@ async def _get_agents(
         if agent_model:
             if isinstance(agent_model, str):
                 # Direct model name string (new centralized config format)
-                sub_model = init_model(
-                    ModelConfig(
-                        model_name=agent_model,
-                        retry=RetryConfig(max_retries=0),  # Disable retry wrapper for .bind_tools()
-                    )
-                )
+                # Use init_model_simple to get correct max_tokens from registry
+                from agent_platform.utils.model_utils import init_model_simple
+                sub_model = init_model_simple(model_name=agent_model)
                 logger.info("[SUB_AGENT] model_initialized agent=%s model=%s source=string", agent_name, agent_model)
             elif isinstance(agent_model, dict):
                 # Legacy dict format with 'model_name' or 'model' key
                 if 'model_name' in agent_model or 'model' in agent_model:
                     model_name = agent_model.get('model_name') or agent_model.get('model')
-                    sub_model = init_model(
-                        ModelConfig(
-                            model_name=model_name,
-                            retry=RetryConfig(max_retries=0),  # Disable retry wrapper for .bind_tools()
-                        )
-                    )
+                    # Use init_model_simple to get correct max_tokens from registry
+                    from agent_platform.utils.model_utils import init_model_simple
+                    sub_model = init_model_simple(model_name=model_name)
                     logger.info("[SUB_AGENT] model_initialized agent=%s model=%s source=dict", agent_name, model_name)
                 else:
                     # Fallback for legacy format
@@ -293,6 +290,7 @@ async def _get_agents(
             post_model_hook=post_model_hook,
             enable_image_processing=False,
         )
+
     return agents
 
 
@@ -319,13 +317,29 @@ def _create_task_tool(
     state_schema,
     post_model_hook: Optional[Callable] = None,
     config: Optional[RunnableConfig] = None,
+    include_general_purpose: bool = True,
 ):
     other_agents_string = _get_subagent_description(subagents)
 
-    @tool(
-        description=TASK_DESCRIPTION_PREFIX.format(other_agents=other_agents_string)
-        + TASK_DESCRIPTION_SUFFIX
-    )
+    # Build description conditionally
+    if not include_general_purpose and not other_agents_string:
+        # No agents available - update description accordingly
+        task_description = """Launch a new agent to handle complex, multi-step tasks autonomously.
+
+Note: No sub-agents are currently configured. Please add custom sub-agents in the agent configuration to enable task delegation.
+""" + TASK_DESCRIPTION_SUFFIX
+    elif include_general_purpose:
+        task_description = TASK_DESCRIPTION_PREFIX.format(other_agents="\n".join(other_agents_string)) + TASK_DESCRIPTION_SUFFIX
+    else:
+        # Has custom subagents but no general-purpose
+        task_description_no_gp = """Launch a new agent to handle complex, multi-step tasks autonomously.
+
+Available agent types and the tools they have access to:
+{other_agents}
+"""
+        task_description = task_description_no_gp.format(other_agents="\n".join(other_agents_string)) + TASK_DESCRIPTION_SUFFIX
+
+    @tool(description=task_description)
     async def task(
         description: str,
         subagent_type: str,
@@ -340,6 +354,7 @@ def _create_task_tool(
             state_schema,
             post_model_hook,
             config,
+            include_general_purpose,
         )
         if subagent_type not in agents:
             return f"Error: invoked agent of type {subagent_type}, the only allowed types are {[f'`{k}`' for k in agents]}"
@@ -370,6 +385,7 @@ def _create_sync_task_tool(
     state_schema,
     post_model_hook: Optional[Callable] = None,
     config: Optional[RunnableConfig] = None,
+    include_general_purpose: bool = True,
 ):
     # This is a sync function, so we need to run the async _get_agents in an event loop.
     import asyncio
@@ -393,6 +409,7 @@ def _create_sync_task_tool(
                 state_schema,
                 post_model_hook,
                 config,
+                include_general_purpose,
             )
         )
     else:
@@ -405,15 +422,31 @@ def _create_sync_task_tool(
                 state_schema,
                 post_model_hook,
                 config,
+                include_general_purpose,
             )
         )
 
     other_agents_string = _get_subagent_description(subagents)
 
-    @tool(
-        description=TASK_DESCRIPTION_PREFIX.format(other_agents=other_agents_string)
-        + TASK_DESCRIPTION_SUFFIX
-    )
+    # Build description conditionally
+    if not include_general_purpose and not other_agents_string:
+        # No agents available - update description accordingly
+        task_description = """Launch a new agent to handle complex, multi-step tasks autonomously.
+
+Note: No sub-agents are currently configured. Please add custom sub-agents in the agent configuration to enable task delegation.
+""" + TASK_DESCRIPTION_SUFFIX
+    elif include_general_purpose:
+        task_description = TASK_DESCRIPTION_PREFIX.format(other_agents="\n".join(other_agents_string)) + TASK_DESCRIPTION_SUFFIX
+    else:
+        # Has custom subagents but no general-purpose
+        task_description_no_gp = """Launch a new agent to handle complex, multi-step tasks autonomously.
+
+Available agent types and the tools they have access to:
+{other_agents}
+"""
+        task_description = task_description_no_gp.format(other_agents="\n".join(other_agents_string)) + TASK_DESCRIPTION_SUFFIX
+
+    @tool(description=task_description)
     def task(
         description: str,
         subagent_type: str,

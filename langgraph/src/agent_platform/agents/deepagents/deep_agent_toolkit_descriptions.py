@@ -104,6 +104,7 @@ Assistant: In Python, you can print "Hello World" with this simple code:
 
 python
 print("Hello World")
+```
 
 This will output the text "Hello World" to the console when executed.
 

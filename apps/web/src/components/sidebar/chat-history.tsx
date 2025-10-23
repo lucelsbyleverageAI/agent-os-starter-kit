@@ -41,7 +41,7 @@ import {
   PopoverTrigger,
 } from "@/components/ui/popover";
 import { getDeployments } from "@/lib/environment/deployments";
-import { useRouter } from "next/navigation";
+import { useRouter, useSearchParams } from "next/navigation";
 import { MessageContent } from "@langchain/core/messages";
 import { Message } from "@langchain/langgraph-sdk";
 import {
@@ -93,6 +93,14 @@ function getFirstHumanMessageContent(thread: Thread) {
     // Silently handle cases where thread has no messages or invalid structure
     return "";
   }
+}
+
+/**
+ * Truncates agent name to 30 characters with ellipsis
+ */
+function truncateAgentName(name: string, maxLength: number = 30): string {
+  if (name.length <= maxLength) return name;
+  return name.slice(0, maxLength) + "...";
 }
 
 /**
@@ -166,6 +174,8 @@ export function ChatHistory() {
   const { session, isLoading: authLoading } = useAuthContext();
   const { agents } = useAgentsContext();
   const router = useRouter();
+  const searchParams = useSearchParams();
+  const currentThreadId = searchParams.get('threadId');
   const deployments = getDeployments();
 
   const [threads, setThreads] = useState<Thread[]>([]);
@@ -703,8 +713,10 @@ export function ChatHistory() {
                       aria-expanded={filterOpen}
                       className="h-8 w-full justify-between text-xs font-normal border-border bg-background text-foreground hover:bg-accent hover:text-foreground"
                     >
-                      {getSelectedAgentDisplay()}
-                      <ChevronDown className="h-4 w-4 opacity-50" />
+                      <span className="truncate">
+                        {truncateAgentName(getSelectedAgentDisplay())}
+                      </span>
+                      <ChevronDown className="h-4 w-4 opacity-50 flex-shrink-0" />
                     </Button>
                   </PopoverTrigger>
                   <PopoverContent
@@ -762,16 +774,16 @@ export function ChatHistory() {
                                 onSelect={handleAgentFilterChange}
                                 className="flex w-full items-center justify-between px-4 py-1.5 text-muted-foreground hover:text-foreground hover:bg-accent cursor-pointer"
                               >
-                                <div className="flex items-center gap-2 flex-1">
+                                <div className="flex items-center gap-2 flex-1 min-w-0">
                                   <Check
                                     className={cn(
-                                      "h-3 w-3",
+                                      "h-3 w-3 flex-shrink-0",
                                       isSelected ? "opacity-100" : "opacity-0",
                                     )}
                                   />
 
-                                  <span className="flex-1 truncate text-xs">
-                                    {item.name}
+                                  <span className="flex-1 truncate text-xs" title={item.name}>
+                                    {truncateAgentName(item.name)}
                                   </span>
                                 </div>
 
@@ -841,13 +853,19 @@ export function ChatHistory() {
                       const mirrorName = (thread as any).name;
                       const firstMessage = getFirstHumanMessageContent(thread);
                       const displayText = mirrorName || firstMessage || "New chat";
-                      
+                      const isSelected = currentThreadId === thread.thread_id;
+
                       return (
-                        <SidebarMenuItem key={thread.thread_id}>
-                          <div className="group flex w-full items-center justify-between">
+                        <SidebarMenuItem
+                          key={thread.thread_id}
+                          className={cn(
+                            "sidebar-item-hover",
+                            isSelected && "sidebar-item-selected text-sidebar-accent-foreground font-medium"
+                          )}
+                        >
+                          <div className="group/thread-item flex w-full items-center justify-between">
                             {renamingThreadId === thread.thread_id ? (
-                              <div className="flex w-full items-center gap-2 pl-2">
-                                <div className="h-1.5 w-1.5 rounded-full bg-muted-foreground/50" />
+                              <div className="flex w-full items-center pl-2">
                                 <Input
                                   value={renameValue}
                                   onChange={(e) => setRenameValue(e.target.value)}
@@ -867,19 +885,17 @@ export function ChatHistory() {
                             ) : (
                               <SidebarMenuButton
                                 onClick={() => handleThreadClick(thread)}
-                                className="flex-1 justify-start pl-2 text-xs pr-1"
+                                className="flex-1 justify-start pl-2 text-xs pr-1 hover:bg-transparent cursor-pointer"
                                 size="sm"
                               >
-                                <div className="flex w-full items-center gap-2">
-                                  <div className="h-1.5 w-1.5 rounded-full bg-muted-foreground/50" />
-                                  <span className="truncate text-xs">{displayText}</span>
-                                </div>
+                                <span className="truncate text-xs">{displayText}</span>
                               </SidebarMenuButton>
                             )}
                             <ThreadActionMenu
                               onDelete={() => handleDeleteThread(thread)}
                               onRename={() => handleRenameThread(thread)}
                               disabled={isDeleting || isRenaming}
+                              useNamedGroup={true}
                             />
                           </div>
                         </SidebarMenuItem>

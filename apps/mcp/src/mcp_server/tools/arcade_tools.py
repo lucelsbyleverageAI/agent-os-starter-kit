@@ -67,24 +67,68 @@ class ArcadeToolsManager:
     async def _refresh_tools_cache(self) -> None:
         """Refresh the tools cache from Arcade API."""
         logger.info("Refreshing Arcade tools cache")
-        
+
         try:
             # Lazy import arcade auth manager
             from ..auth.arcade_auth import arcade_auth_manager
-            
-            # Get all available tools from Arcade
+
+            # Get all available tools from Arcade with pagination
             arcade_client = arcade_auth_manager.arcade_client
-            response = arcade_client.tools.list(limit=1000)
-            
-            if not response.items:
+            all_tools = []
+            offset = 0
+            limit = 1000
+            total_fetched = 0
+
+            # Fetch all pages of tools
+            while True:
+                logger.debug(f"Fetching tools page with offset={offset}, limit={limit}")
+
+                # Fetch the current page
+                # Note: Using offset parameter if available, otherwise may need multiple calls
+                if offset == 0:
+                    response = arcade_client.tools.list(limit=limit)
+                else:
+                    # Try to use offset parameter if supported by the API
+                    try:
+                        response = arcade_client.tools.list(limit=limit, offset=offset)
+                    except TypeError:
+                        # If offset parameter is not supported, we can only get first batch
+                        logger.warning("Arcade API client does not support offset parameter, fetching more tools via alternative method")
+                        # Try alternative pagination if available
+                        break
+
+                if not response.items:
+                    logger.debug(f"No more items at offset={offset}, stopping pagination")
+                    break
+
+                all_tools.extend(response.items)
+                total_fetched += len(response.items)
+                logger.debug(f"Fetched {len(response.items)} tools, total so far: {total_fetched}")
+
+                # Check if we've fetched all available tools
+                if len(response.items) < limit:
+                    logger.debug(f"Fetched {len(response.items)} tools (less than limit {limit}), assuming end of data")
+                    break
+
+                # Move to next page
+                offset += limit
+
+                # Safety check to prevent infinite loops
+                if offset > 10000:
+                    logger.warning(f"Reached maximum offset {offset}, stopping pagination for safety")
+                    break
+
+            if not all_tools:
                 logger.warning("No tools returned from Arcade API")
                 return
-            
+
+            logger.info(f"Fetched {len(all_tools)} total tools from Arcade API")
+
             # Filter and create tool instances
             new_cache = {}
             filtered_count = 0
-            
-            for arcade_tool in response.items:
+
+            for arcade_tool in all_tools:
                 if self._should_include_tool(arcade_tool):
                     # Use the fully qualified name format: Toolkit_ToolName
                     if hasattr(arcade_tool, 'toolkit') and arcade_tool.toolkit:
@@ -93,7 +137,7 @@ class ArcadeToolsManager:
                     else:
                         # Fallback to just the tool name if no toolkit
                         full_tool_name = arcade_tool.name
-                    
+
                     tool_instance = ArcadeTool(
                         arcade_tool_name=full_tool_name,
                         arcade_definition=arcade_tool
@@ -101,13 +145,13 @@ class ArcadeToolsManager:
                     new_cache[tool_instance.name] = tool_instance
                 else:
                     filtered_count += 1
-            
+
             self._tools_cache = new_cache
             self._cache_timestamp = time.time()
-            
+
             logger.info(
                 "Arcade tools cache refreshed",
-                total_tools=len(response.items),
+                total_tools=len(all_tools),
                 included_tools=len(new_cache),
                 filtered_tools=filtered_count,
                 load_all_services=self._load_all_services,
