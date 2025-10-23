@@ -93,7 +93,7 @@ class EnhancedDocumentProcessor:
             content_type: MIME type if available
 
         Returns:
-            Format category: 'simple_text', 'excel_spreadsheet', 'complex_document', or 'unsupported'
+            Format category: 'simple_text', 'excel_spreadsheet', 'complex_document', 'image', or 'unsupported'
         """
         # Get file extension
         _, ext = os.path.splitext(filename.lower())
@@ -120,6 +120,17 @@ class EnhancedDocumentProcessor:
             'text/html'
         }
 
+        # Image formats (need vision analysis and storage)
+        image_extensions = {'.jpg', '.jpeg', '.png', '.gif', '.webp', '.bmp', '.tiff', '.tif'}
+        image_mimes = {
+            'image/jpeg',
+            'image/png',
+            'image/gif',
+            'image/webp',
+            'image/bmp',
+            'image/tiff'
+        }
+
         # Check by extension first
         if ext in simple_text_extensions:
             return 'simple_text'
@@ -127,6 +138,8 @@ class EnhancedDocumentProcessor:
             return 'excel_spreadsheet'
         elif ext in complex_doc_extensions:
             return 'complex_document'
+        elif ext in image_extensions:
+            return 'image'
 
         # Check by MIME type if available
         if content_type:
@@ -136,6 +149,8 @@ class EnhancedDocumentProcessor:
                 return 'excel_spreadsheet'
             elif content_type in complex_doc_mimes:
                 return 'complex_document'
+            elif content_type in image_mimes or content_type.startswith('image/'):
+                return 'image'
 
         # Try to guess MIME type from filename
         guessed_type, _ = mimetypes.guess_type(filename)
@@ -146,6 +161,8 @@ class EnhancedDocumentProcessor:
                 return 'excel_spreadsheet'
             elif guessed_type in complex_doc_mimes:
                 return 'complex_document'
+            elif guessed_type in image_mimes or guessed_type.startswith('image/'):
+                return 'image'
 
         # Default to unsupported for unknown formats
         return 'unsupported'
@@ -636,6 +653,11 @@ class EnhancedDocumentProcessor:
                 return await self._process_complex_document_file(
                     file_obj, processing_options, document_manager
                 )
+            elif file_format == 'image':
+                # Process images with vision analysis and storage
+                return await self._process_image_file(
+                    file_obj, processing_options, document_manager
+                )
             else:
                 # Unsupported format
                 logger.warning(f"Unsupported file format for {filename}: {file_format}")
@@ -786,6 +808,179 @@ class EnhancedDocumentProcessor:
 
         except Exception as e:
             logger.error(f"Error processing Excel file {filename}: {e}", exc_info=True)
+            return {"error": str(e)}
+
+    async def _process_image_file(
+        self,
+        file_obj: Union[Dict[str, Any], UploadFile],
+        processing_options: ProcessingOptions,
+        document_manager: Optional[DocumentManager] = None
+    ) -> Dict[str, Any]:
+        """Process image files with AI vision analysis and storage.
+
+        Args:
+            file_obj: File object to process
+            processing_options: Processing configuration
+            document_manager: Optional document manager
+
+        Returns:
+            Dictionary with processing results
+        """
+        from langconnect.services.storage_service import storage_service
+        from langconnect.services.vision_analysis_service import vision_analysis_service
+
+        # Get filename and content type
+        filename = getattr(file_obj, 'filename', 'unknown')
+        content_type = getattr(file_obj, 'content_type', 'image/jpeg')
+        if isinstance(file_obj, dict):
+            filename = file_obj.get('filename', 'unknown')
+            content_type = file_obj.get('content_type', 'image/jpeg')
+
+        logger.info(f"Processing image file: {filename}")
+
+        try:
+            # Read image content
+            image_bytes = None
+            if hasattr(file_obj, 'content'):
+                # SimpleUploadFile object
+                image_bytes = file_obj.content
+            elif hasattr(file_obj, 'read'):
+                # UploadFile object
+                await file_obj.seek(0)
+                image_bytes = await file_obj.read()
+            elif isinstance(file_obj, dict) and 'content_b64' in file_obj:
+                # Base64 content
+                image_bytes = base64.b64decode(file_obj['content_b64'])
+            else:
+                raise ValueError(f"Unknown file object type for {filename}")
+
+            # Determine image format from content type or filename
+            image_format = 'jpeg'  # default
+            if content_type:
+                if 'png' in content_type:
+                    image_format = 'png'
+                elif 'webp' in content_type:
+                    image_format = 'webp'
+                elif 'gif' in content_type:
+                    image_format = 'gif'
+            else:
+                # Try from extension
+                ext = os.path.splitext(filename.lower())[1]
+                if ext in {'.png'}:
+                    image_format = 'png'
+                elif ext in {'.webp'}:
+                    image_format = 'webp'
+                elif ext in {'.gif'}:
+                    image_format = 'gif'
+
+            # Always use AI vision analysis for images
+            logger.info(f"Analyzing image {filename} with AI vision")
+            vision_metadata = await vision_analysis_service.analyze_image(
+                image_data=image_bytes,
+                image_format=image_format,
+                fallback_title=os.path.splitext(filename)[0]
+            )
+
+            # Extract the three fields
+            title = vision_metadata.title
+            short_description = vision_metadata.short_description
+            detailed_description = vision_metadata.detailed_description
+
+            logger.info(
+                f"Vision analysis complete - Title: '{title}', "
+                f"Short: '{short_description[:50]}...', "
+                f"Detailed: {len(detailed_description)} chars"
+            )
+
+            # Upload image to storage (only if document_manager exists)
+            storage_info = None
+            if document_manager:
+                collection_id = document_manager.collection_id
+
+                logger.info(f"Uploading image to storage for collection {collection_id}")
+                storage_info = await storage_service.upload_image(
+                    file_data=image_bytes,
+                    filename=filename,
+                    content_type=content_type,
+                    collection_uuid=collection_id
+                )
+                logger.info(f"Image uploaded to: {storage_info['storage_path']}")
+            else:
+                logger.warning("No document_manager provided - image will not be uploaded to storage")
+
+            # Create document metadata
+            document_metadata = {
+                "source": filename,
+                "title": title,
+                "description": short_description,
+                "file_type": "image",
+                "content_type": content_type,
+                "image_format": image_format,
+            }
+
+            # Add storage information if available
+            if storage_info:
+                document_metadata["storage_path"] = storage_info["storage_path"]
+                document_metadata["storage_bucket"] = storage_info["bucket"]
+                document_metadata["storage_file_path"] = storage_info["file_path"]
+
+            # Add content hash for duplicate detection
+            content_hash = DuplicateDetectionService.calculate_content_hash(image_bytes)
+            document_metadata["content_hash"] = content_hash
+
+            # Create LangChain document with detailed description as content
+            # This is what will be chunked and searched
+            document = Document(
+                page_content=detailed_description,
+                metadata=document_metadata
+            )
+
+            documents = [document]
+            logger.info(f"Created LangChain document for image {filename}")
+
+            # Store full document if using new model
+            document_records = []
+            document_id = None
+            if document_manager:
+                # Store the document with detailed description as content
+                document_id = await document_manager.create_document(
+                    content=detailed_description,
+                    metadata=document_metadata
+                )
+
+                document_records.append({
+                    "id": document_id,
+                    "title": title,
+                    "description": short_description,
+                    "content": detailed_description,
+                    "metadata": document_metadata
+                })
+
+                logger.info(f"Created document record {document_id} for image {filename}")
+
+            # Chunk the detailed description
+            if processing_options.chunking_strategy:
+                logger.info(f"Chunking image description with strategy: {processing_options.chunking_strategy}")
+                documents = await self.chunking_service.chunk_documents(
+                    documents=documents,
+                    chunking_strategy=processing_options.chunking_strategy
+                )
+                logger.info(f"After chunking {filename}: {len(documents)} chunks")
+
+            # Link chunks to document if using new model
+            if document_id:
+                for doc in documents:
+                    doc.metadata["document_id"] = document_id
+
+            logger.info(f"Successfully processed image file {filename}")
+
+            return {
+                "documents": documents,
+                "document_records": document_records
+            }
+
+        except Exception as e:
+            logger.error(f"Error processing image file {filename}: {e}", exc_info=True)
             return {"error": str(e)}
 
     async def _process_complex_document_file(

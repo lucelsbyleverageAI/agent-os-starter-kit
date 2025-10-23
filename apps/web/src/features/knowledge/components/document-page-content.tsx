@@ -5,7 +5,7 @@ import { Card, CardContent } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Skeleton } from "@/components/ui/skeleton";
 import { toast } from "sonner";
-import { Eye, Layers, Edit, FileEdit, Trash2 } from "lucide-react";
+import { Eye, Layers, Edit, FileEdit, Trash2, Image as ImageIcon } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { getScrollbarClasses } from "@/lib/scrollbar-styles";
 import { MinimalistIconButton } from "@/components/ui/minimalist-icon-button";
@@ -14,7 +14,9 @@ import { DocumentContentEditor } from "@/components/ui/document-content-editor";
 import { ViewDocumentMetadataDialog } from "./documents-card/view-document-metadata-dialog";
 import { ViewDocumentChunksDialog } from "./documents-card/view-document-chunks-dialog";
 import { EditDocumentDialog } from "./documents-card/edit-document-dialog";
+import { ReplaceImageDialog } from "./documents-card/replace-image-dialog";
 import { useAuthContext } from "@/providers/Auth";
+import { isImageDocument, getSignedImageUrl } from "@/lib/image-utils";
 import {
   AlertDialog,
   AlertDialogAction,
@@ -78,6 +80,11 @@ export function DocumentPageContent({
   const [savingContent, setSavingContent] = useState(false);
   const [deleting, setDeleting] = useState(false);
 
+  // Image state
+  const [imageUrl, setImageUrl] = useState<string | null>(null);
+  const [loadingImageUrl, setLoadingImageUrl] = useState(false);
+  const [showReplaceImageDialog, setShowReplaceImageDialog] = useState(false);
+
   // Fetch document details
   useEffect(() => {
     if (!documentId || !collectionId) {
@@ -129,6 +136,42 @@ export function DocumentPageContent({
 
     fetchDocument();
   }, [documentId, collectionId, session?.accessToken]);
+
+  // Fetch signed URL for image documents
+  useEffect(() => {
+    if (!document || !session?.accessToken) return;
+
+    const fetchImageUrl = async () => {
+      // Check if this is an image document
+      if (!isImageDocument(document.metadata)) {
+        setImageUrl(null);
+        return;
+      }
+
+      // Check if storage path exists
+      const storagePath = document.metadata.storage_path;
+      if (!storagePath) {
+        console.warn("Image document missing storage_path");
+        return;
+      }
+
+      setLoadingImageUrl(true);
+      try {
+        const signedUrl = await getSignedImageUrl(storagePath, session.accessToken);
+        setImageUrl(signedUrl);
+      } catch (error) {
+        console.error("Failed to fetch signed image URL:", error);
+        toast.error("Failed to load image", {
+          richColors: true,
+          description: "Could not fetch image from storage",
+        });
+      } finally {
+        setLoadingImageUrl(false);
+      }
+    };
+
+    fetchImageUrl();
+  }, [document, session?.accessToken]);
 
   // Refresh document after edit
   const handleDocumentUpdated = async () => {
@@ -329,6 +372,13 @@ export function DocumentPageContent({
               setShowContentEditor(true);
             }}
           />
+          {isImageDocument(document.metadata) && (
+            <MinimalistIconButton
+              icon={ImageIcon}
+              tooltip="Replace Image"
+              onClick={() => setShowReplaceImageDialog(true)}
+            />
+          )}
           <AlertDialog>
             <AlertDialogTrigger asChild>
               <Button
@@ -372,14 +422,51 @@ export function DocumentPageContent({
         </div>
 
         {/* Document Content */}
-        <div
-          className={cn(
-            "min-h-[600px] overflow-y-auto rounded-md border border-border/30 bg-muted/5 p-6",
-            ...getScrollbarClasses("y")
-          )}
-        >
-          <MarkdownText>{document.content}</MarkdownText>
-        </div>
+        {isImageDocument(document.metadata) && imageUrl ? (
+          // Two-column layout for image documents
+          <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
+            {/* Image Column */}
+            <div
+              className={cn(
+                "flex items-start justify-center rounded-md border border-border/30 bg-muted/5 p-6 overflow-auto",
+                ...getScrollbarClasses("both")
+              )}
+              style={{ maxHeight: "calc(100vh - 300px)" }}
+            >
+              {loadingImageUrl ? (
+                <div className="flex items-center justify-center h-64">
+                  <Skeleton className="w-full h-full" />
+                </div>
+              ) : (
+                <img
+                  src={imageUrl}
+                  alt={document.title}
+                  className="w-full h-auto rounded"
+                />
+              )}
+            </div>
+
+            {/* Content Column */}
+            <div
+              className={cn(
+                "min-h-[600px] overflow-y-auto rounded-md border border-border/30 bg-muted/5 p-6",
+                ...getScrollbarClasses("y")
+              )}
+            >
+              <MarkdownText>{document.content}</MarkdownText>
+            </div>
+          </div>
+        ) : (
+          // Single column layout for text documents
+          <div
+            className={cn(
+              "min-h-[600px] overflow-y-auto rounded-md border border-border/30 bg-muted/5 p-6",
+              ...getScrollbarClasses("y")
+            )}
+          >
+            <MarkdownText>{document.content}</MarkdownText>
+          </div>
+        )}
       </div>
 
       {/* Metadata Dialog */}
@@ -421,6 +508,20 @@ export function DocumentPageContent({
         placeholder="Enter document content here..."
         saving={savingContent}
       />
+
+      {/* Replace Image Dialog */}
+      {isImageDocument(document.metadata) && imageUrl && session?.accessToken && (
+        <ReplaceImageDialog
+          open={showReplaceImageDialog}
+          onOpenChange={setShowReplaceImageDialog}
+          documentId={documentId}
+          collectionId={collectionId}
+          currentImageUrl={imageUrl}
+          currentTitle={document.title}
+          accessToken={session.accessToken}
+          onSuccess={handleDocumentUpdated}
+        />
+      )}
     </>
   );
 }
