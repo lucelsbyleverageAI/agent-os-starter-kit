@@ -103,17 +103,23 @@ class ListMeetingsTool(CustomTool):
             ToolParameter(
                 name="include_summary",
                 type="boolean",
-                description="Include meeting summaries in the response. Defaults to false.",
+                description="Include meeting summaries in the response. Defaults to true.",
                 required=False,
-                default=False,
+                default=True,
             ),
         ]
 
     async def _execute_impl(self, user_id: str, **kwargs: Any) -> str:
         """Execute the list meetings tool."""
         try:
-            # Get user email from context
+            # Get user email from context - REQUIRED for data scoping
             user_email = kwargs.get("_context_user_email")
+
+            if not user_email:
+                raise ToolExecutionError(
+                    "list_meetings",
+                    "User email is required for data scoping. Please ensure you are properly authenticated."
+                )
 
             # Get parameters
             from_date = kwargs.get("from_date")
@@ -125,8 +131,9 @@ class ListMeetingsTool(CustomTool):
             skip = kwargs.get("skip", 0)
             include_summary = kwargs.get("include_summary", False)
 
-            # Add user email to participants for scoping
-            if user_email and user_email not in participant_emails:
+            # SECURITY: Always add user email to participants for scoping
+            # This ensures users can only see meetings they participated in
+            if user_email not in participant_emails:
                 participant_emails.append(user_email)
 
             # Get Fireflies client and query
@@ -178,13 +185,39 @@ class ListMeetingsTool(CustomTool):
                     summary = transcript["summary"]
                     if summary:
                         markdown_parts.append("\n**Summary:**")
-                        if summary.get("short_summary"):
-                            markdown_parts.append(f"> {summary['short_summary']}")
+
+                        # Overview (longer summary)
+                        if summary.get("overview"):
+                            markdown_parts.append(f"> {summary['overview']}\n")
+                        # Short summary (fallback if no overview)
+                        elif summary.get("short_summary"):
+                            markdown_parts.append(f"> {summary['short_summary']}\n")
+
+                        # Bullet gist
+                        if summary.get("bullet_gist"):
+                            markdown_parts.append("**Key Points:**")
+                            markdown_parts.append(f"{summary['bullet_gist']}\n")
+
+                        # Action items
+                        if summary.get("action_items"):
+                            action_items = summary["action_items"]
+                            if action_items:
+                                markdown_parts.append("**Action Items:**")
+                                # action_items can be either a list or a string
+                                if isinstance(action_items, list):
+                                    for item in action_items:
+                                        markdown_parts.append(f"- {item}")
+                                else:
+                                    # If it's a string, display it as-is
+                                    markdown_parts.append(action_items)
+                                markdown_parts.append("")
+
+                        # Keywords
                         if summary.get("keywords"):
                             keywords = summary["keywords"]
                             if keywords:
                                 markdown_parts.append(
-                                    f"\n*Keywords:* {', '.join(keywords)}"
+                                    f"*Keywords:* {', '.join(keywords)}"
                                 )
 
                 markdown_parts.append("")
@@ -515,8 +548,14 @@ class SearchMeetingsTool(CustomTool):
     async def _execute_impl(self, user_id: str, **kwargs: Any) -> str:
         """Execute the search meetings tool."""
         try:
-            # Get user email from context
+            # Get user email from context - REQUIRED for data scoping
             user_email = kwargs.get("_context_user_email")
+
+            if not user_email:
+                raise ToolExecutionError(
+                    "search_meetings",
+                    "User email is required for data scoping. Please ensure you are properly authenticated."
+                )
 
             # Get parameters
             keyword = kwargs.get("keyword")
@@ -530,8 +569,9 @@ class SearchMeetingsTool(CustomTool):
             organizer_emails = kwargs.get("organizer_emails")
             limit = kwargs.get("limit", 20)
 
-            # Add user email to participants for scoping
-            if user_email and user_email not in participant_emails:
+            # SECURITY: Always add user email to participants for scoping
+            # This ensures users can only see meetings they participated in
+            if user_email not in participant_emails:
                 participant_emails.append(user_email)
 
             # Get Fireflies client and query

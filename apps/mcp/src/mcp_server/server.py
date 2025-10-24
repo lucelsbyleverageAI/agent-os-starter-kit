@@ -133,6 +133,11 @@ class MCPToolServer:
             try:
                 # Add JWT token for memory tools that need authentication with LangConnect
                 execution_kwargs = arguments or {}
+
+                # Inject user context for all tools
+                if user_context.email:
+                    execution_kwargs['_context_user_email'] = user_context.email
+
                 if hasattr(tool, 'toolkit_name') and tool.toolkit_name == 'memory':
                     # Block memory tools for service-account authentication (MCP security requirement)
                     auth_method = user_context.metadata.get('auth_method') if hasattr(user_context, 'metadata') else None

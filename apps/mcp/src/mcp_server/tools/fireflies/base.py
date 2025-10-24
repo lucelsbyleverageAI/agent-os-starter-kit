@@ -108,8 +108,8 @@ class FirefliesClient:
             $fromDate: DateTime
             $toDate: DateTime
             $keyword: String
-            $participants: [String]
-            $organizers: [String]
+            $participants: [String!]
+            $organizers: [String!]
             $limit: Int
             $skip: Int
         ) {{
