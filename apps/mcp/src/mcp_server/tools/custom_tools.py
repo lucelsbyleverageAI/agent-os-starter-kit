@@ -31,18 +31,25 @@ from .monday import (
     GetProcessesTool,
 )
 
+from .fireflies import (
+    ListMeetingsTool,
+    GetMeetingSummaryTool,
+    GetMeetingTranscriptTool,
+    SearchMeetingsTool,
+)
+
 # Registry of available custom tools
 CUSTOM_TOOLS = [
-    
+
     # Tavily Tools
     TavilySearchTool(),
     TavilyExtractTool(),
     TavilyCrawlTool(),
     TavilyMapTool(),
-    
+
     # E2B Code Sandbox Tools
     E2BExecuteCodeTool(),
-    
+
     # Memory Tools
     AddMemoryTool(),
     SearchMemoryTool(),
@@ -50,7 +57,7 @@ CUSTOM_TOOLS = [
     GetAllMemoriesTool(),
     UpdateMemoryTool(),
     DeleteMemoryTool(),
-    
+
     # Monday Tools
     ListBoardsTool(),
     GetBoardColumnsTool(),
@@ -59,5 +66,11 @@ CUSTOM_TOOLS = [
     GetCustomersTool(),
     GetCustomerInfoTool(),
     GetProcessesTool(),
-    
+
+    # Fireflies Tools
+    ListMeetingsTool(),
+    GetMeetingSummaryTool(),
+    GetMeetingTranscriptTool(),
+    SearchMeetingsTool(),
+
 ] 
