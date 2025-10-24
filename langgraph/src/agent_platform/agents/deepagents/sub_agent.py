@@ -26,6 +26,9 @@ from agent_platform.utils.model_utils import (
     init_model,
     ModelConfig,
     RetryConfig,
+    get_model_info,
+    MessageTrimmingConfig,
+    create_trimming_hook,
 )
 from langgraph.types import Command
 from langchain_core.runnables import RunnableConfig
@@ -202,8 +205,36 @@ async def _get_agents(
 
     # Only add general-purpose agent if enabled
     if include_general_purpose:
+        # Create trimming hook for general-purpose agent
+        gp_model_name = model if isinstance(model, str) else "anthropic:claude-sonnet-4-5-20250929"
+        gp_model_info = get_model_info(gp_model_name)
+        gp_trimming_hook = None
+
+        if gp_model_info.enable_trimming:
+            gp_trimming_hook = create_trimming_hook(
+                MessageTrimmingConfig(
+                    enabled=True,
+                    max_tokens=gp_model_info.trimming_max_tokens,
+                    strategy="last",
+                    start_on="human",
+                    end_on=("human", "tool"),
+                    include_system=True,
+                )
+            )
+            logger.info(
+                "[SUB_AGENT] trimming_enabled agent=general-purpose max_tokens=%s",
+                gp_model_info.trimming_max_tokens
+            )
+
         agents["general-purpose"] = custom_create_react_agent(
-            model, prompt=GENERAL_PURPOSE_SUBAGENT_PROMPT, tools=tools, state_schema=state_schema, checkpointer=False, post_model_hook=post_model_hook, enable_image_processing=False
+            model,
+            prompt=GENERAL_PURPOSE_SUBAGENT_PROMPT,
+            tools=tools,
+            state_schema=state_schema,
+            checkpointer=False,
+            post_model_hook=post_model_hook,
+            pre_model_hook=gp_trimming_hook,
+            enable_image_processing=False
         )
     # Parent tools (selected for main agent)
     parent_tools_by_name = {
@@ -280,6 +311,37 @@ async def _get_agents(
             sub_model = model
             logger.info("[SUB_AGENT] model_initialized agent=%s source=parent", agent_name)
 
+        # Create trimming hook for this sub-agent based on its model
+        sub_model_name = None
+        if isinstance(agent_model, str):
+            sub_model_name = agent_model
+        elif isinstance(agent_model, dict):
+            sub_model_name = agent_model.get('model_name') or agent_model.get('model')
+
+        # Fallback to parent model name or default
+        if not sub_model_name:
+            sub_model_name = model if isinstance(model, str) else "anthropic:claude-sonnet-4-5-20250929"
+
+        sub_model_info = get_model_info(sub_model_name)
+        sub_trimming_hook = None
+
+        if sub_model_info.enable_trimming:
+            sub_trimming_hook = create_trimming_hook(
+                MessageTrimmingConfig(
+                    enabled=True,
+                    max_tokens=sub_model_info.trimming_max_tokens,
+                    strategy="last",
+                    start_on="human",
+                    end_on=("human", "tool"),
+                    include_system=True,
+                )
+            )
+            logger.info(
+                "[SUB_AGENT] trimming_enabled agent=%s max_tokens=%s",
+                agent_name,
+                sub_model_info.trimming_max_tokens
+            )
+
         logger.info("[SUB_AGENT] tools_assigned agent=%s total=%s", agent_name, len(_tools))
         agents[agent_name] = custom_create_react_agent(
             sub_model,
@@ -288,6 +350,7 @@ async def _get_agents(
             state_schema=state_schema,
             checkpointer=False,
             post_model_hook=post_model_hook,
+            pre_model_hook=sub_trimming_hook,
             enable_image_processing=False,
         )
 
