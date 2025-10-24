@@ -5,7 +5,7 @@ import { Card, CardContent } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Skeleton } from "@/components/ui/skeleton";
 import { toast } from "sonner";
-import { Eye, Layers, Edit, FileEdit, Trash2 } from "lucide-react";
+import { Eye, Layers, Edit, FileEdit, Trash2, Download } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { getScrollbarClasses } from "@/lib/scrollbar-styles";
 import { MinimalistIconButton } from "@/components/ui/minimalist-icon-button";
@@ -28,6 +28,16 @@ import {
 } from "@/components/ui/alert-dialog";
 import { useKnowledgeContext } from "../providers/Knowledge";
 import { useRouter } from "next/navigation";
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuTrigger,
+} from "@/components/ui/dropdown-menu";
+import {
+  downloadMarkdownAsDocx,
+  downloadAsMarkdown,
+} from "@/lib/markdown-to-docx";
 
 interface DocumentDetail {
   id: string;
@@ -77,6 +87,7 @@ export function DocumentPageContent({
   const [editedContent, setEditedContent] = useState("");
   const [savingContent, setSavingContent] = useState(false);
   const [deleting, setDeleting] = useState(false);
+  const [downloading, setDownloading] = useState(false);
 
   // Fetch document details
   useEffect(() => {
@@ -213,6 +224,38 @@ export function DocumentPageContent({
     }
   };
 
+  // Handle download
+  const handleDownload = async (format: "md" | "docx") => {
+    if (!document) return;
+
+    try {
+      setDownloading(true);
+
+      // Get filename without extension
+      const filename = document.title.replace(/\.[^/.]+$/, "");
+
+      // Download in selected format
+      if (format === "docx") {
+        await downloadMarkdownAsDocx(document.content, filename);
+      } else {
+        downloadAsMarkdown(document.content, filename);
+      }
+
+      toast.success(`Document downloaded successfully`, {
+        richColors: true,
+        description: `"${document.title}" downloaded as ${format.toUpperCase()}`,
+      });
+    } catch (error) {
+      console.error("Download failed:", error);
+      toast.error("Download failed", {
+        richColors: true,
+        description: error instanceof Error ? error.message : "Failed to download document",
+      });
+    } finally {
+      setDownloading(false);
+    }
+  };
+
   // Handle document deletion
   const handleDeleteDocument = async () => {
     if (!document) return;
@@ -329,6 +372,32 @@ export function DocumentPageContent({
               setShowContentEditor(true);
             }}
           />
+          <DropdownMenu>
+            <DropdownMenuTrigger asChild>
+              <Button
+                variant="ghost"
+                size="icon"
+                className="h-8 w-8"
+                disabled={downloading}
+              >
+                <Download className="h-4 w-4" />
+              </Button>
+            </DropdownMenuTrigger>
+            <DropdownMenuContent align="end">
+              <DropdownMenuItem
+                onClick={() => handleDownload("md")}
+                disabled={downloading}
+              >
+                Markdown (.md)
+              </DropdownMenuItem>
+              <DropdownMenuItem
+                onClick={() => handleDownload("docx")}
+                disabled={downloading}
+              >
+                Word Document (.docx)
+              </DropdownMenuItem>
+            </DropdownMenuContent>
+          </DropdownMenu>
           <AlertDialog>
             <AlertDialogTrigger asChild>
               <Button

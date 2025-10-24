@@ -126,8 +126,39 @@ async def graph(config: RunnableConfig):
 
     # Initialize model with centralized config using init_model_simple
     # This ensures we get the correct max_tokens from the model registry
-    from agent_platform.utils.model_utils import init_model_simple
+    from agent_platform.utils.model_utils import (
+        init_model_simple,
+        get_model_info,
+        MessageTrimmingConfig,
+        create_trimming_hook,
+    )
     model = init_model_simple(model_name=cfg.model_name)
+
+    # Create message trimming hook based on model-level settings
+    model_info = get_model_info(cfg.model_name)
+    trimming_hook = None
+
+    if model_info.enable_trimming:
+        trimming_hook = create_trimming_hook(
+            MessageTrimmingConfig(
+                enabled=True,
+                max_tokens=model_info.trimming_max_tokens,
+                strategy="last",
+                start_on="human",
+                end_on=("human", "tool"),
+                include_system=True,
+            )
+        )
+        logger.info(
+            "[DEEPAGENT] message_trimming_enabled max_tokens=%s (model: %s)",
+            model_info.trimming_max_tokens,
+            model_info.display_name
+        )
+    else:
+        logger.info(
+            "[DEEPAGENT] message_trimming_disabled (model: %s)",
+            model_info.display_name
+        )
 
     sub_agents_config = json.loads(cfg.json()).get("sub_agents", [])
 
@@ -140,6 +171,7 @@ async def graph(config: RunnableConfig):
         config_schema=GraphConfigPydantic,
         runnable_config=config,
         include_general_purpose_agent=cfg.include_general_purpose_agent,
+        pre_model_hook=trimming_hook,
     )
 
     return agent

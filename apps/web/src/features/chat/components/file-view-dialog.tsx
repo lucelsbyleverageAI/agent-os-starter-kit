@@ -1,6 +1,6 @@
 "use client";
 
-import React, { useMemo, useCallback } from "react";
+import React, { useMemo, useCallback, useState } from "react";
 import { FileText, Copy, Download } from "lucide-react";
 import { Dialog, DialogContent, DialogTitle } from "@/components/ui/dialog";
 import { Button } from "@/components/ui/button";
@@ -9,6 +9,17 @@ import { Prism as SyntaxHighlighter } from "react-syntax-highlighter";
 import { oneDark } from "react-syntax-highlighter/dist/esm/styles/prism";
 import { MarkdownText } from "@/components/ui/markdown-text";
 import { FileItem } from "@/types/deep-agent";
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@/components/ui/select";
+import {
+  downloadMarkdownAsDocx,
+  downloadAsMarkdown,
+} from "@/lib/markdown-to-docx";
 
 interface FileViewDialogProps {
   file: FileItem;
@@ -17,6 +28,8 @@ interface FileViewDialogProps {
 
 export const FileViewDialog = React.memo<FileViewDialogProps>(
   ({ file, onClose }) => {
+    const [downloadFormat, setDownloadFormat] = useState<"md" | "docx">("md");
+
     const fileExtension = useMemo(() => {
       return file.path.split(".").pop()?.toLowerCase() || "";
     }, [file.path]);
@@ -70,19 +83,22 @@ export const FileViewDialog = React.memo<FileViewDialogProps>(
       }
     }, [file.content]);
 
-    const handleDownload = useCallback(() => {
+    const handleDownload = useCallback(async () => {
       if (file.content) {
-        const blob = new Blob([file.content], { type: "text/plain" });
-        const url = URL.createObjectURL(blob);
-        const a = document.createElement("a");
-        a.href = url;
-        a.download = file.path;
-        document.body.appendChild(a);
-        a.click();
-        document.body.removeChild(a);
-        URL.revokeObjectURL(url);
+        // Get filename without extension
+        const filename = file.path.replace(/\.[^/.]+$/, "");
+
+        try {
+          if (downloadFormat === "docx") {
+            await downloadMarkdownAsDocx(file.content, filename);
+          } else {
+            downloadAsMarkdown(file.content, filename);
+          }
+        } catch (error) {
+          console.error("Download failed:", error);
+        }
       }
-    }, [file.content, file.path]);
+    }, [file.content, file.path, downloadFormat]);
 
     return (
       <Dialog open={true} onOpenChange={onClose}>
@@ -93,7 +109,7 @@ export const FileViewDialog = React.memo<FileViewDialogProps>(
               <FileText className="w-5 h-5 text-muted-foreground flex-shrink-0" />
               <span className="font-medium truncate">{file.path}</span>
             </div>
-            <div className="flex gap-2 flex-shrink-0">
+            <div className="flex gap-2 flex-shrink-0 items-center">
               <Button
                 variant="ghost"
                 size="sm"
@@ -103,6 +119,15 @@ export const FileViewDialog = React.memo<FileViewDialogProps>(
                 <Copy size={16} />
                 Copy
               </Button>
+              <Select value={downloadFormat} onValueChange={(val) => setDownloadFormat(val as "md" | "docx")}>
+                <SelectTrigger className="w-[180px]">
+                  <SelectValue />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="md">Markdown (.md)</SelectItem>
+                  <SelectItem value="docx">Word Document (.docx)</SelectItem>
+                </SelectContent>
+              </Select>
               <Button
                 variant="ghost"
                 size="sm"

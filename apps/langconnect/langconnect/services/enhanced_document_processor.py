@@ -795,60 +795,82 @@ class EnhancedDocumentProcessor:
         document_manager: Optional[DocumentManager] = None
     ) -> Dict[str, Any]:
         """Process complex document files using Docling.
-        
+
         Args:
             file_obj: File object to process
             processing_options: Processing configuration
             document_manager: Optional document manager
-            
+
         Returns:
             Dictionary with processing results
         """
-        # Get filename
+        import time
+
+        # Get filename and file info
         filename = getattr(file_obj, 'filename', 'unknown')
         if isinstance(file_obj, dict):
             filename = file_obj.get('filename', 'unknown')
-        
-        logger.info(f"Processing complex document file: {filename}")
+
+        logger.info(f"{'='*80}")
+        logger.info(f"📄 Processing complex document file: {filename}")
+        logger.info(f"⚙️  Processing mode: {processing_options.processing_mode}")
+        logger.info(f"⚙️  Chunking strategy: {processing_options.chunking_strategy}")
+
+        processing_start_time = time.time()
         
         try:
             # Convert to temporary file for processing
             temp_file_path = None
             try:
+                logger.info("📦 Creating temporary file for Docling processing...")
                 with tempfile.NamedTemporaryFile(delete=False, suffix=f'_{filename}') as temp_file:
                     temp_file_path = temp_file.name
-                    
+
                     # Write file content to temp file
                     if hasattr(file_obj, 'content'):
                         # SimpleUploadFile object
-                        temp_file.write(file_obj.content)
+                        content_bytes = file_obj.content
+                        temp_file.write(content_bytes)
+                        logger.info(f"📝 Wrote {len(content_bytes)} bytes from SimpleUploadFile")
                     elif hasattr(file_obj, 'read'):
                         # UploadFile object
                         await file_obj.seek(0)
-                        content = await file_obj.read()
-                        temp_file.write(content)
+                        content_bytes = await file_obj.read()
+                        temp_file.write(content_bytes)
+                        logger.info(f"📝 Wrote {len(content_bytes)} bytes from UploadFile")
                     elif isinstance(file_obj, dict) and 'content_b64' in file_obj:
                         # Base64 content
-                        content = base64.b64decode(file_obj['content_b64'])
-                        temp_file.write(content)
+                        content_bytes = base64.b64decode(file_obj['content_b64'])
+                        temp_file.write(content_bytes)
+                        logger.info(f"📝 Wrote {len(content_bytes)} bytes from base64 content")
                     else:
                         raise ValueError(f"Unknown file object type for {filename}")
-                    
+
                     temp_file.flush()
-                
-                logger.info(f"Created temporary file for {filename}: {temp_file_path}")
+
+                file_size_mb = os.path.getsize(temp_file_path) / (1024 * 1024)
+                logger.info(f"✅ Created temporary file: {temp_file_path} ({file_size_mb:.2f} MB)")
                 
                 # Process with Docling
+                logger.info("🚀 Starting Docling document conversion...")
+                docling_start_time = time.time()
+
                 conversion_result = await self.docling_service.convert_document(
                     temp_file_path,
                     processing_options
                 )
-                
-                logger.info(f"Docling conversion result for {filename} - status: {conversion_result.status}")
+
+                docling_elapsed = time.time() - docling_start_time
+                logger.info(f"⏱️  Docling conversion completed in {docling_elapsed:.2f}s")
+                logger.info(f"📊 Conversion status: {conversion_result.status}")
                 
                 if conversion_result.status == ConversionStatus.SUCCESS:
+                    # Get page count for logging
+                    page_count = len(conversion_result.document.pages) if conversion_result.document else 0
+                    logger.info(f"✅ SUCCESS: Extracted {page_count} pages from {filename}")
+
                     # Convert to LangChain documents first
-                    logger.info(f"Converting to LangChain documents for {filename}")
+                    logger.info("📝 Converting Docling result to LangChain documents...")
                     documents = self._convert_docling_result_to_documents(
                         conversion_result,
                         filename,
@@ -858,8 +880,15 @@ class EnhancedDocumentProcessor:
 
                     # Get full content for metadata generation
                     full_content = documents[0].page_content if documents else ""
+                    content_length = len(full_content)
+                    logger.info(f"📄 Extracted {content_length} characters of content")
 
                     # Generate individual document metadata (with AI if requested)
+                    if processing_options.use_ai_metadata:
+                        logger.info("🤖 Generating AI metadata (title & description)...")
+                    else:
+                        logger.info("📋 Using filename-based metadata...")
+
                     individual_title, individual_description = await self._generate_individual_document_metadata(
                         filename=filename,
                         content=full_content,
@@ -867,12 +896,16 @@ class EnhancedDocumentProcessor:
                         processing_mode=processing_options.processing_mode
                     )
 
+                    logger.info(f"📌 Title: {individual_title}")
+                    if individual_description:
+                        logger.info(f"📌 Description: {individual_description[:100]}...")
+
                     # Update the document metadata with generated title and description
                     for doc in documents:
                         doc.metadata["title"] = individual_title
                         doc.metadata["description"] = individual_description
 
-                    logger.info(f"Created {len(documents)} LangChain documents for {filename}")
+                    logger.info(f"✅ Created {len(documents)} LangChain document(s) for {filename}")
 
                     # Store full document if using new model
                     document_records = []
@@ -911,19 +944,30 @@ class EnhancedDocumentProcessor:
 
                     # Chunk documents
                     if processing_options.chunking_strategy != "none":
-                        logger.info(f"Chunking documents for {filename} with strategy: {processing_options.chunking_strategy}")
+                        logger.info(f"✂️  Chunking documents with strategy: {processing_options.chunking_strategy}")
+                        chunking_start = time.time()
+
                         documents = await self.chunking_service.chunk_documents(
                             documents,
                             processing_options.chunking_strategy
                         )
-                        logger.info(f"After chunking {filename}: {len(documents)} chunks")
+
+                        chunking_elapsed = time.time() - chunking_start
+                        logger.info(f"✅ Chunking completed in {chunking_elapsed:.2f}s: {len(documents)} chunks created")
+                    else:
+                        logger.info("⏭️  Skipping chunking (strategy: none)")
 
                     # Link chunks to document if using new model
                     if document_id:
+                        logger.info(f"🔗 Linking {len(documents)} chunks to document {document_id}")
                         for doc in documents:
                             doc.metadata["document_id"] = document_id
 
-                    logger.info(f"Successfully processed file {filename}")
+                    total_elapsed = time.time() - processing_start_time
+                    logger.info(f"{'='*80}")
+                    logger.info(f"✅ COMPLETE: Successfully processed {filename} in {total_elapsed:.2f}s")
+                    logger.info(f"📊 Final stats: {len(documents)} chunks, {page_count} pages, {content_length} chars")
+                    logger.info(f"{'='*80}")
 
                     return {
                         "documents": documents,
@@ -931,7 +975,11 @@ class EnhancedDocumentProcessor:
                     }
 
                 else:
-                    logger.warning(f"Failed to convert file {filename}: {conversion_result.status}")
+                    total_elapsed = time.time() - processing_start_time
+                    logger.error(f"{'='*80}")
+                    logger.error(f"❌ FAILED: Conversion failed for {filename} after {total_elapsed:.2f}s")
+                    logger.error(f"📊 Status: {conversion_result.status}")
+                    logger.error(f"{'='*80}")
                     return {"error": f"Conversion failed with status: {conversion_result.status}"}
 
             finally:
@@ -939,12 +987,17 @@ class EnhancedDocumentProcessor:
                 if temp_file_path and os.path.exists(temp_file_path):
                     try:
                         os.unlink(temp_file_path)
-                        logger.debug(f"Cleaned up temporary file: {temp_file_path}")
+                        logger.debug(f"🗑️  Cleaned up temporary file: {temp_file_path}")
                     except OSError as cleanup_error:
-                        logger.warning(f"Failed to cleanup temp file {temp_file_path}: {cleanup_error}")
+                        logger.warning(f"⚠️  Failed to cleanup temp file {temp_file_path}: {cleanup_error}")
 
         except Exception as e:
-            logger.error(f"Error processing complex document file {filename}: {e}", exc_info=True)
+            total_elapsed = time.time() - processing_start_time
+            logger.error(f"{'='*80}")
+            logger.error(f"❌ ERROR: Exception while processing {filename} after {total_elapsed:.2f}s")
+            logger.error(f"📊 Error: {str(e)}")
+            logger.error(f"{'='*80}")
+            logger.error(f"Full traceback:", exc_info=True)
             return {"error": str(e)}
         
     async def process_input(

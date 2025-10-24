@@ -52,10 +52,16 @@ ENV PYTHONUNBUFFERED=1 \
     HOME="/home/langconnect"
 
 # Install runtime dependencies only
+# - libpq5: PostgreSQL client library
+# - curl: Health checks
+# - libgl1: OpenGL library (required by OpenCV for table structure detection)
+# - libglib2.0-0: GLib library (required by OpenCV)
 RUN apt-get update && \
     apt-get install -y --no-install-recommends \
     libpq5 \
     curl \
+    libgl1 \
+    libglib2.0-0 \
     && rm -rf /var/lib/apt/lists/* \
     && apt-get clean
 
