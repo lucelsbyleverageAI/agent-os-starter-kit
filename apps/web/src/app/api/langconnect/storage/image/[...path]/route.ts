@@ -90,8 +90,19 @@ export async function GET(
       imageResponse.headers.get("content-type") || "image/png";
     headers.set("Content-Type", contentType);
 
-    // Add caching headers (images rarely change)
-    headers.set("Cache-Control", "public, max-age=3600, immutable");
+    // Add caching headers
+    // If cache-busting param is present (e.g., ?v=timestamp), cache for longer with immutable
+    // Otherwise, use shorter cache with revalidation to support image updates
+    const url = new URL(request.url);
+    const hasCacheBuster = url.searchParams.has("v");
+
+    if (hasCacheBuster) {
+      // With cache-busting, we can safely cache for a long time
+      headers.set("Cache-Control", "public, max-age=31536000, immutable");
+    } else {
+      // Without cache-busting, use shorter cache and allow revalidation
+      headers.set("Cache-Control", "public, max-age=300, must-revalidate");
+    }
 
     // Preserve other useful headers
     if (imageResponse.headers.has("content-length")) {

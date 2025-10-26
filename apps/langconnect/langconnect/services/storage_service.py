@@ -10,7 +10,8 @@ from langconnect import config
 logger = logging.getLogger(__name__)
 
 # Configuration - hard-coded for consistency across deployments
-STORAGE_BUCKET = "collections"
+COLLECTIONS_BUCKET = "collections"
+CHAT_UPLOADS_BUCKET = "chat-uploads"
 SIGNED_URL_EXPIRY_SECONDS = 1800  # 30 minutes
 
 
@@ -20,7 +21,8 @@ class StorageService:
     def __init__(self):
         """Initialize the storage service."""
         self.client = create_client(config.SUPABASE_URL, config.SUPABASE_KEY)
-        self.bucket = STORAGE_BUCKET
+        self.collections_bucket = COLLECTIONS_BUCKET
+        self.chat_uploads_bucket = CHAT_UPLOADS_BUCKET
         self.signed_url_expiry = SIGNED_URL_EXPIRY_SECONDS
 
     def _generate_storage_path(
@@ -72,7 +74,7 @@ class StorageService:
             file_path = self._generate_storage_path(collection_uuid, filename)
 
             # Upload to Supabase Storage
-            response = self.client.storage.from_(self.bucket).upload(
+            response = self.client.storage.from_(self.collections_bucket).upload(
                 path=file_path,
                 file=file_data,
                 file_options={
@@ -85,32 +87,106 @@ class StorageService:
             logger.info(f"Uploaded image to storage: {file_path}")
 
             # Generate storage URI
-            storage_uri = f"storage://{self.bucket}/{file_path}"
+            storage_uri = f"storage://{self.collections_bucket}/{file_path}"
 
             # Get public URL (if bucket is public)
-            public_url = self.client.storage.from_(self.bucket).get_public_url(file_path)
+            public_url = self.client.storage.from_(self.collections_bucket).get_public_url(file_path)
 
             return {
                 "storage_path": storage_uri,
                 "public_url": public_url,
                 "file_path": file_path,
-                "bucket": self.bucket
+                "bucket": self.collections_bucket
             }
 
         except Exception as e:
             logger.error(f"Failed to upload image to storage: {e}")
             raise
 
+    def _generate_chat_storage_path(
+        self,
+        user_id: str,
+        filename: str
+    ) -> str:
+        """Generate a storage path for a chat upload.
+
+        Format: {user_id}/{timestamp}_{filename}
+
+        Args:
+            user_id: UUID of the user
+            filename: Original filename
+
+        Returns:
+            Storage path string
+        """
+        timestamp = datetime.utcnow().strftime("%Y%m%d_%H%M%S_%f")
+        safe_filename = filename.replace(" ", "_")
+        return f"{user_id}/{timestamp}_{safe_filename}"
+
+    async def upload_chat_image(
+        self,
+        file_data: bytes,
+        filename: str,
+        content_type: str,
+        user_id: str,
+    ) -> dict:
+        """Upload a chat image file to Supabase Storage.
+
+        Args:
+            file_data: Binary file content
+            filename: Original filename
+            content_type: MIME type (e.g., 'image/jpeg')
+            user_id: UUID of the user
+
+        Returns:
+            dict with:
+                - storage_path: Just the path within bucket (for message content)
+                - file_path: Same as storage_path
+                - bucket: Bucket name
+
+        Raises:
+            Exception: If upload fails
+        """
+        try:
+            # Generate storage path
+            file_path = self._generate_chat_storage_path(user_id, filename)
+
+            # Upload to Supabase Storage
+            response = self.client.storage.from_(self.chat_uploads_bucket).upload(
+                path=file_path,
+                file=file_data,
+                file_options={
+                    "content-type": content_type,
+                    "cache-control": "3600",
+                    "upsert": "false"  # Don't overwrite existing files
+                }
+            )
+
+            logger.info(f"Uploaded chat image to storage: {file_path}")
+
+            # Return just the storage path (will be converted to signed URL at runtime)
+            return {
+                "storage_path": file_path,  # Just the path, not storage:// URI
+                "file_path": file_path,
+                "bucket": self.chat_uploads_bucket
+            }
+
+        except Exception as e:
+            logger.error(f"Failed to upload chat image to storage: {e}")
+            raise
+
     async def get_signed_url(
         self,
         file_path: str,
-        expiry_seconds: Optional[int] = None
+        expiry_seconds: Optional[int] = None,
+        bucket: Optional[str] = None
     ) -> str:
         """Generate a signed URL for temporary access to a file.
 
         Args:
             file_path: Path within bucket (not storage:// URI)
             expiry_seconds: Expiry time in seconds (default: 30 minutes)
+            bucket: Bucket name (default: collections bucket)
 
         Returns:
             Signed URL string
@@ -120,8 +196,9 @@ class StorageService:
         """
         try:
             expiry = expiry_seconds or self.signed_url_expiry
+            bucket_name = bucket or self.collections_bucket
 
-            response = self.client.storage.from_(self.bucket).create_signed_url(
+            response = self.client.storage.from_(bucket_name).create_signed_url(
                 path=file_path,
                 expires_in=expiry
             )
@@ -137,11 +214,12 @@ class StorageService:
             logger.error(f"Failed to generate signed URL: {e}")
             raise
 
-    async def delete_file(self, file_path: str) -> bool:
+    async def delete_file(self, file_path: str, bucket: Optional[str] = None) -> bool:
         """Delete a file from storage.
 
         Args:
             file_path: Path within bucket
+            bucket: Bucket name (default: collections bucket)
 
         Returns:
             True if successful
@@ -150,13 +228,58 @@ class StorageService:
             Exception: If deletion fails
         """
         try:
-            self.client.storage.from_(self.bucket).remove([file_path])
+            bucket_name = bucket or self.collections_bucket
+            self.client.storage.from_(bucket_name).remove([file_path])
             logger.info(f"Deleted file from storage: {file_path}")
             return True
 
         except Exception as e:
             logger.error(f"Failed to delete file from storage: {e}")
             raise
+
+    async def delete_thread_images(self, user_id: str, thread_id: str) -> int:
+        """Delete all images associated with a thread.
+
+        Args:
+            user_id: UUID of the user
+            thread_id: UUID of the thread
+
+        Returns:
+            Number of files deleted
+
+        Raises:
+            Exception: If deletion fails
+        """
+        try:
+            # List all files in the thread folder
+            # Path format: {user_id}/{thread_id}/
+            prefix = f"{user_id}/{thread_id}/"
+
+            # List files with this prefix
+            response = self.client.storage.from_(self.chat_uploads_bucket).list(
+                path=f"{user_id}/{thread_id}"
+            )
+
+            if not response:
+                logger.info(f"No files found for thread {thread_id}")
+                return 0
+
+            # Extract file paths
+            file_paths = [f"{prefix}{file['name']}" for file in response if file.get('name')]
+
+            if not file_paths:
+                logger.info(f"No files to delete for thread {thread_id}")
+                return 0
+
+            # Delete all files
+            self.client.storage.from_(self.chat_uploads_bucket).remove(file_paths)
+            logger.info(f"Deleted {len(file_paths)} files from thread {thread_id}")
+            return len(file_paths)
+
+        except Exception as e:
+            logger.error(f"Failed to delete thread images for {thread_id}: {e}")
+            # Don't raise - we still want to delete the thread even if storage cleanup fails
+            return 0
 
     def parse_storage_uri(self, storage_uri: str) -> dict:
         """Parse a storage:// URI into components.

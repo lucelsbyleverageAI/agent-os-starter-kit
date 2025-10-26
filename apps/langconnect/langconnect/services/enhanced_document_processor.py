@@ -911,6 +911,7 @@ class EnhancedDocumentProcessor:
             # Create document metadata
             document_metadata = {
                 "source": filename,
+                "source_type": "image_upload",
                 "title": title,
                 "description": short_description,
                 "file_type": "image",

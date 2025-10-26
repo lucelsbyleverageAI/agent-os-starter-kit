@@ -416,15 +416,24 @@ export function getImageProxyUrl(storagePath: string): string {
  *
  * @param storagePath - Storage URI (e.g., storage://collections/{uuid}/{filename})
  * @param accessToken - User's access token for authentication (unused, kept for compatibility)
+ * @param cacheBuster - Optional cache-busting value (timestamp or version) to force browser refresh
  * @returns Frontend proxy URL that works from the browser
  */
 export async function getSignedImageUrl(
   storagePath: string,
-  accessToken: string
+  accessToken: string,
+  cacheBuster?: string | number
 ): Promise<string> {
   // Instead of fetching a signed URL from the backend (which returns internal Docker URLs),
   // return the frontend proxy URL which handles everything server-side
-  return getImageProxyUrl(storagePath);
+  const baseUrl = getImageProxyUrl(storagePath);
+
+  // Add cache-busting parameter if provided
+  if (cacheBuster) {
+    return `${baseUrl}?v=${cacheBuster}`;
+  }
+
+  return baseUrl;
 }
 
 /**
@@ -499,18 +508,20 @@ export async function replaceDocumentImage(
  *
  * @param storagePaths - Array of storage URIs
  * @param accessToken - User's access token for authentication
+ * @param cacheBuster - Optional cache-busting value (timestamp or version) to force browser refresh
  * @returns Map of storage path -> signed URL
  */
 export async function batchGetSignedImageUrls(
   storagePaths: string[],
-  accessToken: string
+  accessToken: string,
+  cacheBuster?: string | number
 ): Promise<Map<string, string>> {
   const urlMap = new Map<string, string>();
 
   // Fetch all URLs in parallel
   const promises = storagePaths.map(async (path) => {
     try {
-      const url = await getSignedImageUrl(path, accessToken);
+      const url = await getSignedImageUrl(path, accessToken, cacheBuster);
       urlMap.set(path, url);
     } catch (error) {
       console.error(`Failed to fetch signed URL for ${path}:`, error);

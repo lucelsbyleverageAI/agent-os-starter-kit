@@ -1035,10 +1035,25 @@ async def delete_thread(
 ) -> Dict[str, Any]:
     """
     Delete a thread in LangGraph and then remove it from the mirror.
+    Also deletes any associated chat images from storage.
     """
     try:
         if actor.actor_type != "user":
             raise HTTPException(status_code=403, detail="Only users can delete threads")
+
+        # Delete associated chat images from storage
+        # This is done before deleting the thread to ensure we have the user_id
+        from langconnect.services.storage_service import storage_service
+        try:
+            deleted_count = await storage_service.delete_thread_images(
+                user_id=actor.identity,
+                thread_id=thread_id
+            )
+            if deleted_count > 0:
+                log.info(f"Deleted {deleted_count} images for thread {thread_id}")
+        except Exception as storage_error:
+            # Log but don't fail the entire deletion if storage cleanup fails
+            log.warning(f"Failed to delete storage images for thread {thread_id}: {storage_error}")
 
         # Delete upstream in LangGraph first (user-scoped)
         user_token = actor.access_token if hasattr(actor, "access_token") else None

@@ -25,6 +25,7 @@ from agent_platform.utils.model_utils import (
     MessageTrimmingConfig,
     create_trimming_hook,
 )
+from agent_platform.utils.message_utils import create_image_preprocessor
 
 # Import agent-specific configuration
 from agent_platform.agents.tools_agent.config import GraphConfigPydantic, UNEDITABLE_SYSTEM_PROMPT
@@ -202,7 +203,7 @@ async def graph(config: RunnableConfig):
     # Each model has its own trimming configuration based on context window
     model_info = get_model_info(cfg.model_name)
     trimming_hook = None
-    
+
     if model_info.enable_trimming:
         trimming_hook = create_trimming_hook(
             MessageTrimmingConfig(
@@ -225,6 +226,34 @@ async def graph(config: RunnableConfig):
             model_info.display_name
         )
 
+    # Step 5c: Create image preprocessor for handling image storage paths
+    # Get LangConnect URL from config
+    langconnect_api_url = (
+        cfg.rag.langconnect_api_url if cfg.rag else "http://langconnect:8080"
+    )
+
+    # Create image preprocessor
+    image_hook = create_image_preprocessor(langconnect_api_url)
+
+    # Combine hooks: image processing first, then trimming
+    combined_hook = None
+    if trimming_hook and image_hook:
+        async def combined_pre_model_hook(state, config):
+            state = await image_hook(state, config)  # Images first
+            trimming_result = trimming_hook(state)  # Then trim (sync, no await)
+            return {**state, **trimming_result}
+        combined_hook = combined_pre_model_hook
+    elif image_hook:
+        combined_hook = image_hook
+    elif trimming_hook:
+        combined_hook = trimming_hook
+
+    logger.info(
+        "[TOOLS_AGENT] hooks_configured image=%s trimming=%s",
+        image_hook is not None,
+        trimming_hook is not None
+    )
+
     # Step 6: Create and return the ReAct agent
     logger.info("[TOOLS_AGENT] agent_created tools_count=%s", len(tools))
     return create_react_agent(
@@ -232,5 +261,5 @@ async def graph(config: RunnableConfig):
         model=model,
         tools=tools,
         config_schema=GraphConfigPydantic,
-        pre_model_hook=trimming_hook,  # Configured per-model
+        pre_model_hook=combined_hook,  # Combined image + trimming hooks
     )

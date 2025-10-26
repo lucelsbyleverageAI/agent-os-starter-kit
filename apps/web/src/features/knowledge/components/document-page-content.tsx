@@ -95,6 +95,7 @@ export function DocumentPageContent({
   const [imageUrl, setImageUrl] = useState<string | null>(null);
   const [loadingImageUrl, setLoadingImageUrl] = useState(false);
   const [showReplaceImageDialog, setShowReplaceImageDialog] = useState(false);
+  const [refreshing, setRefreshing] = useState(false);
 
   // Fetch document details
   useEffect(() => {
@@ -168,7 +169,9 @@ export function DocumentPageContent({
 
       setLoadingImageUrl(true);
       try {
-        const signedUrl = await getSignedImageUrl(storagePath, session.accessToken);
+        // Use updated_at timestamp for cache-busting to ensure browser fetches new image after replacement
+        const cacheBuster = document.updated_at || Date.now();
+        const signedUrl = await getSignedImageUrl(storagePath, session.accessToken, cacheBuster);
         setImageUrl(signedUrl);
       } catch (error) {
         console.error("Failed to fetch signed image URL:", error);
@@ -184,33 +187,103 @@ export function DocumentPageContent({
     fetchImageUrl();
   }, [document, session?.accessToken]);
 
-  // Refresh document after edit
-  const handleDocumentUpdated = async () => {
+  // Refresh document after edit with polling to wait for background processing
+  const handleDocumentUpdated = async (waitForProcessing: boolean = true) => {
     if (!session?.accessToken) return;
 
-    try {
-      const response = await fetch(
-        `/api/langconnect/collections/${collectionId}/documents/${documentId}?include_chunks=true`,
-        {
-          headers: {
-            Authorization: `Bearer ${session.accessToken}`,
-          },
-        }
-      );
+    // Store current updated_at to detect when processing completes
+    const previousUpdatedAt = document?.updated_at;
 
-      if (!response.ok) {
-        throw new Error(`Failed to refresh document: ${response.statusText}`);
+    const fetchDocument = async (): Promise<DocumentDetail | null> => {
+      try {
+        const response = await fetch(
+          `/api/langconnect/collections/${collectionId}/documents/${documentId}?include_chunks=true`,
+          {
+            headers: {
+              Authorization: `Bearer ${session.accessToken}`,
+            },
+          }
+        );
+
+        if (!response.ok) {
+          throw new Error(`Failed to refresh document: ${response.statusText}`);
+        }
+
+        return await response.json();
+      } catch (err) {
+        console.error("Error refreshing document:", err);
+        return null;
+      }
+    };
+
+    if (!waitForProcessing) {
+      // Just fetch once without polling
+      const documentData = await fetchDocument();
+      if (documentData) {
+        setDocument(documentData);
+      }
+      return;
+    }
+
+    // Poll for updated document (wait for background processing to complete)
+    setRefreshing(true);
+
+    const refreshToast = toast.loading("Waiting for processing to complete...", {
+      richColors: true,
+      description: "Refreshing document with latest changes"
+    });
+
+    const maxAttempts = 15; // 15 attempts
+    const pollInterval = 1000; // 1 second between attempts
+    let attempts = 0;
+
+    const poll = async () => {
+      attempts++;
+      const documentData = await fetchDocument();
+
+      if (!documentData) {
+        // Failed to fetch, stop polling and show error
+        if (attempts >= maxAttempts) {
+          toast.dismiss(refreshToast);
+          toast.error("Failed to refresh document", {
+            description: "Please reload the page manually",
+            richColors: true,
+          });
+          setRefreshing(false);
+        }
+        return;
       }
 
-      const documentData: DocumentDetail = await response.json();
-      setDocument(documentData);
-    } catch (err) {
-      console.error("Error refreshing document:", err);
-      toast.error("Failed to refresh document", {
-        description: "Please reload the page",
-        richColors: true,
-      });
-    }
+      // Check if document has been updated (updated_at changed or this is first fetch)
+      const hasUpdated = !previousUpdatedAt || documentData.updated_at !== previousUpdatedAt;
+
+      if (hasUpdated || attempts >= maxAttempts) {
+        // Processing complete or max attempts reached - update UI
+        setDocument(documentData);
+        toast.dismiss(refreshToast);
+
+        if (hasUpdated) {
+          toast.success("Document refreshed", {
+            richColors: true,
+            description: "All changes are now visible"
+          });
+        } else {
+          // Max attempts reached without detecting update
+          toast.info("Document loaded", {
+            richColors: true,
+            description: "Some changes may still be processing"
+          });
+        }
+
+        setRefreshing(false);
+      } else {
+        // Not updated yet, continue polling
+        setTimeout(poll, pollInterval);
+      }
+    };
+
+    // Start polling after a brief delay to give backend time to start processing
+    setTimeout(poll, 500);
   };
 
   // Save document content changes
@@ -394,18 +467,19 @@ export function DocumentPageContent({
             icon={Eye}
             tooltip="View Metadata"
             onClick={() => setShowMetadata(true)}
-            disabled={!document.metadata}
+            disabled={!document.metadata || refreshing}
           />
           <MinimalistIconButton
             icon={Layers}
             tooltip="View Chunks"
             onClick={() => setShowChunks(true)}
-            disabled={!document.chunks || document.chunks.length === 0}
+            disabled={!document.chunks || document.chunks.length === 0 || refreshing}
           />
           <MinimalistIconButton
             icon={Edit}
             tooltip="Edit Metadata"
             onClick={() => setShowEditDialog(true)}
+            disabled={refreshing}
           />
           <MinimalistIconButton
             icon={FileEdit}
@@ -414,12 +488,14 @@ export function DocumentPageContent({
               setEditedContent(document.content);
               setShowContentEditor(true);
             }}
+            disabled={refreshing}
           />
           {isImageDocument(document.metadata) && (
             <MinimalistIconButton
               icon={ImageIcon}
               tooltip="Replace Image"
               onClick={() => setShowReplaceImageDialog(true)}
+              disabled={refreshing}
             />
           )}
           <DropdownMenu>
@@ -428,7 +504,7 @@ export function DocumentPageContent({
                 variant="ghost"
                 size="icon"
                 className="h-8 w-8"
-                disabled={downloading}
+                disabled={downloading || refreshing}
               >
                 <Download className="h-4 w-4" />
               </Button>
@@ -436,13 +512,13 @@ export function DocumentPageContent({
             <DropdownMenuContent align="end">
               <DropdownMenuItem
                 onClick={() => handleDownload("md")}
-                disabled={downloading}
+                disabled={downloading || refreshing}
               >
                 Markdown (.md)
               </DropdownMenuItem>
               <DropdownMenuItem
                 onClick={() => handleDownload("docx")}
-                disabled={downloading}
+                disabled={downloading || refreshing}
               >
                 Word Document (.docx)
               </DropdownMenuItem>
@@ -454,7 +530,7 @@ export function DocumentPageContent({
                 variant="ghost"
                 size="icon"
                 className="h-8 w-8 text-destructive hover:text-destructive hover:bg-destructive/10"
-                disabled={deleting}
+                disabled={deleting || refreshing}
               >
                 <Trash2 className="h-4 w-4" />
               </Button>
@@ -475,13 +551,13 @@ export function DocumentPageContent({
                 </AlertDialogDescription>
               </AlertDialogHeader>
               <AlertDialogFooter>
-                <AlertDialogCancel className="text-sm" disabled={deleting}>
+                <AlertDialogCancel className="text-sm" disabled={deleting || refreshing}>
                   Cancel
                 </AlertDialogCancel>
                 <AlertDialogAction
                   onClick={handleDeleteDocument}
                   className="bg-destructive hover:bg-destructive/90 text-white text-sm"
-                  disabled={deleting}
+                  disabled={deleting || refreshing}
                 >
                   {deleting ? "Deleting..." : "Delete Document"}
                 </AlertDialogAction>
