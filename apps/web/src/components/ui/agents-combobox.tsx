@@ -105,7 +105,8 @@ const getSelectedAgentValue = (
       </span>
     );
   }
-  return "";
+  // Return consistent empty span to avoid hydration mismatch
+  return <span className="flex w-full items-center gap-2 text-muted-foreground font-normal truncate"></span>;
 };
 
 /**
@@ -118,9 +119,12 @@ const getMultipleSelectedAgentValues = (
   values: string[],
   agents: Agent[],
 ): React.ReactNode => {
-  if (values.length === 0) return "";
+  if (values.length === 0) {
+    // Return consistent empty span to avoid hydration mismatch
+    return <span className="flex w-full items-center gap-2 text-muted-foreground font-normal truncate"></span>;
+  }
   if (values.length === 1) return getSelectedAgentValue(values[0], agents);
-  return `${values.length} agents selected`;
+  return <span className="flex w-full items-center gap-2 text-foreground font-normal truncate">{`${values.length} agents selected`}</span>;
 };
 
 const getNameFromValue = (value: string, agents: Agent[]) => {
