@@ -39,7 +39,8 @@ import {
   ChevronDown,
   ChevronsUpDown,
   Files,
-  Edit
+  Edit,
+  Download
 } from "lucide-react";
 import { Document } from "@langchain/core/documents";
 import { useKnowledgeContext } from "../../providers/Knowledge";
@@ -53,6 +54,16 @@ import { useRouter } from "next/navigation";
 import { isImageDocument, batchGetSignedImageUrls } from "@/lib/image-utils";
 import { ImagePreviewDialog } from "@/components/ui/image-preview-dialog";
 import { useAuthContext } from "@/providers/Auth";
+import {
+  downloadMarkdownAsDocx,
+  downloadAsMarkdown,
+} from "@/lib/markdown-to-docx";
+import {
+  DropdownMenu as DownloadFormatMenu,
+  DropdownMenuContent as DownloadFormatContent,
+  DropdownMenuItem as DownloadFormatItem,
+  DropdownMenuTrigger as DownloadFormatTrigger,
+} from "@/components/ui/dropdown-menu";
 
 // Truncate title helper
 const truncateTitle = (title: string, maxLength: number = 50): { truncated: string; isTruncated: boolean } => {
@@ -141,6 +152,10 @@ export function DocumentsTable({
   // Image state
   const [imageUrls, setImageUrls] = useState<Map<string, string>>(new Map());
   const [previewImage, setPreviewImage] = useState<{url: string, title: string} | null>(null);
+
+  // Download state
+  const [downloadingDocumentId, setDownloadingDocumentId] = useState<string | null>(null);
+  const [downloadFormatMenu, setDownloadFormatMenu] = useState<string | null>(null);
 
   // Refs for infinite scroll
   const tableContainerRef = useRef<HTMLDivElement>(null);
@@ -379,6 +394,55 @@ export function DocumentsTable({
       setDeletingDocumentId(null);
     }
   };
+
+  // Handle document download
+  const handleDownloadDocument = useCallback(async (documentId: string, documentName: string, format: "md" | "docx") => {
+    try {
+      setDownloadingDocumentId(documentId);
+      setDownloadFormatMenu(null);
+
+      // Fetch document content
+      const response = await fetch(
+        `/api/langconnect/collections/${selectedCollection.uuid}/documents/${documentId}/content`,
+        {
+          method: "GET",
+          headers: {
+            "Content-Type": "application/json",
+          },
+        }
+      );
+
+      if (!response.ok) {
+        throw new Error(`Failed to fetch document: ${response.statusText}`);
+      }
+
+      const data = await response.json();
+      const content = data.content || "";
+
+      // Get filename without extension
+      const filename = documentName.replace(/\.[^/.]+$/, "");
+
+      // Download in selected format
+      if (format === "docx") {
+        await downloadMarkdownAsDocx(content, filename);
+      } else {
+        downloadAsMarkdown(content, filename);
+      }
+
+      toast.success(`Document downloaded successfully`, {
+        richColors: true,
+        description: `"${documentName}" downloaded as ${format.toUpperCase()}`,
+      });
+    } catch (error) {
+      console.error("Download failed:", error);
+      toast.error("Download failed", {
+        richColors: true,
+        description: error instanceof Error ? error.message : "Failed to download document",
+      });
+    } finally {
+      setDownloadingDocumentId(null);
+    }
+  }, [selectedCollection.uuid]);
 
   // Handle infinite scroll
   const handleLoadMore = useCallback(async () => {
@@ -801,6 +865,35 @@ export function DocumentsTable({
                               <Edit className="mr-2 h-4 w-4" />
                               Edit Title & Description
                             </DropdownMenuItem>
+
+                            {/* Download submenu */}
+                            <DownloadFormatMenu open={downloadFormatMenu === doc.metadata.file_id} onOpenChange={(open) => setDownloadFormatMenu(open ? doc.metadata.file_id : null)}>
+                              <DownloadFormatTrigger asChild>
+                                <DropdownMenuItem
+                                  disabled={downloadingDocumentId === doc.metadata.file_id || batchDeleting}
+                                  onSelect={(e) => e.preventDefault()}
+                                >
+                                  <Download className="mr-2 h-4 w-4" />
+                                  {downloadingDocumentId === doc.metadata.file_id ? "Downloading..." : "Download"}
+                                  <span className="ml-auto text-xs text-muted-foreground">▶</span>
+                                </DropdownMenuItem>
+                              </DownloadFormatTrigger>
+                              <DownloadFormatContent align="start" side="right">
+                                <DownloadFormatItem
+                                  onClick={() => handleDownloadDocument(doc.metadata.file_id, doc.metadata.name, "md")}
+                                  disabled={downloadingDocumentId === doc.metadata.file_id}
+                                >
+                                  Markdown (.md)
+                                </DownloadFormatItem>
+                                <DownloadFormatItem
+                                  onClick={() => handleDownloadDocument(doc.metadata.file_id, doc.metadata.name, "docx")}
+                                  disabled={downloadingDocumentId === doc.metadata.file_id}
+                                >
+                                  Word Document (.docx)
+                                </DownloadFormatItem>
+                              </DownloadFormatContent>
+                            </DownloadFormatMenu>
+
                             <AlertDialogTrigger asChild>
                               <DropdownMenuItem
                                 className="text-destructive"
