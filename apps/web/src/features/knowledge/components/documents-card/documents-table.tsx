@@ -51,7 +51,7 @@ import { EditDocumentDialog } from "./edit-document-dialog";
 import { cn } from "@/lib/utils";
 import { getScrollbarClasses } from "@/lib/scrollbar-styles";
 import { useRouter } from "next/navigation";
-import { isImageDocument, batchGetSignedImageUrls } from "@/lib/image-utils";
+import { isImageDocument, getSignedImageUrl } from "@/lib/image-utils";
 import { ImagePreviewDialog } from "@/components/ui/image-preview-dialog";
 import { useAuthContext } from "@/providers/Auth";
 import {
@@ -517,21 +517,28 @@ export function DocumentsTable({
         return;
       }
 
-      // Extract storage paths
-      const storagePaths = imageDocs.map(doc => doc.metadata.storage_path);
-
       try {
-        // Batch fetch signed URLs
-        const urlMap = await batchGetSignedImageUrls(storagePaths, session.accessToken);
-
-        // Create a map from document ID to signed URL
+        // Fetch signed URLs individually with cache-busting per document
+        // Note: Each document needs its own cache-busting timestamp based on updated_at
         const docIdToUrlMap = new Map<string, string>();
-        imageDocs.forEach(doc => {
-          const signedUrl = urlMap.get(doc.metadata.storage_path);
-          if (signedUrl) {
-            docIdToUrlMap.set(doc.metadata.file_id, signedUrl);
-          }
-        });
+
+        await Promise.all(
+          imageDocs.map(async (doc) => {
+            try {
+              // Use document's updated_at as cache-buster to ensure fresh images after replacement
+              const cacheBuster = doc.metadata.updated_at || Date.now();
+              const signedUrl = await getSignedImageUrl(
+                doc.metadata.storage_path,
+                session.accessToken,
+                cacheBuster
+              );
+
+              docIdToUrlMap.set(doc.metadata.file_id, signedUrl);
+            } catch (error) {
+              console.error(`Failed to fetch signed URL for document ${doc.metadata.file_id}:`, error);
+            }
+          })
+        );
 
         setImageUrls(docIdToUrlMap);
       } catch (error) {

@@ -1211,24 +1211,31 @@ async def create_fs_list_files_tool(
     async def fs_list_files(
         collection_id: Annotated[Optional[str], "Optional collection filter; otherwise list across all accessible"] = None,
         limit: Annotated[int, "Max files to return (1-500). Default: 100"] = 100,
-        sort_by: Annotated[str, "Sort by: 'updated_at' | 'created_at' | 'name' | 'size'"] = "updated_at"
+        sort_by: Annotated[str, "Sort by: 'updated_at' | 'created_at' | 'name' | 'size'"] = "updated_at",
+        file_type: Annotated[Optional[str], "Optional filter by file type: 'image' | 'document' | 'text'"] = None
     ) -> str:
         """List files across your scoped collections or a specific collection.
 
         Useful for discovery before reading or editing. Returns id, collection,
-        name, description, sizes (bytes/lines), chunk_count, and timestamps.
+        name, description, sizes (bytes/lines), chunk_count, timestamps, and file_type.
+        For images, also returns storage_path and mime_type.
         Use descriptions to understand file contents at a glance.
+
+        File types:
+        - 'image': Uploaded images (use fs_read_image to view)
+        - 'document': Uploaded files or web pages
+        - 'text': Agent-created text documents
         """
         import json
         import httpx
-        
+
         # Validate collection_id if provided
         if collection_id and collection_id not in scoped_collections:
             error_response = {
                 "error": f"You don't have access to collection {collection_id}. Available collections can be found using fs_list_collections."
             }
             return json.dumps(error_response, indent=2)
-        
+
         url = f"{langconnect_api_url}/agent-filesystem/files"
         headers = {"Authorization": f"Bearer {access_token}"}
         params = {
@@ -1238,12 +1245,20 @@ async def create_fs_list_files_tool(
         }
         if collection_id:
             params["collection_id"] = collection_id
-        
+
+        # Map file_type to source_type for backend filtering
+        if file_type:
+            if file_type == "image":
+                params["source_type"] = "image_upload"
+            elif file_type == "document":
+                params["source_type"] = "file_upload"
+            # For 'text' type, don't add source_type filter (let backend handle it)
+
         async with httpx.AsyncClient() as client:
             response = await client.get(url, headers=headers, params=params, timeout=10.0)
             response.raise_for_status()
             data = response.json()
-        
+
         return json.dumps(data, indent=2)
     
     return fs_list_files
@@ -1298,6 +1313,75 @@ async def create_fs_read_file_tool(
         return json.dumps(result, indent=2)
     
     return fs_read_file
+
+
+async def create_fs_read_image_tool(
+    langconnect_api_url: str,
+    access_token: str,
+    scoped_collections: List[str]
+) -> StructuredTool:
+    """Create tool to read image documents (scoped to agent config)."""
+
+    @tool
+    async def fs_read_image(
+        document_id: Annotated[str, "Document UUID of the image"]
+    ) -> str:
+        """Read an image document and return its description along with metadata.
+
+        This tool is specifically for image files. It returns:
+        - AI-generated description of the image content
+        - Image metadata (name, size, type, etc.)
+        - Temporary signed URL for viewing (30 min expiry)
+        - Storage path reference
+
+        Use this after identifying images via fs_list_files with file_type='image'.
+        The description provides detailed information about what's in the image.
+        The signed URL allows multimodal models to view the actual image.
+
+        For non-image documents, use fs_read_file instead.
+        """
+        import json
+        import httpx
+
+        url = f"{langconnect_api_url}/agent-filesystem/files/{document_id}/image"
+        headers = {"Authorization": f"Bearer {access_token}"}
+        params = {
+            "scoped_collections": ",".join(scoped_collections)
+        }
+
+        try:
+            async with httpx.AsyncClient() as client:
+                response = await client.get(url, headers=headers, params=params, timeout=30.0)
+                response.raise_for_status()
+                data = response.json()
+
+            # Return formatted response with description and metadata
+            result = {
+                "description": data["description"],
+                "metadata": {
+                    "document_id": data["document_id"],
+                    "name": data["name"],
+                    "collection_name": data["collection_name"],
+                    "mime_type": data.get("mime_type"),
+                    "size_bytes": data["size_bytes"],
+                    "storage_path": data["storage_path"],
+                    "signed_url": data["signed_url"],
+                    "expires_in_seconds": data["expires_in_seconds"]
+                }
+            }
+
+            return json.dumps(result, indent=2)
+
+        except httpx.HTTPStatusError as e:
+            if e.response.status_code == 400:
+                # Not an image document
+                error_response = {
+                    "error": "This document is not an image. Use fs_read_file for non-image documents."
+                }
+                return json.dumps(error_response, indent=2)
+            raise
+
+    return fs_read_image
 
 
 async def create_fs_grep_tool(
@@ -1538,7 +1622,7 @@ async def create_collection_tools(
         "hybrid_search": lambda: create_hybrid_search_tool(
             langconnect_api_url, access_token, collection_ids
         ),
-        
+
         # File system tools (all scoped to configured collections)
         "fs_list_collections": lambda: create_fs_list_collections_tool(
             langconnect_api_url, access_token, collection_ids
@@ -1547,6 +1631,9 @@ async def create_collection_tools(
             langconnect_api_url, access_token, collection_ids
         ),
         "fs_read_file": lambda: create_fs_read_file_tool(
+            langconnect_api_url, access_token, collection_ids
+        ),
+        "fs_read_image": lambda: create_fs_read_image_tool(
             langconnect_api_url, access_token, collection_ids
         ),
         "fs_grep_files": lambda: create_fs_grep_tool(

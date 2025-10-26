@@ -5,6 +5,7 @@ try:
     from .state import DeepAgentState
     from .interrupt import create_interrupt_hook, ToolInterruptConfig
     from .image_processing import dispatch_image_processing, process_single_image, continue_after_image_processing
+    from agent_platform.utils.message_utils import create_image_preprocessor
 except ImportError:
     from agent_platform.agents.deepagents.sub_agent import _create_task_tool, _create_sync_task_tool
     from agent_platform.agents.deepagents.model import get_default_model
@@ -12,6 +13,7 @@ except ImportError:
     from agent_platform.agents.deepagents.state import DeepAgentState
     from agent_platform.agents.deepagents.interrupt import create_interrupt_hook, ToolInterruptConfig
     from agent_platform.agents.deepagents.image_processing import dispatch_image_processing, process_single_image, continue_after_image_processing
+    from agent_platform.utils.message_utils import create_image_preprocessor
 from typing import Sequence, Union, Callable, Any, TypeVar, Type, Optional
 from langchain_core.tools import BaseTool, tool
 from langchain_core.language_models import LanguageModelLike
@@ -116,6 +118,29 @@ def _agent_builder(
     else:
         selected_post_model_hook = None
 
+    # Get LangConnect URL from config
+    langconnect_api_url = "http://langconnect:8080"
+    if runnable_config:
+        rag_config = runnable_config.get("configurable", {}).get("rag", {})
+        if isinstance(rag_config, dict):
+            langconnect_api_url = rag_config.get("langconnect_api_url", langconnect_api_url)
+
+    # Create image preprocessor
+    image_hook = create_image_preprocessor(langconnect_api_url)
+
+    # Combine with existing pre_model_hook
+    combined_pre_hook = None
+    if pre_model_hook and image_hook:
+        async def combined_hook(state, config):
+            state = await image_hook(state, config)
+            trimming_result = pre_model_hook(state)  # Trimming hook is sync, no await
+            return {**state, **trimming_result}
+        combined_pre_hook = combined_hook
+    elif image_hook:
+        combined_pre_hook = image_hook
+    elif pre_model_hook:
+        combined_pre_hook = pre_model_hook
+
     # Only create task tool if there are sub-agents available
     if has_subagents:
         if not is_async:
@@ -152,7 +177,7 @@ def _agent_builder(
         tools=all_tools,
         state_schema=state_schema,
         post_model_hook=selected_post_model_hook,
-        pre_model_hook=pre_model_hook,
+        pre_model_hook=combined_pre_hook,  # Apply combined hook
         config_schema=config_schema,
         checkpointer=checkpointer,
         enable_image_processing=enable_image_processing,

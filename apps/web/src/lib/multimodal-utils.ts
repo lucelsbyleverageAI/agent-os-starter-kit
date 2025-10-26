@@ -67,8 +67,8 @@ export function isBase64ContentBlock(
   if (blockType === "text") {
     const text = (block as { text?: unknown }).text;
     // Accept text blocks that contain our XML format or have extracted_text metadata
-    if (typeof text === "string" && 
-        (text.includes("<UserUploadedAttachment>") || 
+    if (typeof text === "string" &&
+        (text.includes("<UserUploadedAttachment>") ||
          (block as any).metadata?.extracted_text)) {
       return true;
     }
@@ -76,6 +76,15 @@ export function isBase64ContentBlock(
 
   const sourceType = (block as { source_type?: unknown }).source_type;
   const mimeType = (block as { mime_type?: unknown }).mime_type;
+
+  // Image blocks with storage paths (new approach)
+  if (blockType === "image" && sourceType === "url") {
+    const url = (block as { url?: unknown }).url;
+    // Accept image blocks with storage paths
+    if (typeof url === "string" && url.length > 0) {
+      return true;
+    }
+  }
 
   // Basic type checks for base64 blocks
   if (
@@ -86,7 +95,7 @@ export function isBase64ContentBlock(
     return false;
   }
 
-  // Image block
+  // Image block (base64 - legacy)
   if (
     blockType === "image" &&
     mimeType.startsWith("image/")

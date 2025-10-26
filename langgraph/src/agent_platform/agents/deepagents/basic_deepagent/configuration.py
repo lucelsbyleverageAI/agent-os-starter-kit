@@ -72,13 +72,13 @@ class RagConfig(BaseModel):
     """List of collection IDs to use for document search"""
     
     enabled_tools: Optional[List[str]] = Field(
-        default=["hybrid_search", "fs_list_collections", "fs_list_files", "fs_read_file", "fs_grep_files"],
+        default=["hybrid_search", "fs_list_collections", "fs_list_files", "fs_read_file", "fs_read_image", "fs_grep_files"],
         optional=True,
         metadata={
             "x_oap_ui_config": {
                 "type": "rag_tools",
                 "description": "Select which tools the agent can use to interact with document collections",
-                "default": ["hybrid_search", "fs_list_collections", "fs_list_files", "fs_read_file", "fs_grep_files"],
+                "default": ["hybrid_search", "fs_list_collections", "fs_list_files", "fs_read_file", "fs_read_image", "fs_grep_files"],
                 "tool_groups": [
                     {
                         "name": "Read Operations",
@@ -103,6 +103,11 @@ class RagConfig(BaseModel):
                                 "name": "fs_read_file",
                                 "label": "Read File",
                                 "description": "Read document contents with line numbers",
+                            },
+                            {
+                                "name": "fs_read_image",
+                                "label": "Read Image",
+                                "description": "View uploaded images with AI-generated descriptions",
                             },
                             {
                                 "name": "fs_grep_files",
