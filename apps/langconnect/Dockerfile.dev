@@ -8,28 +8,50 @@ ENV PYTHONUNBUFFERED=1 \
     PYTHONDONTWRITEBYTECODE=1 \
     POETRY_NO_INTERACTION=1 \
     POETRY_VENV_IN_PROJECT=1 \
-    POETRY_CACHE_DIR=/root/.cache/poetry
+    POETRY_CACHE_DIR=/root/.cache/poetry \
+    PIP_DEFAULT_TIMEOUT=300 \
+    PIP_RETRIES=5
 
 # Set work directory
 WORKDIR /app
 
-# Install system dependencies
+# Install system dependencies for PDF processing
+# - libpq-dev: PostgreSQL development libraries
+# - curl, git: Basic utilities
+# - poppler-utils: PDF rendering (required for Docling text extraction)
+# - libgl1: OpenGL library (required by OpenCV for table structure detection)
+# - libglib2.0-0: GLib library (required by OpenCV)
 RUN apt-get update && \
     apt-get install -y --no-install-recommends \
     libpq-dev \
     curl \
     git \
+    poppler-utils \
+    libgl1 \
+    libglib2.0-0 \
     && rm -rf /var/lib/apt/lists/*
 
 # Install Poetry
 RUN pip install --upgrade pip setuptools wheel poetry
+
+# Configure Poetry for better timeout handling and in-project venv
+RUN poetry config installer.max-workers 4 && \
+    poetry config virtualenvs.in-project true
 
 # Copy Poetry files
 COPY pyproject.toml poetry.lock* README.md ./
 
 # Install dependencies only (not the package itself)
 # This allows us to mount source code as volume later
-RUN poetry install --no-root
+# Use retries to handle transient network issues
+RUN for i in 1 2 3; do \
+        echo "Attempt $i of 3..." && \
+        poetry install --no-root && break || \
+        (echo "Install failed, retrying in 10s..." && sleep 10); \
+    done && \
+    if [ ! -d .venv ]; then \
+        echo "Poetry install failed after 3 attempts" && exit 1; \
+    fi
 
 # Copy source code for initial build
 # This will be overridden by volume mount in development

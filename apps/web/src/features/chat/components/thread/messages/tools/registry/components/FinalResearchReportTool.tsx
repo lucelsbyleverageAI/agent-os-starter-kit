@@ -18,8 +18,6 @@ import remarkGfm from "remark-gfm";
 import remarkMath from "remark-math";
 import rehypeKatex from "rehype-katex";
 import "katex/dist/katex.min.css";
-// @ts-expect-error: No types for html-docx-js
-import htmlDocx from "html-docx-js/dist/html-docx";
 
 interface ReportSection {
   name: string;
@@ -343,13 +341,34 @@ export function FinalResearchReportTool({
         </html>
       `;
 
-      const docxBlob = htmlDocx.asBlob(html);
-      const url = URL.createObjectURL(docxBlob);
+      // Send HTML to conversion API
+      const response = await fetch('/api/convert/html-to-docx', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({
+          html,
+          filename: 'AI_Research_Report'
+        }),
+      });
+
+      if (!response.ok) {
+        throw new Error(`Conversion failed: ${response.statusText}`);
+      }
+
+      // Get the blob from response
+      const blob = await response.blob();
+
+      // Create download link
+      const url = URL.createObjectURL(blob);
       const a = document.createElement("a");
       a.href = url;
       a.download = "AI_Research_Report.docx";
       document.body.appendChild(a);
       a.click();
+
+      // Cleanup
       setTimeout(() => {
         document.body.removeChild(a);
         URL.revokeObjectURL(url);
