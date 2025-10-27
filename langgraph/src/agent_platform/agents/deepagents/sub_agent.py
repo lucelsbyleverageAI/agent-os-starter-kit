@@ -30,6 +30,7 @@ from agent_platform.utils.model_utils import (
     MessageTrimmingConfig,
     create_trimming_hook,
 )
+from agent_platform.utils.message_utils import create_image_preprocessor
 from langgraph.types import Command
 from langchain_core.runnables import RunnableConfig
 from langchain_core.messages import HumanMessage
@@ -203,6 +204,16 @@ async def _get_agents(
     all_builtin_tools = [write_todos, write_file, read_file, ls, edit_file]
     agents = {}
 
+    # Get LangConnect URL from config
+    langconnect_api_url = "http://langconnect:8080"
+    if config:
+        rag_config = config.get("configurable", {}).get("rag", {})
+        if isinstance(rag_config, dict):
+            langconnect_api_url = rag_config.get("langconnect_api_url", langconnect_api_url)
+
+    # Create image preprocessor (shared by all sub-agents)
+    image_preprocessor = create_image_preprocessor(langconnect_api_url)
+
     # Only add general-purpose agent if enabled
     if include_general_purpose:
         # Create trimming hook for general-purpose agent
@@ -226,6 +237,19 @@ async def _get_agents(
                 gp_model_info.trimming_max_tokens
             )
 
+        # Combine image preprocessor with trimming hook
+        gp_combined_hook = None
+        if gp_trimming_hook and image_preprocessor:
+            async def gp_hook(state, cfg):
+                state = await image_preprocessor(state, cfg)
+                trimming_result = gp_trimming_hook(state)  # Trimming hook is sync, no await
+                return {**state, **trimming_result}
+            gp_combined_hook = gp_hook
+        elif image_preprocessor:
+            gp_combined_hook = image_preprocessor
+        elif gp_trimming_hook:
+            gp_combined_hook = gp_trimming_hook
+
         agents["general-purpose"] = custom_create_react_agent(
             model,
             prompt=GENERAL_PURPOSE_SUBAGENT_PROMPT,
@@ -233,7 +257,7 @@ async def _get_agents(
             state_schema=state_schema,
             checkpointer=False,
             post_model_hook=post_model_hook,
-            pre_model_hook=gp_trimming_hook,
+            pre_model_hook=gp_combined_hook,  # Use combined hook
             enable_image_processing=False
         )
     # Parent tools (selected for main agent)
@@ -342,6 +366,19 @@ async def _get_agents(
                 sub_model_info.trimming_max_tokens
             )
 
+        # Combine image preprocessor with trimming hook
+        sub_combined_hook = None
+        if sub_trimming_hook and image_preprocessor:
+            async def sub_hook(state, cfg):
+                state = await image_preprocessor(state, cfg)
+                trimming_result = sub_trimming_hook(state)  # Trimming hook is sync, no await
+                return {**state, **trimming_result}
+            sub_combined_hook = sub_hook
+        elif image_preprocessor:
+            sub_combined_hook = image_preprocessor
+        elif sub_trimming_hook:
+            sub_combined_hook = sub_trimming_hook
+
         logger.info("[SUB_AGENT] tools_assigned agent=%s total=%s", agent_name, len(_tools))
         agents[agent_name] = custom_create_react_agent(
             sub_model,
@@ -350,7 +387,7 @@ async def _get_agents(
             state_schema=state_schema,
             checkpointer=False,
             post_model_hook=post_model_hook,
-            pre_model_hook=sub_trimming_hook,
+            pre_model_hook=sub_combined_hook,  # Use combined hook
             enable_image_processing=False,
         )
 

@@ -1,6 +1,7 @@
 """Document API endpoints for full document operations (not chunks/embeddings)."""
 
 import logging
+import os
 import time
 import uuid
 from typing import Annotated, Any, Optional, List
@@ -40,6 +41,7 @@ class DocumentSummary(BaseModel):
     created_at: str
     updated_at: str
     chunk_count: Optional[int] = None
+    metadata: dict[str, Any]  # Full metadata including file_type, storage_path for images
 
 
 class DocumentDetail(BaseModel):
@@ -144,7 +146,8 @@ async def list_documents(
             word_count=doc_data["metadata"].get("word_count"),
             created_at=doc_data["created_at"],
             updated_at=doc_data["updated_at"],
-            chunk_count=chunk_count
+            chunk_count=chunk_count,
+            metadata=doc_data["metadata"]  # Include full metadata for frontend (contains file_type, storage_path for images)
         ))
     
     return DocumentListResponse(
@@ -433,8 +436,12 @@ async def delete_document(
     collection_id: UUID,
     document_id: str,
 ):
-    """Delete a document and its associated chunks."""
-    
+    """Delete a document and its associated chunks.
+
+    If the document has an associated file in storage (e.g., images),
+    it will be deleted from storage as well.
+    """
+
     # Resolve effective user ID for service accounts
     if isinstance(actor, ServiceAccount):
         collections_manager = CollectionsManager(actor.identity)
@@ -449,17 +456,207 @@ async def delete_document(
         effective_user_id = actor.identity
 
     collection = Collection(str(collection_id), effective_user_id)
-    
+
     # For service accounts, set the service account flag
     if isinstance(actor, ServiceAccount):
         collection._is_service_account = True
         collection.permissions_manager._is_service_account = True
-    
+
     # Use document model exclusively
     document_manager = collection.get_document_manager()
+
+    # Get document metadata before deleting to check for storage files
+    doc_data = await document_manager.get_document(document_id)
+
+    if not doc_data:
+        raise HTTPException(status_code=404, detail="Document not found")
+
+    # Check if document has a storage path (for images or uploaded files)
+    storage_path = doc_data.get("metadata", {}).get("storage_path")
+
+    if storage_path:
+        # Delete from storage first
+        from langconnect.services.storage_service import storage_service
+
+        try:
+            parsed = storage_service.parse_storage_uri(storage_path)
+            await storage_service.delete_file(parsed["file_path"])
+            logger.info(f"Deleted storage file: {storage_path}")
+        except Exception as e:
+            # Log error but don't fail the deletion - file might already be gone
+            logger.warning(f"Failed to delete storage file {storage_path}: {e}")
+
+    # Delete document from database
     success = await document_manager.delete_document(document_id)
-    
+
     return {"success": success}
+
+
+@router.put(
+    "/collections/{collection_id}/documents/{document_id}/image",
+    response_model=dict
+)
+async def replace_document_image(
+    actor: Annotated[AuthenticatedActor, Depends(resolve_user_or_service)],
+    collection_id: UUID,
+    document_id: str,
+    file: UploadFile = File(...),
+):
+    """
+    Replace the image file for an image document.
+
+    This endpoint:
+    1. Verifies the document is an image type
+    2. Deletes the old image from storage
+    3. Uploads the new image to storage
+    4. Runs vision AI analysis on the new image
+    5. Updates document metadata and content
+    6. Re-chunks and re-embeds the document
+
+    Requires 'editor' or 'owner' permission on the collection.
+    """
+    from langconnect.services.storage_service import storage_service
+    from langconnect.services.vision_analysis_service import vision_analysis_service
+
+    # Resolve effective user ID for service accounts
+    if isinstance(actor, ServiceAccount):
+        collections_manager = CollectionsManager(actor.identity)
+        collections_manager._is_service_account = True
+        collection_details = await collections_manager.get(str(collection_id))
+        if not collection_details:
+            raise HTTPException(status_code=404, detail="Collection not found or access denied")
+        effective_user_id = collection_details["metadata"].get("owner_id")
+        if not effective_user_id:
+            raise HTTPException(status_code=400, detail="Collection missing owner_id in metadata")
+    else:
+        effective_user_id = actor.identity
+
+    collection = Collection(str(collection_id), effective_user_id)
+
+    # For service accounts, set the service account flag
+    if isinstance(actor, ServiceAccount):
+        collection._is_service_account = True
+        collection.permissions_manager._is_service_account = True
+
+    # Check user has editor or owner permission
+    permission_level = collection_details.get("permission_level") if isinstance(actor, ServiceAccount) else None
+    if not permission_level:
+        # Get user's permission level
+        collections_manager = CollectionsManager(effective_user_id)
+        collection_details = await collections_manager.get(str(collection_id))
+        permission_level = collection_details.get("permission_level")
+
+    if permission_level not in ["editor", "owner"]:
+        raise HTTPException(
+            status_code=403,
+            detail="You need editor or owner permission to replace images"
+        )
+
+    # Get document
+    document_manager = collection.get_document_manager()
+    doc_data = await document_manager.get_document(document_id)
+
+    if not doc_data:
+        raise HTTPException(status_code=404, detail="Document not found")
+
+    # Verify it's an image document
+    if doc_data.get("metadata", {}).get("file_type") != "image":
+        raise HTTPException(
+            status_code=400,
+            detail="This endpoint only works for image documents"
+        )
+
+    old_storage_path = doc_data.get("metadata", {}).get("storage_path")
+    if not old_storage_path:
+        raise HTTPException(
+            status_code=400,
+            detail="Document missing storage_path metadata"
+        )
+
+    # Read new image content
+    image_bytes = await file.read()
+    filename = file.filename or "image.jpg"
+    content_type = file.content_type or "image/jpeg"
+
+    # Determine image format
+    image_format = 'jpeg'
+    if content_type:
+        if 'png' in content_type:
+            image_format = 'png'
+        elif 'webp' in content_type:
+            image_format = 'webp'
+        elif 'gif' in content_type:
+            image_format = 'gif'
+
+    logger.info(f"Replacing image for document {document_id} with {filename}")
+
+    try:
+        # Run vision AI analysis on new image
+        logger.info(f"Analyzing new image with AI vision")
+        vision_metadata = await vision_analysis_service.analyze_image(
+            image_data=image_bytes,
+            image_format=image_format,
+            fallback_title=os.path.splitext(filename)[0]
+        )
+
+        # Delete old image from storage
+        try:
+            parsed = storage_service.parse_storage_uri(old_storage_path)
+            await storage_service.delete_file(parsed["file_path"])
+            logger.info(f"Deleted old image: {old_storage_path}")
+        except Exception as e:
+            logger.warning(f"Failed to delete old image (continuing anyway): {e}")
+
+        # Upload new image to storage
+        logger.info(f"Uploading new image to storage")
+        storage_info = await storage_service.upload_image(
+            file_data=image_bytes,
+            filename=filename,
+            content_type=content_type,
+            collection_uuid=str(collection_id)
+        )
+
+        # Update document metadata
+        new_metadata = {
+            **doc_data.get("metadata", {}),
+            "name": vision_metadata.title,
+            "title": vision_metadata.title,
+            "description": vision_metadata.short_description,
+            "storage_path": storage_info["storage_path"],
+            "storage_bucket": storage_info["bucket"],
+            "storage_file_path": storage_info["file_path"],
+            "content_type": content_type,
+            "image_format": image_format,
+        }
+
+        await document_manager.update_document_metadata(document_id, new_metadata)
+
+        # Update document content with detailed description
+        # This will trigger re-chunking and re-embedding
+        await document_manager.update_document_content(
+            document_id,
+            vision_metadata.detailed_description
+        )
+
+        logger.info(f"Successfully replaced image for document {document_id}")
+
+        return {
+            "success": True,
+            "message": "Image replaced successfully",
+            "document_id": document_id,
+            "metadata": {
+                "title": vision_metadata.title,
+                "description": vision_metadata.short_description,
+                "storage_path": storage_info["storage_path"]
+            }
+        }
+
+    except Exception as e:
+        logger.error(f"Failed to replace image: {e}")
+        raise HTTPException(
+            status_code=500,
+            detail=f"Failed to replace image: {str(e)}"
+        )
 
 
 # =====================
