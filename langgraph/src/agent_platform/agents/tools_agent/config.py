@@ -4,8 +4,8 @@ from agent_platform.utils.model_utils import get_model_options_for_ui
 
 
 # Graph metadata
-GRAPH_NAME = "Tools Agent"
-GRAPH_DESCRIPTION = "A versatile AI assistant with access to various tools for general tasks and productivity"
+GRAPH_NAME = "Basic ReAct Agent"
+GRAPH_DESCRIPTION = "A versatile AI agent that you can configure with access to tools and knowledge collections. Ideal for general and flexible tasks where you are happy to give the AI agent a high degree of autonomy."
 
 # System prompts and constants
 UNEDITABLE_SYSTEM_PROMPT = "\nIf the tool throws an error requiring authentication, provide the user with a Markdown link to the authentication page and prompt them to authenticate."

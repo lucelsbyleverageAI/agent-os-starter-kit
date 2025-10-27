@@ -12,7 +12,7 @@ from agent_platform.utils.model_utils import get_model_options_for_ui
 
 # Graph metadata
 GRAPH_NAME = "Deep Research Agent"
-GRAPH_DESCRIPTION = "A comprehensive research agent that conducts in-depth investigations using web search and analysis"
+GRAPH_DESCRIPTION = "A comprehensive research agent that conducts in-depth research using specialist sub-agents with access to the web. Configure with additional access to MCP tools and document collections."
 
 
 class SearchAPI(Enum):
