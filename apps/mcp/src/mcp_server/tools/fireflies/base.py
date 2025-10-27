@@ -164,7 +164,6 @@ class FirefliesClient:
                 participants
                 transcript_url
                 audio_url
-                video_url
                 speakers {
                     id
                     name
