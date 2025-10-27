@@ -4,7 +4,7 @@ from pydantic import BaseModel, Field
 
 # Graph metadata
 GRAPH_NAME = "Supervisor Agent"
-GRAPH_DESCRIPTION = "A coordinating agent that manages and delegates tasks to specialist sub-agents"
+GRAPH_DESCRIPTION = "A coordinating agent that delegates tasks to specialist sub-agents. Configure with a list of sub-agents to delegate to and instructions on how to delegate tasks."
 
 # System prompts and constants
 UNEDITABLE_SYSTEM_PROMPT = """\nYou can invoke sub-agents by calling tools in this format:

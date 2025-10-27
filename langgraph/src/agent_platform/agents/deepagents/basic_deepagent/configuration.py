@@ -7,7 +7,7 @@ from agent_platform.utils.model_utils import get_model_options_for_ui
 
 # Graph metadata
 GRAPH_NAME = "Deep Agent"
-GRAPH_DESCRIPTION = "An advanced multi-agent system that coordinates specialized sub-agents to handle complex tasks"
+GRAPH_DESCRIPTION = "An advanced multi-agent system where a coordinator plans and delegates tasks to sub-agents to prevent context bloat. Ideal for complex tasks that take a long time to complete."
 
 # System prompts and constants.
 DEFAULT_SYSTEM_PROMPT = """## Role

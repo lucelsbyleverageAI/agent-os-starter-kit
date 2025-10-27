@@ -26,7 +26,7 @@ class GraphConfigPydantic(BaseModel):
 
     # Graph metadata (class variables, not fields)
     GRAPH_NAME: ClassVar[str] = "n8n Workflow Agent"
-    GRAPH_DESCRIPTION: ClassVar[str] = "Connects to n8n workflows for powerful automation and integration capabilities"
+    GRAPH_DESCRIPTION: ClassVar[str] = "Connect to any n8n agent built using the n8n agent template via a webhook."
 
     template_name: Optional[str] = Field(
         default="n8n Workflow Agent",
