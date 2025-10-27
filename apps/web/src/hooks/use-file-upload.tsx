@@ -337,6 +337,7 @@ ${extractedContent}
 
     // Return a content block with storage path for message content
     // Use preview_url for immediate display in UI
+    // Note: Using 'as any' because we're extending Base64ContentBlock with url support
     return {
       type: "image",
       source_type: "url",
@@ -347,7 +348,7 @@ ${extractedContent}
         bucket: data.bucket,
         preview_url: data.preview_url  // Temporary signed URL for UI preview
       },
-    } as Base64ContentBlock;
+    } as any as Base64ContentBlock;
   }, [session?.accessToken]);
 
   const handleFileUpload = async (e: ChangeEvent<HTMLInputElement>) => {
