@@ -4,6 +4,7 @@ import { useState } from "react";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription } from "@/components/ui/dialog";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
+import { Tooltip, TooltipTrigger, TooltipContent } from "@/components/ui/tooltip";
 import { Bot, Users, Crown, Shield } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { GraphInfo } from "@/types/agent";
@@ -135,9 +136,16 @@ export function ViewTemplatesDialog({
                       </div>
 
                       {/* Description */}
-                      <p className="text-muted-foreground line-clamp-3 text-sm">
-                        {graphDescription}
-                      </p>
+                      <Tooltip>
+                        <TooltipTrigger asChild>
+                          <p className="text-muted-foreground line-clamp-3 text-sm cursor-help">
+                            {graphDescription}
+                          </p>
+                        </TooltipTrigger>
+                        <TooltipContent className="max-w-sm">
+                          <p>{graphDescription}</p>
+                        </TooltipContent>
+                      </Tooltip>
 
                       {/* Manage Access Button - Only for admin users */}
                       {hasAdminAccess && (

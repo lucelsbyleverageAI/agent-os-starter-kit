@@ -28,7 +28,7 @@ from agent_platform.utils.model_utils import (
 from agent_platform.utils.message_utils import create_image_preprocessor
 
 # Import agent-specific configuration
-from agent_platform.agents.tools_agent.config import GraphConfigPydantic, UNEDITABLE_SYSTEM_PROMPT
+from agent_platform.agents.tools_agent.config import GraphConfigPydantic, UNEDITABLE_SYSTEM_PROMPT, DEFAULT_RECURSION_LIMIT
 
 # Import logging utilities
 from agent_platform.sentry import get_logger
@@ -53,6 +53,7 @@ async def graph(config: RunnableConfig):
                 - max_tokens: Maximum tokens for model responses
                 - rag: RAG configuration with URL and collections
                 - mcp_config: MCP server configuration with URL and tools
+                - recursion_limit: Maximum number of steps the agent can take (default: 40)
             - metadata: Request metadata (user info, etc.)
             - x-supabase-access-token: Authentication token for RAG services
             
@@ -255,11 +256,15 @@ async def graph(config: RunnableConfig):
     )
 
     # Step 6: Create and return the ReAct agent
-    logger.info("[TOOLS_AGENT] agent_created tools_count=%s", len(tools))
+    # Get recursion limit from config, default to DEFAULT_RECURSION_LIMIT if not specified
+    recursion_limit = cfg.recursion_limit if cfg.recursion_limit is not None else DEFAULT_RECURSION_LIMIT
+
+    logger.info("[TOOLS_AGENT] agent_created tools_count=%s recursion_limit=%s", len(tools), recursion_limit)
+
     return create_react_agent(
         prompt=cfg.system_prompt + UNEDITABLE_SYSTEM_PROMPT,
         model=model,
         tools=tools,
         config_schema=GraphConfigPydantic,
         pre_model_hook=combined_hook,  # Combined image + trimming hooks
-    )
+    ).with_config({"recursion_limit": recursion_limit})

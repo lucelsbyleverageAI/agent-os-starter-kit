@@ -263,14 +263,14 @@ export function AgentCard({ agent, showDeployment }: AgentCardProps) {
                   }}
                 >
                   <MoreVertical className="h-4 w-4" />
-                  <span className="sr-only">Assistant actions</span>
+                  <span className="sr-only">Agent actions</span>
                 </Button>
               </DropdownMenuTrigger>
               <DropdownMenuContent align="end">
                 {canEdit && (
                   <DropdownMenuItem onClick={() => setShowEditDialog(true)}>
                     <Edit className="h-4 w-4 mr-2" />
-                    Edit Assistant
+                    Edit Agent
                   </DropdownMenuItem>
                 )}
                 {canShare && (
@@ -297,7 +297,7 @@ export function AgentCard({ agent, showDeployment }: AgentCardProps) {
                       className="text-red-600 focus:text-red-600"
                     >
                       <Trash2 className="h-4 w-4 mr-2" />
-                      Delete Assistant
+                      Delete Agent
                     </DropdownMenuItem>
                   </>
                 )}
