@@ -131,12 +131,6 @@ export function ViewTemplatesDialog({
                         </div>
                         <div className="min-w-0 flex-1 pr-16">
                           <h4 className="font-semibold leading-none">{graphName}</h4>
-                          <div className="flex items-center gap-1 mt-2 text-xs text-muted-foreground">
-                            <Users className="h-3 w-3" />
-                            <span>
-                              {graph.assistants_count} instance{graph.assistants_count !== 1 ? "s" : ""}
-                            </span>
-                          </div>
                         </div>
                       </div>
 
