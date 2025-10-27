@@ -507,6 +507,9 @@ export function DocumentsTable({
       return;
     }
 
+    // Capture accessToken in a variable to ensure TypeScript knows it's not null
+    const accessToken = session.accessToken;
+
     const fetchImageUrls = async () => {
       // Find all image documents that have storage paths
       const imageDocs = documents.filter(doc =>
@@ -529,7 +532,7 @@ export function DocumentsTable({
               const cacheBuster = doc.metadata.updated_at || Date.now();
               const signedUrl = await getSignedImageUrl(
                 doc.metadata.storage_path,
-                session.accessToken,
+                accessToken,
                 cacheBuster
               );
 

@@ -167,6 +167,12 @@ export function DocumentPageContent({
         return;
       }
 
+      // Check if session and accessToken exist
+      if (!session?.accessToken) {
+        console.warn("No session or access token available");
+        return;
+      }
+
       setLoadingImageUrl(true);
       try {
         // Use updated_at timestamp for cache-busting to ensure browser fetches new image after replacement

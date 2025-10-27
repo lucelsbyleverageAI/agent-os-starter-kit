@@ -56,7 +56,7 @@ export const MultimodalPreview: React.FC<MultimodalPreviewProps> = ({
   // Image block with storage path (new approach)
   if (
     block.type === "image" &&
-    block.source_type === "url" &&
+    (block as any).source_type === "url" &&
     typeof (block as any).url === "string"
   ) {
     // Use preview_url from metadata if available, otherwise use the storage path

@@ -37,7 +37,7 @@ export function ConfigureInputsDialog({
     : [];
 
   // Initialize form with current config values
-  const form = useForm({
+  const form = useForm<Record<string, any>>({
     defaultValues: {},
   });
 
