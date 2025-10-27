@@ -3,6 +3,7 @@
 import difflib
 import json
 import logging
+import os
 from typing import Annotated, List, Optional, Union
 from uuid import UUID
 
@@ -18,12 +19,30 @@ from langconnect.database.permissions import (
     get_user_collection_permission
 )
 from langconnect.services.job_service import job_service
+from langconnect.services.storage_service import storage_service
 
 logger = logging.getLogger(__name__)
 router = APIRouter(prefix="/agent-filesystem", tags=["Agent File System"])
 
 
 # ==================== Helper Functions ====================
+
+def fix_storage_url_for_development(url: str) -> str:
+    """
+    Replace kong:8000 with localhost:8000 in development environments.
+
+    This is needed because:
+    - Supabase in Docker uses SUPABASE_URL=http://kong:8000 for internal communication
+    - Browser cannot resolve 'kong' hostname in development
+    - localhost:8000 works for both Docker and local development
+    """
+    # Check if we're in development mode
+    is_development = os.getenv("ENVIRONMENT", "development") == "development"
+
+    if is_development and "kong:8000" in url:
+        return url.replace("kong:8000", "localhost:8000")
+
+    return url
 
 def sanitize_document_id(document_id: str) -> str:
     """
@@ -85,6 +104,9 @@ class FileInfo(BaseModel):
     created_at: str
     updated_at: str
     source_type: Optional[str] = None
+    file_type: Optional[str] = None  # 'image', 'document', 'text'
+    storage_path: Optional[str] = None  # For images only
+    mime_type: Optional[str] = None  # e.g., 'image/png'
 
 
 class FileListResponse(BaseModel):
@@ -248,6 +270,33 @@ class DeleteFileResponse(BaseModel):
     document_name: str
     chunks_deleted: int
     message: str
+
+
+class BatchSignedUrlsRequest(BaseModel):
+    """Request model for batch signed URL generation."""
+    storage_paths: List[str] = Field(..., description="List of storage paths to generate URLs for")
+    expiry_seconds: int = Field(1800, ge=300, le=86400, description="URL expiry time in seconds (5 min - 24 hours)")
+
+
+class BatchSignedUrlsResponse(BaseModel):
+    """Response model for batch signed URL generation."""
+    signed_urls: dict[str, str] = Field(..., description="Mapping of storage_path -> signed_url")
+
+
+class ImageContent(BaseModel):
+    """Image content model for fs_read_image."""
+    document_id: str
+    collection_id: str
+    collection_name: str
+    name: str
+    description: Optional[str] = None
+    storage_path: str
+    signed_url: str
+    mime_type: Optional[str] = None
+    expires_in_seconds: int
+    size_bytes: int
+    created_at: str
+    updated_at: str
 
 
 # ==================== Helper Functions ====================
@@ -447,16 +496,34 @@ async def list_files(
         async with get_db_connection() as conn:
             # Build query with filters
             source_filter = ""
+            count_source_filter = ""
             params = [target_collections, limit, offset]
             if source_type:
-                source_filter = "AND d.cmetadata->>'source_type' = $4"
-                params.append(source_type)
-            
+                # For image filtering, check multiple indicators to be robust
+                if source_type == "image_upload":
+                    source_filter = """AND (
+                        d.cmetadata->>'source_type' = 'image_upload' OR
+                        d.cmetadata->>'file_type' = 'image' OR
+                        d.cmetadata->>'content_type' LIKE 'image/%' OR
+                        d.cmetadata->>'image_format' IN ('jpeg', 'jpg', 'png', 'gif', 'webp', 'bmp', 'tiff', 'tif')
+                    )"""
+                    count_source_filter = """AND (
+                        d.cmetadata->>'source_type' = 'image_upload' OR
+                        d.cmetadata->>'file_type' = 'image' OR
+                        d.cmetadata->>'content_type' LIKE 'image/%' OR
+                        d.cmetadata->>'image_format' IN ('jpeg', 'jpg', 'png', 'gif', 'webp', 'bmp', 'tiff', 'tif')
+                    )"""
+                else:
+                    # For other source types, use exact match
+                    source_filter = "AND d.cmetadata->>'source_type' = $4"
+                    count_source_filter = "AND d.cmetadata->>'source_type' = $2"
+                    params.append(source_type)
+
             # Validate and normalize sort parameters
             valid_sort_fields = {"created_at", "updated_at", "name", "size"}
             sort_field = sort_by if sort_by in valid_sort_fields else "updated_at"
             sort_order = "DESC" if order.lower() == "desc" else "ASC"
-            
+
             if sort_field == "name":
                 sort_clause = f"""
                     COALESCE(
@@ -469,9 +536,9 @@ async def list_files(
                 sort_clause = f"LENGTH(d.content) {sort_order}"
             else:
                 sort_clause = f"d.{sort_field} {sort_order}"
-            
+
             query = f"""
-                SELECT 
+                SELECT
                     d.id as document_id,
                     d.collection_id,
                     c.name as collection_name,
@@ -484,13 +551,24 @@ async def list_files(
                     LENGTH(d.content) as size_bytes,
                     (LENGTH(d.content) - LENGTH(REPLACE(d.content, E'\n', ''))) + 1 as size_lines,
                     (
-                        SELECT COUNT(*) 
-                        FROM langconnect.langchain_pg_embedding e 
+                        SELECT COUNT(*)
+                        FROM langconnect.langchain_pg_embedding e
                         WHERE e.document_id = d.id
                     ) as chunk_count,
                     d.created_at,
                     d.updated_at,
-                    d.cmetadata->>'source_type' as source_type
+                    d.cmetadata->>'source_type' as source_type,
+                    d.cmetadata->>'storage_path' as storage_path,
+                    d.cmetadata->>'mime_type' as mime_type,
+                    CASE
+                        WHEN d.cmetadata->>'source_type' = 'image_upload'
+                             OR d.cmetadata->>'file_type' = 'image'
+                             OR d.cmetadata->>'content_type' LIKE 'image/%'
+                             OR d.cmetadata->>'image_format' IN ('jpeg', 'jpg', 'png', 'gif', 'webp', 'bmp', 'tiff', 'tif')
+                        THEN 'image'
+                        WHEN d.cmetadata->>'source_type' IN ('file_upload', 'url') THEN 'document'
+                        ELSE 'text'
+                    END as file_type
                 FROM langconnect.langchain_pg_document d
                 INNER JOIN langconnect.langchain_pg_collection c ON d.collection_id = c.uuid
                 WHERE d.collection_id = ANY($1::uuid[])
@@ -498,18 +576,19 @@ async def list_files(
                 ORDER BY {sort_clause}
                 LIMIT $2 OFFSET $3;
             """
-            
+
             rows = await conn.fetch(query, *params)
-            
+
             # Get total count
             count_query = f"""
                 SELECT COUNT(*) as total
                 FROM langconnect.langchain_pg_document d
                 WHERE d.collection_id = ANY($1::uuid[])
-                  {source_filter}
+                  {count_source_filter}
             """
             count_params = [target_collections]
-            if source_type:
+            if source_type and source_type != "image_upload":
+                # Only add param for non-image filters (image_upload uses hardcoded conditions)
                 count_params.append(source_type)
             total_row = await conn.fetchrow(count_query, *count_params)
             total = total_row["total"] if total_row else 0
@@ -527,7 +606,10 @@ async def list_files(
                 chunk_count=row["chunk_count"] or 0,
                 created_at=row["created_at"].isoformat() if row["created_at"] else "",
                 updated_at=row["updated_at"].isoformat() if row["updated_at"] else "",
-                source_type=row["source_type"]
+                source_type=row["source_type"],
+                file_type=row["file_type"],
+                storage_path=row["storage_path"],
+                mime_type=row["mime_type"]
             ))
         
         return FileListResponse(
@@ -1279,5 +1361,278 @@ async def delete_file(
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
             detail=f"Failed to delete file: {str(e)}"
+        )
+
+
+@router.post("/storage/batch-signed-urls", response_model=BatchSignedUrlsResponse)
+async def batch_signed_urls(
+    request: BatchSignedUrlsRequest,
+    actor: Annotated[AuthenticatedActor, Depends(resolve_user_or_service)],
+    user_id: Optional[str] = Query(None, description="User ID (required for service accounts)"),
+):
+    """Generate signed URLs for multiple storage paths in batch.
+
+    This endpoint is used by the message processing utility to convert storage paths
+    to temporary signed URLs before messages are sent to LLMs. The URLs allow multimodal
+    LLMs to view images while keeping message state lightweight.
+
+    Storage Path Formats:
+    - Collections: {collection_uuid}/{timestamp}_{filename}
+    - Chat Uploads: {user_id}/{timestamp}_{filename}
+
+    Security:
+    - Collection paths: Only generates URLs for collections the user has viewer permission for.
+    - Chat upload paths: Only generates URLs for paths owned by the requesting user.
+
+    For service accounts (n8n, Zapier), user_id must be provided in query parameters.
+    """
+    resolved_user_id = get_user_id_from_actor(actor, user_id)
+
+    try:
+        if not request.storage_paths:
+            return BatchSignedUrlsResponse(signed_urls={})
+
+        # Get accessible collections (user-level permissions) - only needed for collection paths
+        accessible_collections = await get_user_accessible_collections(resolved_user_id, "viewer")
+
+        signed_urls = {}
+
+        for storage_path in request.storage_paths:
+            try:
+                # Parse storage path to determine bucket and permissions
+                parts = storage_path.split("/")
+
+                # Both collection paths and chat upload paths now have 2 parts: {uuid}/{filename}
+                # We distinguish them by checking if the UUID matches the user_id:
+                # - If UUID == user_id: Chat upload path
+                # - If UUID != user_id: Collection path
+
+                if len(parts) != 2:
+                    logger.warning(f"[BATCH_SIGNED_URLS] Invalid storage path format (expected 2 parts): {storage_path}")
+                    continue
+
+                first_part = parts[0]
+
+                # Verify first part is a valid UUID
+                try:
+                    UUID(first_part)
+                except ValueError:
+                    logger.warning(f"[BATCH_SIGNED_URLS] Invalid UUID in path: {storage_path}")
+                    continue
+
+                # Distinguish between collection and chat upload by comparing UUID to user_id
+                is_chat_upload = (first_part == resolved_user_id)
+                bucket = None
+
+                if is_chat_upload:
+                    # Chat upload path: user already owns it (UUID matches user_id)
+                    bucket = "chat-uploads"
+                    logger.debug(f"[BATCH_SIGNED_URLS] Chat upload path for user {resolved_user_id}: {storage_path}")
+
+                else:
+                    # Collection path: verify collection permissions
+                    collection_uuid = first_part
+
+                    if not accessible_collections or collection_uuid not in accessible_collections:
+                        logger.warning(
+                            f"[BATCH_SIGNED_URLS] User {resolved_user_id} does not have access to collection {collection_uuid}"
+                        )
+                        continue
+
+                    bucket = "collections"
+                    logger.debug(f"[BATCH_SIGNED_URLS] Collection path for user {resolved_user_id}: {storage_path}")
+
+                # Generate signed URL using storage service
+                signed_url = await storage_service.get_signed_url(
+                    file_path=storage_path,
+                    expiry_seconds=request.expiry_seconds,
+                    bucket=bucket
+                )
+
+                # Fix URL for development (replace kong with localhost)
+                signed_url = fix_storage_url_for_development(signed_url)
+
+                signed_urls[storage_path] = signed_url
+                logger.debug(f"[BATCH_SIGNED_URLS] Generated signed URL for {storage_path} (bucket: {bucket})")
+
+            except Exception as e:
+                logger.exception(f"[BATCH_SIGNED_URLS] Failed to generate signed URL for {storage_path}: {e}")
+                # Continue to next path instead of failing entire request
+                continue
+
+        logger.info(
+            f"[BATCH_SIGNED_URLS] Generated {len(signed_urls)}/{len(request.storage_paths)} signed URLs "
+            f"for user {resolved_user_id}"
+        )
+
+        return BatchSignedUrlsResponse(signed_urls=signed_urls)
+
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.exception(f"[BATCH_SIGNED_URLS] Error: {e}")
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=f"Failed to generate signed URLs: {str(e)}"
+        )
+
+
+@router.get("/files/{document_id}/image", response_model=ImageContent)
+async def read_image(
+    document_id: str,
+    actor: Annotated[AuthenticatedActor, Depends(resolve_user_or_service)],
+    collection_id: Optional[str] = Query(None, description="Optional collection ID for validation"),
+    expiry_seconds: int = Query(1800, ge=300, le=86400, description="URL expiry in seconds"),
+    scoped_collections: Optional[str] = Query(None, description="Comma-separated list of collection IDs from agent config"),
+    user_id: Optional[str] = Query(None, description="User ID (required for service accounts)"),
+):
+    """Read image document and return description + signed URL.
+
+    This endpoint is used by the fs_read_image tool to retrieve image metadata
+    and generate a temporary signed URL for viewing. The description field contains
+    an AI-generated description of the image content.
+
+    Returns multimodal content that can be added to agent messages.
+
+    For service accounts (n8n, Zapier), user_id must be provided in query parameters.
+    """
+    resolved_user_id = get_user_id_from_actor(actor, user_id)
+
+    # Sanitize document_id to handle LLM-generated prefixes
+    document_id = sanitize_document_id(document_id)
+    logger.info(f"[FS_READ_IMAGE] user_id={resolved_user_id}, document_id={document_id}")
+
+    try:
+        # Get document to find its collection and verify it's an image
+        from langconnect.database.connection import get_db_connection
+        async with get_db_connection() as conn:
+            doc_query = """
+                SELECT
+                    d.collection_id,
+                    d.content,
+                    d.created_at,
+                    d.updated_at,
+                    d.cmetadata
+                FROM langconnect.langchain_pg_document d
+                WHERE d.id = $1
+            """
+            doc_row = await conn.fetchrow(doc_query, document_id)
+
+            if not doc_row:
+                raise HTTPException(
+                    status_code=status.HTTP_404_NOT_FOUND,
+                    detail="Document not found"
+                )
+
+            actual_collection_id = str(doc_row["collection_id"])
+            metadata = json.loads(doc_row["cmetadata"]) if doc_row["cmetadata"] else {}
+
+        # Verify this is an image document
+        # Check multiple indicators to be robust against missing metadata fields
+        source_type = metadata.get("source_type")
+        file_type = metadata.get("file_type")
+        content_type = metadata.get("content_type", "")
+        image_format = metadata.get("image_format")
+
+        is_image = (
+            source_type == "image_upload" or
+            file_type == "image" or
+            content_type.startswith("image/") or
+            image_format in ("jpeg", "jpg", "png", "gif", "webp", "bmp", "tiff", "tif")
+        )
+
+        if not is_image:
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail=f"Document is not an image. Use fs_read_file for non-image documents."
+            )
+
+        # Check scoped collections from agent config
+        if scoped_collections:
+            scoped_collection_ids = {cid.strip() for cid in scoped_collections.split(",") if cid.strip()}
+            if actual_collection_id not in scoped_collection_ids:
+                raise HTTPException(
+                    status_code=status.HTTP_403_FORBIDDEN,
+                    detail="Document does not belong to an accessible collection in this agent's scope"
+                )
+
+        # Verify collection access
+        if collection_id and collection_id != actual_collection_id:
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail="Document does not belong to specified collection"
+            )
+
+        has_permission = await verify_collection_permission(resolved_user_id, actual_collection_id, "viewer")
+        if not has_permission:
+            raise HTTPException(
+                status_code=status.HTTP_403_FORBIDDEN,
+                detail="You don't have permission to read this document"
+            )
+
+        # Extract image metadata
+        storage_path = metadata.get("storage_path")
+        if not storage_path:
+            raise HTTPException(
+                status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+                detail="Image document is missing storage_path metadata"
+            )
+
+        # Generate signed URL
+        try:
+            signed_url = await storage_service.get_signed_url(
+                file_path=storage_path,
+                expiry_seconds=expiry_seconds
+            )
+        except Exception as e:
+            logger.exception(f"[FS_READ_IMAGE] Failed to generate signed URL: {e}")
+            raise HTTPException(
+                status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+                detail="Failed to generate signed URL for image"
+            )
+
+        # Get collection name
+        collections_manager = CollectionsManager(resolved_user_id)
+        collection = await collections_manager.get(actual_collection_id)
+        collection_name = collection["name"] if collection else "Unknown"
+
+        # Get document name and description
+        document_name = (
+            metadata.get("title") or
+            metadata.get("original_filename") or
+            metadata.get("source_name") or
+            "Untitled Image"
+        )
+
+        # Description is the AI-generated description of the image (stored in content field)
+        description = doc_row["content"] if doc_row["content"] else metadata.get("description")
+
+        # Calculate size
+        size_bytes = metadata.get("file_size_bytes", 0)
+
+        logger.info(f"[FS_READ_IMAGE] Successfully read image {document_id}")
+
+        return ImageContent(
+            document_id=document_id,
+            collection_id=actual_collection_id,
+            collection_name=collection_name,
+            name=document_name,
+            description=description,
+            storage_path=storage_path,
+            signed_url=signed_url,
+            mime_type=metadata.get("mime_type"),
+            expires_in_seconds=expiry_seconds,
+            size_bytes=size_bytes,
+            created_at=doc_row["created_at"].isoformat() if doc_row["created_at"] else "",
+            updated_at=doc_row["updated_at"].isoformat() if doc_row["updated_at"] else ""
+        )
+
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.exception(f"[FS_READ_IMAGE] Error: {e}")
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=f"Failed to read image: {str(e)}"
         )
 

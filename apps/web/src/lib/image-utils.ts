@@ -373,4 +373,163 @@ export function getImageSize(image: ExtractedImage): string | null {
     return `${(bytes / (1024 * 1024)).toFixed(1)} MB`;
   }
   return null;
-} 
+}
+
+// ==============================================================================
+// Document Image Management Functions
+// ==============================================================================
+
+/**
+ * Check if a document is an image based on its metadata
+ */
+export function isImageDocument(metadata: Record<string, any>): boolean {
+  return metadata?.file_type === 'image';
+}
+
+/**
+ * Convert a storage URI to a frontend proxy URL for displaying images
+ *
+ * This avoids the problem of internal Docker URLs (kong:8000) not being accessible from the browser.
+ * The frontend proxy handles authentication and permission checks via LangConnect.
+ *
+ * @param storagePath - Storage URI (e.g., storage://collections/{uuid}/{filename})
+ * @returns Frontend proxy URL (e.g., /api/langconnect/storage/image/collections/{uuid}/{filename})
+ */
+export function getImageProxyUrl(storagePath: string): string {
+  // Parse storage URI: storage://collections/{path}
+  if (!storagePath.startsWith('storage://collections/')) {
+    throw new Error(`Invalid storage path format: ${storagePath}`);
+  }
+
+  // Extract the path after storage://collections/
+  const path = storagePath.replace('storage://collections/', '');
+
+  // Return frontend proxy URL
+  return `/api/langconnect/storage/image/${path}`;
+}
+
+/**
+ * Fetch a signed URL for accessing an image from storage
+ *
+ * @deprecated Use getImageProxyUrl() instead for displaying images in the browser.
+ * This function returns internal Docker URLs that won't work from the browser.
+ *
+ * @param storagePath - Storage URI (e.g., storage://collections/{uuid}/{filename})
+ * @param accessToken - User's access token for authentication (unused, kept for compatibility)
+ * @param cacheBuster - Optional cache-busting value (timestamp or version) to force browser refresh
+ * @returns Frontend proxy URL that works from the browser
+ */
+export async function getSignedImageUrl(
+  storagePath: string,
+  accessToken: string,
+  cacheBuster?: string | number
+): Promise<string> {
+  // Instead of fetching a signed URL from the backend (which returns internal Docker URLs),
+  // return the frontend proxy URL which handles everything server-side
+  const baseUrl = getImageProxyUrl(storagePath);
+
+  // Add cache-busting parameter if provided
+  if (cacheBuster) {
+    return `${baseUrl}?v=${cacheBuster}`;
+  }
+
+  return baseUrl;
+}
+
+/**
+ * Get a thumbnail URL for an image
+ * Currently returns the full signed URL
+ *
+ * In the future, could use Supabase image transformation params
+ * to generate actual thumbnails on-the-fly
+ *
+ * @param signedUrl - Signed URL for the full image
+ * @param size - Desired thumbnail size (not used yet)
+ * @returns URL for the thumbnail (currently same as signed URL)
+ */
+export function getImageThumbnailUrl(
+  signedUrl: string,
+  size: number = 64
+): string {
+  // For now, return full URL
+  // Future: Could add Supabase transform params like:
+  // return `${signedUrl}&width=${size}&height=${size}`;
+  return signedUrl;
+}
+
+/**
+ * Replace an image document's file with a new image
+ *
+ * @param collectionId - Collection UUID
+ * @param documentId - Document UUID
+ * @param file - New image file to upload
+ * @param accessToken - User's access token for authentication
+ * @returns Result with success status and updated metadata
+ */
+export async function replaceDocumentImage(
+  collectionId: string,
+  documentId: string,
+  file: File,
+  accessToken: string
+): Promise<{
+  success: boolean;
+  message: string;
+  document_id: string;
+  metadata: {
+    title: string;
+    description: string;
+    storage_path: string;
+  };
+}> {
+  const formData = new FormData();
+  formData.append('file', file);
+
+  const response = await fetch(
+    `/api/langconnect/collections/${collectionId}/documents/${documentId}/image`,
+    {
+      method: 'PUT',
+      headers: {
+        'Authorization': `Bearer ${accessToken}`,
+      },
+      body: formData,
+    }
+  );
+
+  if (!response.ok) {
+    const error = await response.json().catch(() => ({ error: 'Failed to replace image' }));
+    throw new Error(error.error || error.detail || 'Failed to replace image');
+  }
+
+  return await response.json();
+}
+
+/**
+ * Batch fetch signed URLs for multiple images
+ *
+ * @param storagePaths - Array of storage URIs
+ * @param accessToken - User's access token for authentication
+ * @param cacheBuster - Optional cache-busting value (timestamp or version) to force browser refresh
+ * @returns Map of storage path -> signed URL
+ */
+export async function batchGetSignedImageUrls(
+  storagePaths: string[],
+  accessToken: string,
+  cacheBuster?: string | number
+): Promise<Map<string, string>> {
+  const urlMap = new Map<string, string>();
+
+  // Fetch all URLs in parallel
+  const promises = storagePaths.map(async (path) => {
+    try {
+      const url = await getSignedImageUrl(path, accessToken, cacheBuster);
+      urlMap.set(path, url);
+    } catch (error) {
+      console.error(`Failed to fetch signed URL for ${path}:`, error);
+      // Don't add to map if fetch fails
+    }
+  });
+
+  await Promise.all(promises);
+
+  return urlMap;
+}

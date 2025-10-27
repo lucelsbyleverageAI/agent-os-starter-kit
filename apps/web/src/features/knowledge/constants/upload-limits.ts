@@ -3,6 +3,7 @@ export const UPLOAD_LIMITS = {
   MAX_TOTAL_SIZE_MB: 100,
   MAX_INDIVIDUAL_FILE_SIZE_MB: 25,
   SUPPORTED_FILE_TYPES: [
+    // Documents
     'application/pdf',
     'application/msword',
     'application/vnd.openxmlformats-officedocument.wordprocessingml.document',
@@ -10,10 +11,18 @@ export const UPLOAD_LIMITS = {
     'application/vnd.openxmlformats-officedocument.presentationml.presentation',
     'application/vnd.ms-excel',
     'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+    // Text
     'text/plain',
     'text/csv',
     'text/html',
-    'text/markdown'
+    'text/markdown',
+    // Images
+    'image/jpeg',
+    'image/png',
+    'image/gif',
+    'image/webp',
+    'image/bmp',
+    'image/tiff'
   ]
 } as const;
 
