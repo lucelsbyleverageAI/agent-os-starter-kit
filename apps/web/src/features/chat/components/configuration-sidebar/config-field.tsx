@@ -1055,7 +1055,7 @@ export function ConfigFieldRAGTools({
         {
           name: "hybrid_search",
           label: "Hybrid Search",
-          description: "Semantic + keyword search (best for most use cases)",
+          description: "Semantic + keyword search (best for large knowledge bases)",
         },
         {
           name: "fs_list_collections",

@@ -22,6 +22,8 @@ Help users accomplish their goals by using the available tools effectively and p
 - Be proactive in suggesting relevant tools or approaches
 """
 
+DEFAULT_RECURSION_LIMIT = 40
+
 
 class RagConfig(BaseModel):
     """
@@ -65,7 +67,7 @@ class RagConfig(BaseModel):
                             {
                                 "name": "hybrid_search",
                                 "label": "Hybrid Search",
-                                "description": "Semantic + keyword search (best for most use cases)",
+                                "description": "Semantic + keyword search (best for large knowledge bases)",
                             },
                             {
                                 "name": "fs_list_collections",
@@ -163,14 +165,14 @@ class MCPConfig(BaseModel):
 class GraphConfigPydantic(BaseModel):
     """
     Complete configuration schema for the tools agent.
-    
+
     This is the main configuration class that defines all available options
     for the tools agent, including model parameters, tool integrations,
     and behavior customization.
-    
+
     The configuration includes UI metadata for automatic form generation
     in the agent platform interface.
-    
+
     Attributes:
         model_name: LLM model identifier
         temperature: Randomness control (0-2)
@@ -178,6 +180,7 @@ class GraphConfigPydantic(BaseModel):
         system_prompt: Custom system instructions
         mcp_config: MCP server integration settings
         rag: RAG document search settings
+        recursion_limit: Maximum number of steps the agent can take
     """
     
     template_name: Optional[str] = Field(
@@ -260,3 +263,17 @@ class GraphConfigPydantic(BaseModel):
         },
     )
     """RAG document search configuration"""
+
+    recursion_limit: Optional[int] = Field(
+        default=DEFAULT_RECURSION_LIMIT,
+        metadata={
+            "x_oap_ui_config": {
+                "type": "number",
+                "default": DEFAULT_RECURSION_LIMIT,
+                "min": 1,
+                "max": 1000,
+                "description": "The maximum number of steps the agent can take.",
+            }
+        },
+    )
+    """The maximum number of steps the agent can take."""

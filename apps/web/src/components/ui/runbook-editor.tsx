@@ -169,7 +169,7 @@ export function RunbookEditor({
 
         <div className="flex-1 min-h-0 px-6 pb-6 pt-4">
           <Tabs defaultValue="edit" className="flex flex-col h-full">
-            <TabsList className="w-fit mb-4">
+            <TabsList variant="branded" className="w-fit mb-4">
               <TabsTrigger value="edit">Edit</TabsTrigger>
               <TabsTrigger value="preview">Preview</TabsTrigger>
             </TabsList>
