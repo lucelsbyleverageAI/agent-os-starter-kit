@@ -82,35 +82,9 @@ class Settings(BaseSettings):
         default=None, description="Secret for signing/validating MCP access tokens"
     )
 
-    # GCP Storage Configuration
-    gcp_project_id: Optional[str] = Field(
-        default=None, description="GCP Project ID for cloud storage"
-    )
-    gcp_storage_bucket: str = Field(
-        default="agent-platform-images", description="GCP Storage bucket for images"
-    )
-    gcp_service_account_key: Optional[str] = Field(
-        default=None, description="Base64 encoded GCP service account key"
-    )
-    gcp_credentials_path: Optional[str] = Field(
-        default=None, description="Path to GCP service account credentials JSON"
-    )
-    gcp_credentials_json: Optional[str] = Field(
-        default=None, description="GCP service account credentials JSON string"
-    )
-    
-    # Image Storage Configuration
+    # Storage Configuration
     image_storage_enabled: bool = Field(
-        default=True, description="Enable cloud image storage"
-    )
-    image_base_url: Optional[str] = Field(
-        default=None, description="Base URL for serving images (if using CDN)"
-    )
-    image_url_expiry_hours: int = Field(
-        default=24, description="Signed URL expiry time in hours (0 for public URLs)"
-    )
-    image_public_access: bool = Field(
-        default=False, description="Enable public access URLs (no expiry, no signatures)"
+        default=True, description="Enable Supabase storage for agent outputs (images, plots, etc.)"
     )
 
     # Custom Tools Configuration

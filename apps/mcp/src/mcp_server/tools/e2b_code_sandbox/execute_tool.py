@@ -11,16 +11,17 @@ from ...utils.exceptions import ToolExecutionError
 from ...utils.logging import get_logger
 from ..base import CustomTool, ToolParameter
 
-# Optional GCP storage utilities for image handling
+# Supabase storage utilities for output handling
 try:
-    from ...utils.gcp_storage import (
-        ImageMetadata,
-        generate_image_filename,
-        upload_image_to_gcp,
+    from ...utils.supabase_storage import (
+        OutputMetadata,
+        generate_output_filename,
+        upload_output_to_supabase,
+        is_supabase_storage_available,
     )
-    GCP_AVAILABLE = True
+    SUPABASE_STORAGE_AVAILABLE = is_supabase_storage_available()
 except ImportError:
-    GCP_AVAILABLE = False
+    SUPABASE_STORAGE_AVAILABLE = False
 
 logger = get_logger(__name__)
 
@@ -119,18 +120,21 @@ class E2BExecuteCodeTool(CustomTool):
         # Validate E2B API key is configured
         if not settings.e2b_api_key:
             raise ToolExecutionError(
-                "e2b_code_sandbox", 
+                "e2b_code_sandbox",
                 "E2B API key not configured. Please set E2B_API_KEY environment variable."
             )
-        
+
         # Extract parameters
         code = kwargs.get("code", "").strip()
-        thread_id = kwargs.get("thread_id") or "default"
+        thread_id = kwargs.get("thread_id") or kwargs.get("_context_thread_id") or "default"
         sandbox_id = kwargs.get("sandbox_id")
         reset = kwargs.get("reset", False)
         pip_packages = kwargs.get("pip_packages", [])
         timeout_seconds = min(kwargs.get("timeout_seconds", self.DEFAULT_TIMEOUT), 600)
         close_sandbox = kwargs.get("close_sandbox", False)
+
+        # Extract context for storage (assistant_id from LangGraph context injection)
+        assistant_id = kwargs.get("_context_assistant_id") or "unknown"
         
         if not code:
             raise ToolExecutionError("e2b_code_sandbox", "No code provided to execute")
@@ -167,7 +171,7 @@ class E2BExecuteCodeTool(CustomTool):
             
             # Process results
             result = await self._process_execution_result(
-                execution, user_id, execution_sandbox_id
+                execution, user_id, assistant_id, thread_id, execution_sandbox_id
             )
             
             # Handle sandbox cleanup
@@ -356,9 +360,11 @@ except Exception as e:
             # Don't fail the entire execution for package installation errors
     
     async def _process_execution_result(
-        self, 
-        execution: Any, 
+        self,
+        execution: Any,
         user_id: str,
+        assistant_id: str,
+        thread_id: str,
         sandbox_id: str
     ) -> Dict[str, Any]:
         """Process E2B execution result into structured format."""
@@ -393,21 +399,21 @@ except Exception as e:
                 # Handle image outputs
                 if hasattr(res, "png") and res.png:
                     image_info = await self._process_image(
-                        res.png, "image/png", "png", user_id
+                        res.png, "image/png", "png", user_id, assistant_id, thread_id
                     )
                     result["rich_outputs"].append(image_info)
                     result_data["has_png"] = True
-                    if image_info.get("gcp_url"):
-                        result_data["png_gcp_url"] = image_info["gcp_url"]
-                
+                    if image_info.get("storage_url"):
+                        result_data["png_storage_url"] = image_info["storage_url"]
+
                 if hasattr(res, "svg") and res.svg:
                     image_info = await self._process_image(
-                        res.svg, "image/svg+xml", "svg", user_id
+                        res.svg, "image/svg+xml", "svg", user_id, assistant_id, thread_id
                     )
                     result["rich_outputs"].append(image_info)
                     result_data["has_svg"] = True
-                    if image_info.get("gcp_url"):
-                        result_data["svg_gcp_url"] = image_info["gcp_url"]
+                    if image_info.get("storage_url"):
+                        result_data["svg_storage_url"] = image_info["storage_url"]
                 
                 # Handle other outputs
                 for attr in ["html", "json", "javascript", "latex"]:
@@ -421,56 +427,71 @@ except Exception as e:
         return result
     
     async def _process_image(
-        self, 
-        image_data: str, 
-        content_type: str, 
+        self,
+        image_data: str,
+        content_type: str,
         format: str,
-        user_id: str
+        user_id: str,
+        assistant_id: str,
+        thread_id: str
     ) -> Dict[str, Any]:
         """Process image data for storage or base64 return."""
-        # Check if GCP storage is available and configured
-        if GCP_AVAILABLE and settings.image_storage_enabled:
+        # Check if Supabase storage is available and configured
+        if SUPABASE_STORAGE_AVAILABLE and settings.image_storage_enabled:
             try:
                 # Convert image data to bytes
                 if content_type == "image/svg+xml":
-                    image_bytes = image_data.encode('utf-8')
+                    output_bytes = image_data.encode('utf-8')
                 else:
                     import base64
-                    image_bytes = base64.b64decode(image_data)
-                
+                    output_bytes = base64.b64decode(image_data)
+
+                # Generate filename with proper path structure
+                filename = generate_output_filename(
+                    user_id=user_id,
+                    assistant_id=assistant_id,
+                    thread_id=thread_id,
+                    tool_name="e2b_code_sandbox",
+                    format=format
+                )
+
                 # Create metadata
-                filename = generate_image_filename(user_id, "e2b_code_sandbox", format)
-                metadata = ImageMetadata(
+                metadata = OutputMetadata(
                     filename=filename,
                     user_id=user_id,
+                    assistant_id=assistant_id,
+                    thread_id=thread_id,
                     tool_name="e2b_code_sandbox",
-                    original_prompt="E2B code execution output",
+                    content_type=content_type,
+                    size_bytes=len(output_bytes),
                     format=format,
                     additional_metadata={
                         "source": "e2b_sandbox_execution",
-                        "content_type": content_type,
                     }
                 )
-                
-                # Upload to GCP
-                _, download_url = upload_image_to_gcp(
-                    image_bytes, metadata, content_type
+
+                # Upload to Supabase Storage
+                _, storage_url = upload_output_to_supabase(
+                    output_bytes, metadata, content_type
                 )
-                
+
                 return {
                     "type": content_type,
-                    "gcp_url": download_url,
+                    "storage_url": storage_url,
                     "filename": filename,
-                    "format": "gcp_url",
-                    "size_bytes": len(image_bytes),
+                    "format": "storage_url",
+                    "size_bytes": len(output_bytes),
                 }
-                
+
             except Exception as e:
                 logger.warning(
-                    "Failed to upload image to GCP, falling back to base64",
+                    "Failed to upload output to Supabase Storage, falling back to base64",
                     error=str(e),
+                    user_id=user_id,
+                    assistant_id=assistant_id,
+                    thread_id=thread_id,
                 )
-        
+
         # Fallback to base64
         return {
             "type": content_type,
