@@ -30,11 +30,13 @@ TEMPLATE_PATH = Path(__file__).parent / "assets" / "e18-process-one-pager-templa
 LIMITS = {
     "headline_statement": {"words": 8, "tolerance": 0.2},  # ~8 words max
     "process_name": {"words": 12, "tolerance": 0.2},  # ~12 words max
+    "nhs_org_name": {"chars": 25, "tolerance": 0.2},  # ~25 chars max
+    "process_category": {"words": 5, "tolerance": 0.2},  # ~5 words max
     "manual_process": {"words": 70, "tolerance": 0.2},  # ~70 words max
     "challenges": {"words": 70, "tolerance": 0.2},  # ~70 words max
     "rpa_solution": {"words": 70, "tolerance": 0.2},  # ~70 words max
     "benefits_item": {"words": 8, "tolerance": 0.25},  # ~8 words per bullet point (max 10 with tolerance)
-    "benefits_count": {"min": 3, "max": 8},  # 3-8 bullet points (suggest 4-6)
+    "benefits_count": {"min": 3, "max": 5},  # 3-5 bullet points
 }
 
 
@@ -98,26 +100,17 @@ class GenerateProcessOnePagerTool(CustomTool):
                 name="process_category",
                 type="string",
                 description=(
-                    "Process category or clinical area for this RPA implementation. "
-                    "Select the most appropriate category that describes where this process is used."
+                    "Process category or department (3-5 words max). "
+                    "Examples: 'Outpatients', 'Maternity', 'Cancer', . "
+                    "Indicates which clinical area this process belongs to."
                 ),
-                required=True,
-                enum=[
-                    "Outpatients",
-                    "Cancer",
-                    "Diagnostics",
-                    "Clinical Coding",
-                    "Corporate Services",
-                    "EPR",
-                    "Community and Mental Health",
-                    "Other"
-                ]
+                required=True
             ),
             ToolParameter(
                 name="systems_used",
                 type="array",
                 description=(
-                    "List of 2-4 systems/applications used in the process. "
+                    "List of 1-5 systems/applications used in the process. "
                     "Examples: ['PAS', 'RADAR', 'Patient Hub'], ['Lorenzo', 'EPR', 'PACS']. "
                     "Will be displayed with pipe separators (e.g., 'PAS | RADAR | Patient Hub')."
                 ),
@@ -167,16 +160,15 @@ class GenerateProcessOnePagerTool(CustomTool):
                 name="benefits",
                 type="array",
                 description=(
-                    "List of quantifiable benefits as concise bullet points (~8 words each). "
-                    "Recommend 4-6 benefits, but can provide 3-8 depending on the process complexity. "
+                    "List of 4-5 quantifiable benefits as concise bullet points (~8 words each). "
                     "Each item should be a string with measurable outcomes. "
                     "Use **bold** markdown for key metrics within each bullet point. "
                     "Focus on: time saved, accuracy improved, cost reduction, staff impact. "
-                    "Example: ['**94% reduction** in processing time (4 hours to 15 minutes)', "
-                    "'**99.8% accuracy** vs 85% manual accuracy rate', "
-                    "'**Zero missed appointments** due to validation errors', "
-                    "'**20 hours/week freed up** for patient-facing activities', "
-                    "'**£45,000 annual savings** in operational costs']"
+                    "Example: ['**35,000 cases processed** annually with full automation', "
+                    "'**£53,000 annual cost savings** through reduced manual workload', "
+                    "'**85% reduction** in manual processing time', "
+                    "'**Significant improvement in data accuracy** reducing clinical risks', "
+                    "'**Increased staff capacity** to focus on patient-facing activities']"
                 ),
                 required=True,
                 items={"type": "string"}
@@ -306,6 +298,7 @@ class GenerateProcessOnePagerTool(CustomTool):
         word_fields = {
             "headline_statement": headline_statement,
             "process_name": process_name,
+            "process_category": process_category,
             "manual_process": manual_process,
             "challenges": challenges,
             "rpa_solution": rpa_solution,
@@ -323,6 +316,15 @@ class GenerateProcessOnePagerTool(CustomTool):
                     f"{field_name}: {word_count} words exceeds limit of {max_words} words "
                     f"(max {int(max_words * (1 + tolerance))} with tolerance). Please shorten."
                 )
+
+        # Character-based validation for NHS org name
+        char_limit = LIMITS["nhs_org_name"]["chars"]
+        tolerance = LIMITS["nhs_org_name"]["tolerance"]
+        if len(nhs_org_name) > char_limit * (1 + tolerance):
+            errors.append(
+                f"nhs_org_name: {len(nhs_org_name)} characters exceeds limit of "
+                f"{char_limit} characters. Please shorten or use abbreviations."
+            )
 
         # Validate benefits array
         count_limits = LIMITS["benefits_count"]
@@ -522,11 +524,11 @@ class GenerateProcessOnePagerTool(CustomTool):
             # Check if this shape contains a placeholder we need to replace
             for placeholder, replacement in replacements.items():
                 if placeholder in text_frame.text:
-                    # Handle markdown formatting (bold, bullets, or starts with bullets)
+                    # Handle markdown formatting
                     if any(x in replacement for x in ["**", "\n-", "\n*"]) or replacement.strip().startswith(('- ', '* ')):
                         self._set_formatted_text(text_frame, replacement)
                     else:
-                        # Simple text replacement - use paragraph level to handle split-run placeholders
+                        # Simple text replacement - preserve formatting by using paragraph-level replacement
                         replaced = False
                         for paragraph in text_frame.paragraphs:
                             if placeholder in paragraph.text:
@@ -574,8 +576,10 @@ class GenerateProcessOnePagerTool(CustomTool):
 
                                 replaced = True
                                 break
-                            if replaced:
-                                break
+
+                        if not replaced:
+                            # Fallback if placeholder not found in any paragraph
+                            text_frame.text = text_frame.text.replace(placeholder, replacement)
 
                     # Auto-adjust font size if text is slightly over limit
                     self._auto_adjust_font_size(shape, text_frame, replacement)
@@ -590,17 +594,18 @@ class GenerateProcessOnePagerTool(CustomTool):
                 self._auto_adjust_font_size(shape, text_frame, ' '.join(benefits))
 
     def _set_formatted_text(self, text_frame: Any, markdown_text: str) -> None:
-        """Convert markdown to PowerPoint formatted text while preserving base formatting."""
-        # Capture original formatting from first run BEFORE clearing
+        """Convert markdown to PowerPoint formatted text while preserving bullet formatting."""
+        # Save reference to first paragraph BEFORE clearing (for bullet formatting)
+        reference_paragraph = None
         original_font_name = None
         original_font_size = None
         original_font_color = None
 
         if text_frame.paragraphs and text_frame.paragraphs[0].runs:
-            first_run = text_frame.paragraphs[0].runs[0]
+            reference_paragraph = text_frame.paragraphs[0]
+            first_run = reference_paragraph.runs[0]
             original_font_name = first_run.font.name
             original_font_size = first_run.font.size
-            # Capture color if explicitly set (not inherited)
             if hasattr(first_run.font.color, 'rgb'):
                 try:
                     original_font_color = first_run.font.color.rgb
@@ -613,11 +618,15 @@ class GenerateProcessOnePagerTool(CustomTool):
         # Split by lines
         lines = markdown_text.split('\n')
 
+        # Track if we're on the first content paragraph
+        first_paragraph = True
+
         for line in lines:
             line = line.strip()
             if not line:
                 # Empty line - add blank paragraph
                 text_frame.add_paragraph()
+                first_paragraph = False
                 continue
 
             # Check if it's a bullet point
@@ -625,14 +634,18 @@ class GenerateProcessOnePagerTool(CustomTool):
             if is_bullet:
                 line = line[2:].strip()  # Remove bullet marker
 
-            # Always create new paragraph after clear()
-            p = text_frame.add_paragraph()
+            # Create or reuse paragraph
+            # After clear(), one empty paragraph remains - reuse it for first content line
+            if first_paragraph and text_frame.paragraphs:
+                p = text_frame.paragraphs[0]
+                first_paragraph = False
+            else:
+                p = text_frame.add_paragraph()
 
             if is_bullet:
                 p.level = 0  # First level bullet
-                # Enable bullet formatting explicitly
-                p.text = ""  # Ensure paragraph is initialized
-                # The bullet format should be inherited from template, but we set level to ensure proper formatting
+                # Copy bullet formatting from saved reference paragraph
+                self._ensure_bullet_formatting(p, reference_paragraph)
 
             # Process bold formatting
             parts = re.split(r'(\*\*.*?\*\*)', line)
