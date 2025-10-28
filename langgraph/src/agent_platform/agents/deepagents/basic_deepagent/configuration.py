@@ -7,7 +7,7 @@ from agent_platform.utils.model_utils import get_model_options_for_ui
 
 # Graph metadata
 GRAPH_NAME = "Deep Agent"
-GRAPH_DESCRIPTION = "An advanced multi-agent system that coordinates specialized sub-agents to handle complex tasks"
+GRAPH_DESCRIPTION = "An advanced multi-agent system where a coordinator plans and delegates tasks to sub-agents to prevent context bloat. Ideal for complex tasks that take a long time to complete."
 
 # System prompts and constants.
 DEFAULT_SYSTEM_PROMPT = """## Role
@@ -72,13 +72,13 @@ class RagConfig(BaseModel):
     """List of collection IDs to use for document search"""
     
     enabled_tools: Optional[List[str]] = Field(
-        default=["hybrid_search", "fs_list_collections", "fs_list_files", "fs_read_file", "fs_grep_files"],
+        default=["hybrid_search", "fs_list_collections", "fs_list_files", "fs_read_file", "fs_read_image", "fs_grep_files"],
         optional=True,
         metadata={
             "x_oap_ui_config": {
                 "type": "rag_tools",
                 "description": "Select which tools the agent can use to interact with document collections",
-                "default": ["hybrid_search", "fs_list_collections", "fs_list_files", "fs_read_file", "fs_grep_files"],
+                "default": ["hybrid_search", "fs_list_collections", "fs_list_files", "fs_read_file", "fs_read_image", "fs_grep_files"],
                 "tool_groups": [
                     {
                         "name": "Read Operations",
@@ -87,7 +87,7 @@ class RagConfig(BaseModel):
                             {
                                 "name": "hybrid_search",
                                 "label": "Hybrid Search",
-                                "description": "Semantic + keyword search (best for most use cases)",
+                                "description": "Semantic + keyword search (best for large knowledge bases)",
                             },
                             {
                                 "name": "fs_list_collections",
@@ -103,6 +103,11 @@ class RagConfig(BaseModel):
                                 "name": "fs_read_file",
                                 "label": "Read File",
                                 "description": "Read document contents with line numbers",
+                            },
+                            {
+                                "name": "fs_read_image",
+                                "label": "Read Image",
+                                "description": "View uploaded images with AI-generated descriptions",
                             },
                             {
                                 "name": "fs_grep_files",

@@ -383,7 +383,7 @@ export function CreateAgentDialog({
                 </AlertDialogTitle>
                 <AlertDialogDescription>
                   {!selectedGraphId || (!agentId && !graphId && !deploymentId)
-                    ? "Select a template to create your new agent"
+                    ? "Select a template and configure your new agent"
                     : `Configure your new agent using the ${selectedGraphId} template`}
                 </AlertDialogDescription>
               </div>

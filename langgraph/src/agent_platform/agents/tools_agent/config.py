@@ -4,8 +4,8 @@ from agent_platform.utils.model_utils import get_model_options_for_ui
 
 
 # Graph metadata
-GRAPH_NAME = "Tools Agent"
-GRAPH_DESCRIPTION = "A versatile AI assistant with access to various tools for general tasks and productivity"
+GRAPH_NAME = "Basic ReAct Agent"
+GRAPH_DESCRIPTION = "A versatile AI agent that you can configure with access to tools and knowledge collections. Ideal for general and flexible tasks where you are happy to give the AI agent a high degree of autonomy."
 
 # System prompts and constants
 UNEDITABLE_SYSTEM_PROMPT = "\nIf the tool throws an error requiring authentication, provide the user with a Markdown link to the authentication page and prompt them to authenticate."
@@ -21,6 +21,8 @@ Help users accomplish their goals by using the available tools effectively and p
 - Provide concise, well-structured responses
 - Be proactive in suggesting relevant tools or approaches
 """
+
+DEFAULT_RECURSION_LIMIT = 40
 
 
 class RagConfig(BaseModel):
@@ -51,12 +53,12 @@ class RagConfig(BaseModel):
     """List of collection IDs to use for document search"""
     
     enabled_tools: Optional[List[str]] = Field(
-        default=["hybrid_search", "fs_list_collections", "fs_list_files", "fs_read_file", "fs_grep_files"],
+        default=["hybrid_search", "fs_list_collections", "fs_list_files", "fs_read_file", "fs_read_image", "fs_grep_files"],
         metadata={
             "x_oap_ui_config": {
                 "type": "rag_tools",
                 "description": "Select which tools the agent can use to interact with document collections",
-                "default": ["hybrid_search", "fs_list_collections", "fs_list_files", "fs_read_file", "fs_grep_files"],
+                "default": ["hybrid_search", "fs_list_collections", "fs_list_files", "fs_read_file", "fs_read_image", "fs_grep_files"],
                 "tool_groups": [
                     {
                         "name": "Read Operations",
@@ -65,7 +67,7 @@ class RagConfig(BaseModel):
                             {
                                 "name": "hybrid_search",
                                 "label": "Hybrid Search",
-                                "description": "Semantic + keyword search (best for most use cases)",
+                                "description": "Semantic + keyword search (best for large knowledge bases)",
                             },
                             {
                                 "name": "fs_list_collections",
@@ -81,6 +83,11 @@ class RagConfig(BaseModel):
                                 "name": "fs_read_file",
                                 "label": "Read File",
                                 "description": "Read document contents with line numbers",
+                            },
+                            {
+                                "name": "fs_read_image",
+                                "label": "Read Image",
+                                "description": "View uploaded images with AI-generated descriptions",
                             },
                             {
                                 "name": "fs_grep_files",
@@ -158,14 +165,14 @@ class MCPConfig(BaseModel):
 class GraphConfigPydantic(BaseModel):
     """
     Complete configuration schema for the tools agent.
-    
+
     This is the main configuration class that defines all available options
     for the tools agent, including model parameters, tool integrations,
     and behavior customization.
-    
+
     The configuration includes UI metadata for automatic form generation
     in the agent platform interface.
-    
+
     Attributes:
         model_name: LLM model identifier
         temperature: Randomness control (0-2)
@@ -173,6 +180,7 @@ class GraphConfigPydantic(BaseModel):
         system_prompt: Custom system instructions
         mcp_config: MCP server integration settings
         rag: RAG document search settings
+        recursion_limit: Maximum number of steps the agent can take
     """
     
     template_name: Optional[str] = Field(
@@ -255,3 +263,17 @@ class GraphConfigPydantic(BaseModel):
         },
     )
     """RAG document search configuration"""
+
+    recursion_limit: Optional[int] = Field(
+        default=DEFAULT_RECURSION_LIMIT,
+        metadata={
+            "x_oap_ui_config": {
+                "type": "number",
+                "default": DEFAULT_RECURSION_LIMIT,
+                "min": 1,
+                "max": 1000,
+                "description": "The maximum number of steps the agent can take.",
+            }
+        },
+    )
+    """The maximum number of steps the agent can take."""

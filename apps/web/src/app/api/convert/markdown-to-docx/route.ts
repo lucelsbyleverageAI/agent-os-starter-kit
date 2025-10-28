@@ -68,7 +68,7 @@ function markdownToHtml(markdown: string): string {
 
   // Unordered lists
   html = html.replace(/^[\s]*[-*+] (.*?)$/gm, "<li>$1</li>");
-  html = html.replace(/(<li>.*?<\/li>)/s, (match) => {
+  html = html.replace(/(<li>[\s\S]*?<\/li>)/, (match) => {
     if (!match.includes("<ul>") && !match.includes("<ol>")) {
       return `<ul>${match}</ul>`;
     }

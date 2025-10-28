@@ -941,7 +941,7 @@ class LangGraphSyncService:
             log.info(f"Graph {graph_id} sync completed: {stats['assistants_synced']}/{stats['assistants_found']} assistants synced in {stats['duration_ms']}ms")
             
             return stats
-            
+
         except Exception as e:
             log.error(f"Failed to sync graph {graph_id}: {e}")
             return {
@@ -949,7 +949,125 @@ class LangGraphSyncService:
                 "error": str(e),
                 "duration_ms": int((time.time() - start_time) * 1000)
             }
-    
+
+    async def sync_graph_discovery_and_permissions(self) -> Dict[str, Any]:
+        """
+        Discover all graph templates from LangGraph and grant permissions to dev_admins.
+
+        This operation:
+        1. Discovers all graph templates from LangGraph API
+        2. Populates/updates graphs_mirror table with metadata
+        3. Grants admin permissions to all dev_admin users for discovered graphs
+        4. Increments cache versions to notify frontend
+
+        This is used by:
+        - Background scheduler (automatic discovery every N minutes)
+        - Manual "Force LangGraph Discovery Now" button (immediate sync)
+
+        Returns:
+            Statistics about the discovery and permission sync operation
+        """
+        start_time = time.time()
+
+        try:
+            log.info("Starting graph discovery and permission sync")
+
+            # Step 1: Discover graph metadata
+            from langconnect.api.graph_actions.discovery_utils import get_all_graph_metadata_from_api
+
+            all_metadata = await get_all_graph_metadata_from_api(self.langgraph_service)
+            graphs_found = len(all_metadata)
+            log.info(f"Discovered metadata for {graphs_found} graphs")
+
+            graphs_updated = 0
+            graphs_failed = 0
+
+            # Step 2: Populate graphs_mirror table
+            async with get_db_connection() as conn:
+                for graph_id, metadata in all_metadata.items():
+                    try:
+                        await conn.execute(
+                            """
+                            INSERT INTO langconnect.graphs_mirror (graph_id, name, description)
+                            VALUES ($1, $2, $3)
+                            ON CONFLICT (graph_id) DO UPDATE SET
+                                name = COALESCE(langconnect.graphs_mirror.name, EXCLUDED.name),
+                                description = COALESCE(langconnect.graphs_mirror.description, EXCLUDED.description),
+                                updated_at = NOW()
+                            """,
+                            graph_id,
+                            metadata["name"],
+                            metadata["description"]
+                        )
+                        graphs_updated += 1
+                    except Exception as e:
+                        graphs_failed += 1
+                        log.error(f"Failed to populate metadata for {graph_id}: {e}")
+
+                # Increment graphs version
+                await conn.fetchval("SELECT langconnect.increment_cache_version('graphs')")
+
+            log.info(f"Graph metadata sync: {graphs_updated} updated, {graphs_failed} failed")
+
+            # Step 3: Grant permissions to dev_admins
+            from langconnect.database.permissions import GraphPermissionsManager
+
+            dev_admins = await GraphPermissionsManager.get_all_dev_admins()
+            log.info(f"Found {len(dev_admins)} dev_admin users")
+
+            # Get all graph IDs
+            async with get_db_connection() as conn:
+                graphs_result = await conn.fetch(
+                    "SELECT graph_id FROM langconnect.graphs_mirror ORDER BY graph_id"
+                )
+                graph_ids = [row["graph_id"] for row in graphs_result]
+
+            permissions_granted = 0
+            permissions_failed = 0
+
+            # Grant permissions
+            for graph_id in graph_ids:
+                for dev_admin in dev_admins:
+                    try:
+                        success = await GraphPermissionsManager.grant_graph_permission(
+                            graph_id=graph_id,
+                            user_id=dev_admin["user_id"],
+                            permission_level="admin",
+                            granted_by="system:scheduled_discovery"
+                        )
+                        if success:
+                            permissions_granted += 1
+                    except Exception as e:
+                        permissions_failed += 1
+                        log.error(f"Failed to grant permission for {graph_id} to {dev_admin['email']}: {e}")
+
+            # Increment graphs version again after permissions
+            async with get_db_connection() as conn:
+                await conn.fetchval("SELECT langconnect.increment_cache_version('graphs')")
+
+            log.info(f"Permission sync: {permissions_granted} granted, {permissions_failed} failed")
+
+            duration_ms = int((time.time() - start_time) * 1000)
+
+            return {
+                "success": True,
+                "graphs_found": graphs_found,
+                "graphs_updated": graphs_updated,
+                "graphs_failed": graphs_failed,
+                "dev_admins_found": len(dev_admins),
+                "permissions_granted": permissions_granted,
+                "permissions_failed": permissions_failed,
+                "duration_ms": duration_ms
+            }
+
+        except Exception as e:
+            log.error(f"Failed to sync graph discovery and permissions: {e}")
+            return {
+                "success": False,
+                "error": str(e),
+                "duration_ms": int((time.time() - start_time) * 1000)
+            }
+
     async def get_cache_state(self) -> Dict[str, Any]:
         """Get current cache state for version-aware frontend caching."""
         try:

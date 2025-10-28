@@ -74,7 +74,9 @@ services:
         "-c",
         "config_file=/etc/postgresql/postgresql.conf",
         "-c",
-        "log_min_messages=fatal"
+        "log_min_messages=fatal",
+        "-c",
+        "max_connections=200"
       ]
   
   # Supabase Auth

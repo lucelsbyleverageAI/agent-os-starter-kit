@@ -1,6 +1,7 @@
 import { GraphInfo } from "@/types/agent";
 import { Bot, CheckCircle2, Layers } from "lucide-react";
 import { cn } from "@/lib/utils";
+import { Tooltip, TooltipTrigger, TooltipContent } from "@/components/ui/tooltip";
 import _ from "lodash";
 
 interface GraphTemplateSelectorProps {
@@ -111,9 +112,16 @@ export function GraphTemplateSelector({
               </div>
 
               {/* Description */}
-              <p className="text-muted-foreground line-clamp-3 text-sm">
-                {graphDescription}
-              </p>
+              <Tooltip>
+                <TooltipTrigger asChild>
+                  <p className="text-muted-foreground line-clamp-3 text-sm cursor-help">
+                    {graphDescription}
+                  </p>
+                </TooltipTrigger>
+                <TooltipContent className="max-w-sm">
+                  <p>{graphDescription}</p>
+                </TooltipContent>
+              </Tooltip>
             </button>
           );
         })}

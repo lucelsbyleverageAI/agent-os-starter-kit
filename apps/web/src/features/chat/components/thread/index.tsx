@@ -103,6 +103,7 @@ interface ThreadProps {
 export function Thread({ historyOpen = false, configOpen = false }: ThreadProps) {
   const [agentId] = useQueryState("agentId");
   const [agentMismatch] = useQueryState("agentMismatch", parseAsString);
+  const [threadId, setThreadId] = useQueryState("threadId");
   const [hideToolCalls, setHideToolCalls] = useQueryState(
     "hideToolCalls",
     parseAsBoolean.withDefault(false),
@@ -136,7 +137,6 @@ export function Thread({ historyOpen = false, configOpen = false }: ThreadProps)
 
   const stream = useStreamContext();
   const [preservedMessages, setPreservedMessages] = useState<Message[]>([]);
-  const [threadId] = useQueryState("threadId");
   const lastThreadIdRef = useRef<string | null>(threadId);
   const streamMessages = stream.messages;
   const isLoading = stream.isLoading;
@@ -164,8 +164,7 @@ export function Thread({ historyOpen = false, configOpen = false }: ThreadProps)
   useEffect(() => {
     if (threadId && pendingFirstMessageTouch && session?.accessToken) {
       const { messageContent, assistantId, graphId, timestamp } = pendingFirstMessageTouch;
-      
-      
+
       const touchPayload = {
         thread_id: threadId,
         assistant_id: assistantId || undefined,
@@ -331,8 +330,6 @@ export function Thread({ historyOpen = false, configOpen = false }: ThreadProps)
     )
       return;
 
-    
-
     const newHumanMessage: Message = {
       id: uuidv4(),
       type: "human",
@@ -372,20 +369,20 @@ export function Thread({ historyOpen = false, configOpen = false }: ThreadProps)
     try {
       const nowIso = new Date().toISOString();
       const assistantId = agentId || '';
-      const currentThreadId = (window.location.search.match(/threadId=([^&]+)/)?.[1] || '') || (stream as any)?.threadId || '';
-      
+      const currentThreadId = threadId || '';
+
       // Get the current agent from the agents context to get graph_id
       const currentAgent = agents.find(a => a.assistant_id === agentId);
       const graphId = currentAgent?.graph_id;
-      
-      
+
+
       // Extract first human message content for naming
       const nameIfAbsent = (newHumanMessage.content as any[])
         .filter((c) => c?.type === 'text')
         .map((c) => c.text)
         .join(' ')
         .slice(0, 80);
-      
+
       if (currentThreadId && session?.accessToken) {
         // Existing thread - touch immediately
         const touchPayload = {
@@ -396,9 +393,7 @@ export function Thread({ historyOpen = false, configOpen = false }: ThreadProps)
           name_if_absent: nameIfAbsent,
           last_message_at: nowIso,
         };
-        
-       
-        
+
         fetchWithAuth('/api/langconnect/agents/mirror/threads/touch', {
           method: 'POST',
           headers: {
@@ -425,7 +420,6 @@ export function Thread({ historyOpen = false, configOpen = false }: ThreadProps)
         });
       } else if (!currentThreadId && nameIfAbsent) {
         // New thread - set up pending touch for when threadId becomes available
-        
         setPendingFirstMessageTouch({
           messageContent: nameIfAbsent,
           assistantId,

@@ -9,16 +9,17 @@ import { toast } from "sonner";
 import { cn } from "@/lib/utils";
 import { getScrollbarClasses } from "@/lib/scrollbar-styles";
 import { MinimalistBadge } from "@/components/ui/minimalist-badge";
-import { 
-  Upload, 
-  X, 
-  FileText, 
-  File, 
+import {
+  Upload,
+  X,
+  FileText,
+  File,
   Video,
   FileArchive,
   FileSpreadsheet,
   AlertCircle,
-  Info
+  Info,
+  Image as ImageIcon
 } from "lucide-react";
 import { 
   UPLOAD_LIMITS, 
@@ -37,13 +38,14 @@ const getFileIcon = (file: File) => {
   const type = file.type.toLowerCase();
   const name = file.name.toLowerCase();
 
+  if (type.startsWith('image/')) return ImageIcon;
   if (type.startsWith('video/')) return Video;
   if (type.includes('pdf')) return FileText;
   if (type.includes('word') || name.endsWith('.docx') || name.endsWith('.doc')) return FileText;
   if (type.includes('presentation') || name.endsWith('.pptx') || name.endsWith('.ppt')) return FileText;
   if (type.includes('spreadsheet') || name.endsWith('.xlsx') || name.endsWith('.xls') || name.endsWith('.csv')) return FileSpreadsheet;
   if (type.includes('zip') || type.includes('archive')) return FileArchive;
-  
+
   return File;
 };
 
@@ -182,7 +184,13 @@ export function FileUploadSection({ files, onFilesChange }: FileUploadSectionPro
       'text/plain': ['.txt'],
       'text/csv': ['.csv'],
       'text/html': ['.html', '.htm'],
-      'text/markdown': ['.md', '.markdown']
+      'text/markdown': ['.md', '.markdown'],
+      'image/jpeg': ['.jpg', '.jpeg'],
+      'image/png': ['.png'],
+      'image/gif': ['.gif'],
+      'image/webp': ['.webp'],
+      'image/bmp': ['.bmp'],
+      'image/tiff': ['.tiff', '.tif']
     },
     multiple: true,
     maxSize: 50 * 1024 * 1024, // 50MB
@@ -213,7 +221,7 @@ export function FileUploadSection({ files, onFilesChange }: FileUploadSectionPro
             }
           </h3>
           <p className="text-sm text-muted-foreground">
-            Supports PDF, Word, PowerPoint, Excel, and text files up to 50MB each
+            Supports PDF, Word, PowerPoint, Excel, text files, and images (JPG, PNG, GIF, WebP) up to 50MB each
           </p>
         </div>
       </div>

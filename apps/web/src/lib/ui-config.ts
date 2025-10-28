@@ -346,7 +346,7 @@ export function extractConfigurationsFromAgent({
           enabled_tools:
             configurable[ragConfig.label]?.enabled_tools ??
             ragConfig.default?.enabled_tools ??
-            ["hybrid_search", "fs_list_collections", "fs_list_files", "fs_read_file", "fs_grep_files"],
+            ["hybrid_search", "fs_list_collections", "fs_list_files", "fs_read_file", "fs_read_image", "fs_grep_files"],
         },
       }
     : undefined;

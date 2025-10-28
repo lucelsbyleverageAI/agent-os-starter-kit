@@ -7,6 +7,7 @@ with external changes in LangGraph (assistants created outside the UI).
 
 import asyncio
 import logging
+import os
 from typing import Optional
 from datetime import datetime, timedelta
 
@@ -18,25 +19,28 @@ log = logging.getLogger(__name__)
 
 class SyncScheduler:
     """Background scheduler for LangGraph sync operations."""
-    
+
     def __init__(
         self,
         incremental_interval_minutes: int = 2,
         full_sync_interval_minutes: int = 15,
-        cleanup_interval_hours: int = 24
+        cleanup_interval_hours: int = 24,
+        graph_discovery_interval_minutes: int = 15
     ):
         self.incremental_interval = timedelta(minutes=incremental_interval_minutes)
         self.full_sync_interval = timedelta(minutes=full_sync_interval_minutes)
         self.cleanup_interval = timedelta(hours=cleanup_interval_hours)
-        
+        self.graph_discovery_interval = timedelta(minutes=graph_discovery_interval_minutes)
+
         self.last_incremental_sync: Optional[datetime] = None
         self.last_full_sync: Optional[datetime] = None
         self.last_cleanup: Optional[datetime] = None
-        
+        self.last_graph_discovery: Optional[datetime] = None
+
         self.running = False
         self.task: Optional[asyncio.Task] = None
-        
-        log.info(f"Sync scheduler initialized: incremental={incremental_interval_minutes}m, full={full_sync_interval_minutes}m, cleanup={cleanup_interval_hours}h")
+
+        log.info(f"Sync scheduler initialized: incremental={incremental_interval_minutes}m, full={full_sync_interval_minutes}m, cleanup={cleanup_interval_hours}h, graph_discovery={graph_discovery_interval_minutes}m")
     
     async def start(self):
         """Start the background sync scheduler."""
@@ -68,25 +72,31 @@ class SyncScheduler:
         try:
             while self.running:
                 now = datetime.utcnow()
-                
+
                 # Check if incremental sync is due
-                if (self.last_incremental_sync is None or 
+                if (self.last_incremental_sync is None or
                     now - self.last_incremental_sync >= self.incremental_interval):
                     await self._run_incremental_sync()
                     self.last_incremental_sync = now
-                
+
                 # Check if full sync is due
-                if (self.last_full_sync is None or 
+                if (self.last_full_sync is None or
                     now - self.last_full_sync >= self.full_sync_interval):
                     await self._run_full_sync()
                     self.last_full_sync = now
-                
+
+                # Check if graph discovery is due
+                if (self.last_graph_discovery is None or
+                    now - self.last_graph_discovery >= self.graph_discovery_interval):
+                    await self._run_graph_discovery()
+                    self.last_graph_discovery = now
+
                 # Check if cleanup is due
-                if (self.last_cleanup is None or 
+                if (self.last_cleanup is None or
                     now - self.last_cleanup >= self.cleanup_interval):
                     await self._run_cleanup()
                     self.last_cleanup = now
-                
+
                 # Sleep for 30 seconds before next check
                 await asyncio.sleep(30)
                 
@@ -122,21 +132,42 @@ class SyncScheduler:
         """Run full sync operation."""
         try:
             log.info("Running scheduled full sync")
-            
+
             langgraph_service = get_langgraph_service()
             sync_service = LangGraphSyncService(langgraph_service)
-            
+
             stats = await sync_service.sync_all_full()
-            
+
             # Log summary
             if "error" not in stats:
                 log.info(f"Full sync completed: {stats.get('new_assistants', 0)} new, {stats.get('updated_assistants', 0)} updated, {stats.get('inactive_graphs', 0)} inactive graphs")
             else:
                 log.error(f"Full sync failed: {stats['error']}")
-                
+
         except Exception as e:
             log.error(f"Failed to run full sync: {e}")
-    
+
+    async def _run_graph_discovery(self):
+        """Run graph discovery and permission sync operation."""
+        try:
+            log.info("Running scheduled graph discovery and permission sync")
+
+            langgraph_service = get_langgraph_service()
+            sync_service = LangGraphSyncService(langgraph_service)
+
+            stats = await sync_service.sync_graph_discovery_and_permissions()
+
+            # Log summary
+            if stats.get("success"):
+                log.info(f"Graph discovery completed: {stats.get('graphs_found', 0)} graphs found, "
+                        f"{stats.get('graphs_updated', 0)} updated, "
+                        f"{stats.get('permissions_granted', 0)} permissions granted")
+            else:
+                log.error(f"Graph discovery failed: {stats.get('error', 'Unknown error')}")
+
+        except Exception as e:
+            log.error(f"Failed to run graph discovery: {e}")
+
     async def _run_cleanup(self):
         """Run cleanup operation."""
         try:
@@ -167,10 +198,21 @@ _scheduler: Optional[SyncScheduler] = None
 
 
 def get_scheduler() -> SyncScheduler:
-    """Get the global scheduler instance."""
+    """Get the global scheduler instance with configuration from environment variables."""
     global _scheduler
     if _scheduler is None:
-        _scheduler = SyncScheduler()
+        # Read intervals from environment variables with sensible defaults
+        incremental_interval = int(os.getenv("SYNC_INCREMENTAL_INTERVAL_MINUTES", "2"))
+        full_sync_interval = int(os.getenv("SYNC_FULL_INTERVAL_MINUTES", "15"))
+        cleanup_interval = int(os.getenv("SYNC_CLEANUP_INTERVAL_HOURS", "24"))
+        graph_discovery_interval = int(os.getenv("SYNC_GRAPH_DISCOVERY_INTERVAL_MINUTES", "15"))
+
+        _scheduler = SyncScheduler(
+            incremental_interval_minutes=incremental_interval,
+            full_sync_interval_minutes=full_sync_interval,
+            cleanup_interval_hours=cleanup_interval,
+            graph_discovery_interval_minutes=graph_discovery_interval
+        )
     return _scheduler
 
 

@@ -3,6 +3,8 @@ import { toast } from "sonner";
 import type { Base64ContentBlock } from "@langchain/core/messages";
 import { fileToContentBlock } from "@/lib/multimodal-utils";
 import { useAuthContext } from "@/providers/Auth";
+import { useQueryState } from "nuqs";
+import { v4 as uuidv4 } from "uuid";
 
 // Maximum file size in bytes (10MB)
 export const MAX_FILE_SIZE = 10 * 1024 * 1024;
@@ -47,16 +49,17 @@ export function useFileUpload({
   initialBlocks = [],
 }: UseFileUploadOptions = {}) {
   const { session } = useAuthContext();
+  const [threadId] = useQueryState("threadId");
   const [contentBlocks, setContentBlocks] = useState<Base64ContentBlock[]>(initialBlocks);
   const [processingAttachments, setProcessingAttachments] = useState<ProcessingAttachment[]>([]);
   const dropRef = useRef<HTMLDivElement>(null);
   const [dragOver, setDragOver] = useState(false);
   const dragCounter = useRef(0);
   const pollingIntervals = useRef<{ [key: string]: NodeJS.Timeout }>({});
-  
+
   // Add ref to avoid stale closure issues in polling
   const processingAttachmentsRef = useRef<ProcessingAttachment[]>([]);
-  
+
   // Keep ref in sync with state
   useEffect(() => {
     processingAttachmentsRef.current = processingAttachments;
@@ -306,6 +309,48 @@ ${extractedContent}
     }
   }, [session?.accessToken, startJobPolling]);
 
+  /**
+   * Upload image to storage and return a content block with storage path.
+   * This replaces the old base64 approach to keep messages lean.
+   *
+   * Images are stored per-user with timestamps (no thread association).
+   */
+  const uploadImageToStorage = useCallback(async (file: File): Promise<Base64ContentBlock> => {
+    if (!session?.accessToken) {
+      throw new Error("No session found");
+    }
+
+    const formData = new FormData();
+    formData.append('file', file);
+
+    const response = await fetch('/api/langconnect/storage/upload-chat-image', {
+      method: 'POST',
+      body: formData,
+    });
+
+    if (!response.ok) {
+      const errorData = await response.json().catch(() => ({ error: 'Failed to upload image' }));
+      throw new Error(errorData.error || 'Failed to upload image');
+    }
+
+    const data = await response.json();
+
+    // Return a content block with storage path for message content
+    // Use preview_url for immediate display in UI
+    // Note: Using 'as any' because we're extending Base64ContentBlock with url support
+    return {
+      type: "image",
+      source_type: "url",
+      url: data.storage_path,  // Storage path for message content (will be converted to signed URL at runtime)
+      metadata: {
+        name: file.name,
+        storage_path: data.storage_path,
+        bucket: data.bucket,
+        preview_url: data.preview_url  // Temporary signed URL for UI preview
+      },
+    } as any as Base64ContentBlock;
+  }, [session?.accessToken]);
+
   const handleFileUpload = async (e: ChangeEvent<HTMLInputElement>) => {
     const files = e.target.files;
     if (!files) return;
@@ -372,9 +417,16 @@ ${extractedContent}
     // Process valid files
     for (const file of validFiles) {
       if (isImageFile(file)) {
-        // Handle images synchronously as before
-        const block = await fileToContentBlock(file);
-        setContentBlocks(prev => [...prev, block]);
+        // Upload image to storage and create storage path content block
+        try {
+          const block = await uploadImageToStorage(file);
+          setContentBlocks(prev => [...prev, block]);
+        } catch (error) {
+          console.error('Error uploading image:', error);
+          toast.error(`Failed to upload ${file.name}`, {
+            description: error instanceof Error ? error.message : 'An error occurred'
+          });
+        }
       } else if (isDocumentFile(file)) {
         // Handle documents asynchronously
         await processDocument(file);
@@ -471,9 +523,16 @@ ${extractedContent}
       // Process valid files
       for (const file of validFiles) {
         if (isImageFile(file)) {
-          // Handle images synchronously
-          const block = await fileToContentBlock(file);
-          setContentBlocks(prev => [...prev, block]);
+          // Upload image to storage and create storage path content block
+          try {
+            const block = await uploadImageToStorage(file);
+            setContentBlocks(prev => [...prev, block]);
+          } catch (error) {
+            console.error('Error uploading image:', error);
+            toast.error(`Failed to upload ${file.name}`, {
+              description: error instanceof Error ? error.message : 'An error occurred'
+            });
+          }
         } else if (isDocumentFile(file)) {
           // Handle documents asynchronously
           await processDocument(file);
@@ -527,7 +586,7 @@ ${extractedContent}
       window.removeEventListener("dragover", handleWindowDragOver);
       dragCounter.current = 0;
     };
-  }, [contentBlocks, calculateTotalAttachmentsSize, isDuplicate, processDocument]);
+  }, [contentBlocks, calculateTotalAttachmentsSize, isDuplicate, processDocument, uploadImageToStorage]);
 
   const removeBlock = (idx: number) => {
     setContentBlocks((prev) => prev.filter((_, i) => i !== idx));
@@ -606,8 +665,25 @@ ${extractedContent}
       );
     }
     if (uniqueFiles.length > 0) {
-      const newBlocks = await Promise.all(uniqueFiles.map(fileToContentBlock));
-      setContentBlocks((prev) => [...prev, ...newBlocks]);
+      // Process each file based on type
+      for (const file of uniqueFiles) {
+        if (isImageFile(file)) {
+          // Upload image to storage
+          try {
+            const block = await uploadImageToStorage(file);
+            setContentBlocks(prev => [...prev, block]);
+          } catch (error) {
+            console.error('Error uploading pasted image:', error);
+            toast.error(`Failed to upload ${file.name}`, {
+              description: error instanceof Error ? error.message : 'An error occurred'
+            });
+          }
+        } else if (isDocumentFile(file)) {
+          // Handle documents with base64 (paste doesn't support async document processing)
+          const block = await fileToContentBlock(file);
+          setContentBlocks(prev => [...prev, block]);
+        }
+      }
     }
   };
 

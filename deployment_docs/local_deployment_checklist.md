@@ -52,7 +52,7 @@
   ```bash
   # Supabase keys
   SECRET_KEY_BASE=$(openssl rand -base64 64 | tr -d '\n')
-  VAULT_ENC_KEY=$(openssl rand -base64 48 | tr -d '\n')
+  VAULT_ENC_KEY=$(openssl rand -base64 48 | tr -dc 'A-Za-z0-9' | head -c32)
   
   # Dashboard credentials
   DASHBOARD_USERNAME=admin

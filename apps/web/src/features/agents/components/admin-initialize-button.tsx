@@ -2,7 +2,7 @@
 
 import { useState } from "react";
 import { Button } from "@/components/ui/button";
-import { Settings, Eye, Play, Loader2 } from "lucide-react";
+import { Eye, Play, Loader2, RefreshCw } from "lucide-react";
 import {
   DropdownMenu,
   DropdownMenuContent,
@@ -10,6 +10,12 @@ import {
   DropdownMenuTrigger,
   DropdownMenuSeparator,
 } from "@/components/ui/dropdown-menu";
+import {
+  Tooltip,
+  TooltipContent,
+  TooltipProvider,
+  TooltipTrigger,
+} from "@/components/ui/tooltip";
 import { useAdminPlatform } from "@/hooks/use-admin-platform";
 import { useAgentsContext } from "@/providers/Agents";
 import { notify } from "@/utils/toast";
@@ -84,35 +90,47 @@ export function AdminInitializeButton({ size = "default" }: AdminInitializeButto
   };
 
   return (
-    <DropdownMenu open={showDropdown} onOpenChange={setShowDropdown}>
-      <DropdownMenuTrigger asChild>
-        <Button variant="outline" size={size} disabled={loading}>
-          {loading ? (
-            <>
-              <Loader2 className="mr-2 h-4 w-4 animate-spin" />
-              Processing...
-            </>
-          ) : (
-            <>
-              <Settings className="mr-2 h-4 w-4" />
-              Initialize Platform
-            </>
-          )}
-        </Button>
-      </DropdownMenuTrigger>
-      <DropdownMenuContent align="end" className="w-56">
-        <DropdownMenuItem onClick={handlePreview} disabled={loading}>
-          <Eye className="mr-2 h-4 w-4" />
-          Preview Changes
-          <span className="text-xs text-muted-foreground ml-auto">Dry Run</span>
-        </DropdownMenuItem>
-        <DropdownMenuSeparator />
-        <DropdownMenuItem onClick={handleInitialize} disabled={loading}>
-          <Play className="mr-2 h-4 w-4" />
-          Initialize Platform
-          <span className="text-xs text-muted-foreground ml-auto">Live</span>
-        </DropdownMenuItem>
-      </DropdownMenuContent>
-    </DropdownMenu>
+    <TooltipProvider>
+      <Tooltip>
+        <DropdownMenu open={showDropdown} onOpenChange={setShowDropdown}>
+          <TooltipTrigger asChild>
+            <DropdownMenuTrigger asChild>
+              <Button variant="outline" size={size} disabled={loading}>
+                {loading ? (
+                  <>
+                    <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+                    Processing...
+                  </>
+                ) : (
+                  <>
+                    <RefreshCw className="mr-2 h-4 w-4" />
+                    Force LangGraph Discovery
+                  </>
+                )}
+              </Button>
+            </DropdownMenuTrigger>
+          </TooltipTrigger>
+          <DropdownMenuContent align="end" className="w-64">
+            <DropdownMenuItem onClick={handlePreview} disabled={loading}>
+              <Eye className="mr-2 h-4 w-4" />
+              Preview Changes
+              <span className="text-xs text-muted-foreground ml-auto">Dry Run</span>
+            </DropdownMenuItem>
+            <DropdownMenuSeparator />
+            <DropdownMenuItem onClick={handleInitialize} disabled={loading}>
+              <Play className="mr-2 h-4 w-4" />
+              Force Discovery Now
+              <span className="text-xs text-muted-foreground ml-auto">Live</span>
+            </DropdownMenuItem>
+          </DropdownMenuContent>
+        </DropdownMenu>
+        <TooltipContent side="bottom" className="max-w-xs">
+          <p className="text-sm">
+            Retrieves the latest graphs (agent templates) from LangGraph and grants permissions to dev admins. 
+            Use this after deploying new graphs that need immediate access.
+          </p>
+        </TooltipContent>
+      </Tooltip>
+    </TooltipProvider>
   );
 } 

@@ -51,6 +51,9 @@ import { EditDocumentDialog } from "./edit-document-dialog";
 import { cn } from "@/lib/utils";
 import { getScrollbarClasses } from "@/lib/scrollbar-styles";
 import { useRouter } from "next/navigation";
+import { isImageDocument, getSignedImageUrl } from "@/lib/image-utils";
+import { ImagePreviewDialog } from "@/components/ui/image-preview-dialog";
+import { useAuthContext } from "@/providers/Auth";
 import {
   downloadMarkdownAsDocx,
   downloadAsMarkdown,
@@ -131,19 +134,24 @@ export function DocumentsTable({
   totalDocumentCount,
 }: DocumentsTableProps) {
   const router = useRouter();
+  const { session } = useAuthContext();
   const { deleteDocument } = useKnowledgeContext();
   const [deletingDocumentId, setDeletingDocumentId] = useState<string | null>(null);
   const [editDocumentId, setEditDocumentId] = useState<string | null>(null);
   const [loadingMore, setLoadingMore] = useState(false);
-  
+
   // Multi-select state
   const [selectedDocuments, setSelectedDocuments] = useState<Set<string>>(new Set());
   const [batchDeleting, setBatchDeleting] = useState(false);
   const [showBatchDeleteDialog, setShowBatchDeleteDialog] = useState(false);
-  
+
   // Search and sort state
   const [searchTerm, setSearchTerm] = useState('');
   const [sortConfig, setSortConfig] = useState<SortConfig>({ field: 'date', direction: 'desc' });
+
+  // Image state
+  const [imageUrls, setImageUrls] = useState<Map<string, string>>(new Map());
+  const [previewImage, setPreviewImage] = useState<{url: string, title: string} | null>(null);
 
   // Download state
   const [downloadingDocumentId, setDownloadingDocumentId] = useState<string | null>(null);
@@ -493,6 +501,57 @@ export function DocumentsTable({
     setSearchTerm('');
   }, []);
 
+  // Fetch signed URLs for image documents
+  useEffect(() => {
+    if (!session?.accessToken || documents.length === 0) {
+      return;
+    }
+
+    // Capture accessToken in a variable to ensure TypeScript knows it's not null
+    const accessToken = session.accessToken;
+
+    const fetchImageUrls = async () => {
+      // Find all image documents that have storage paths
+      const imageDocs = documents.filter(doc =>
+        isImageDocument(doc.metadata) && doc.metadata.storage_path
+      );
+
+      if (imageDocs.length === 0) {
+        return;
+      }
+
+      try {
+        // Fetch signed URLs individually with cache-busting per document
+        // Note: Each document needs its own cache-busting timestamp based on updated_at
+        const docIdToUrlMap = new Map<string, string>();
+
+        await Promise.all(
+          imageDocs.map(async (doc) => {
+            try {
+              // Use document's updated_at as cache-buster to ensure fresh images after replacement
+              const cacheBuster = doc.metadata.updated_at || Date.now();
+              const signedUrl = await getSignedImageUrl(
+                doc.metadata.storage_path,
+                accessToken,
+                cacheBuster
+              );
+
+              docIdToUrlMap.set(doc.metadata.file_id, signedUrl);
+            } catch (error) {
+              console.error(`Failed to fetch signed URL for document ${doc.metadata.file_id}:`, error);
+            }
+          })
+        );
+
+        setImageUrls(docIdToUrlMap);
+      } catch (error) {
+        console.error('Failed to fetch image URLs:', error);
+      }
+    };
+
+    fetchImageUrls();
+  }, [documents, session?.accessToken]);
+
   return (
     <div className="space-y-4 p-1">
       {/* Search Bar */}
@@ -580,6 +639,9 @@ export function DocumentsTable({
                 {...(isIndeterminate && { 'data-state': 'indeterminate' })}
               />
             </div>
+            <div className="col-span-1 text-xs font-medium text-muted-foreground">
+              Image
+            </div>
             <div className="col-span-3 flex items-center">
               <button
                 onClick={() => handleSort('name')}
@@ -589,7 +651,7 @@ export function DocumentsTable({
                 {getSortIcon('name')}
               </button>
             </div>
-            <div className="col-span-5 text-xs font-medium text-muted-foreground">
+            <div className="col-span-4 text-xs font-medium text-muted-foreground">
               Description
             </div>
             <div className="col-span-1 flex items-center">
@@ -664,6 +726,36 @@ export function DocumentsTable({
                       />
                     </div>
 
+                    {/* Image Thumbnail */}
+                    <div className="col-span-1 flex items-center">
+                      {isImageDocument(doc.metadata) && (() => {
+                        const hasUrl = imageUrls.has(doc.metadata.file_id);
+                        const url = imageUrls.get(doc.metadata.file_id);
+                        console.log(`📸 Rendering doc ${doc.metadata.file_id}: hasUrl=${hasUrl}, url=${url}`);
+                        return hasUrl;
+                      })() ? (
+                        <button
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            setPreviewImage({
+                              url: imageUrls.get(doc.metadata.file_id)!,
+                              title: doc.metadata.name
+                            });
+                          }}
+                          className="relative w-12 h-12 rounded overflow-hidden border hover:border-primary transition-colors"
+                          title="Click to preview full image"
+                        >
+                          <img
+                            src={imageUrls.get(doc.metadata.file_id)}
+                            alt={doc.metadata.name}
+                            className="w-full h-full object-cover"
+                          />
+                        </button>
+                      ) : (
+                        <div className="w-12 h-12" />
+                      )}
+                    </div>
+
                     {/* Document Name */}
                     <div className="col-span-3 flex items-center cursor-pointer" onClick={handleRowClick}>
                       {(() => {
@@ -722,7 +814,7 @@ export function DocumentsTable({
                     </div>
 
                     {/* Description */}
-                    <div className="col-span-5 flex items-center cursor-pointer" onClick={handleRowClick}>
+                    <div className="col-span-4 flex items-center cursor-pointer" onClick={handleRowClick}>
                       {doc.metadata.description ? (
                         <TooltipProvider>
                           <Tooltip delayDuration={300}>
@@ -952,7 +1044,7 @@ export function DocumentsTable({
         {editDocumentId && (() => {
           const doc = documents.find(d => d.metadata.file_id === editDocumentId);
           if (!doc) return null;
-          
+
           return (
             <EditDocumentDialog
               documentId={editDocumentId}
@@ -971,6 +1063,16 @@ export function DocumentsTable({
           );
         })()}
       </div>
+
+      {/* Image Preview Dialog */}
+      {previewImage && (
+        <ImagePreviewDialog
+          open={!!previewImage}
+          onOpenChange={(open) => !open && setPreviewImage(null)}
+          imageUrl={previewImage.url}
+          title={previewImage.title}
+        />
+      )}
     </div>
   );
 }

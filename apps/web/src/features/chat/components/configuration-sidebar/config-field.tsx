@@ -541,7 +541,7 @@ export function ConfigFieldRAG({
   };
 
   return (
-    <div className={cn("flex flex-col items-start gap-2", className)}>
+    <div className={cn("w-full flex flex-col items-start gap-2", className)}>
       <Label
         htmlFor={id}
         className="text-sm font-medium"
@@ -741,7 +741,7 @@ export function ConfigFieldAgents({
     };
 
     return (
-      <div className={cn("space-y-3", className)}>
+      <div className={cn("w-full space-y-3", className)}>
         <div className="flex items-center justify-between">
           <Label className="text-sm font-medium">Sub-Agents</Label>
           <Button
@@ -762,7 +762,7 @@ export function ConfigFieldAgents({
           {subAgents.map((sa, i) => (
             <div
               key={i}
-              className="rounded-md border p-3"
+              className="w-full rounded-md border p-3"
             >
               <div className="flex items-center justify-between">
                 <div>
@@ -970,7 +970,7 @@ export function ConfigFieldAgents({
 
   // Default selector (supervisor) rendering
   return (
-    <div className={cn("space-y-2", className)}>
+    <div className={cn("w-full space-y-2", className)}>
       <AgentsCombobox
         agents={filteredAgents}
         agentsLoading={loading}
@@ -1055,7 +1055,7 @@ export function ConfigFieldRAGTools({
         {
           name: "hybrid_search",
           label: "Hybrid Search",
-          description: "Semantic + keyword search (best for most use cases)",
+          description: "Semantic + keyword search (best for large knowledge bases)",
         },
         {
           name: "fs_list_collections",
@@ -1200,7 +1200,7 @@ export function ConfigFieldRAGTools({
   }
 
   return (
-    <div className={cn("space-y-4", className)}>
+    <div className={cn("w-full space-y-4", className)}>
       <div>
         <Label className="text-sm font-medium mb-2 block">
           Document Tools

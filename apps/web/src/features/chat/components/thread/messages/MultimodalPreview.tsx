@@ -19,7 +19,7 @@ export const MultimodalPreview: React.FC<MultimodalPreviewProps> = ({
   className,
   size = "md",
 }) => {
-  // Image block
+  // Image block with base64 data (legacy)
   if (
     block.type === "image" &&
     block.source_type === "base64" &&
@@ -38,6 +38,41 @@ export const MultimodalPreview: React.FC<MultimodalPreviewProps> = ({
           className={imgClass}
           width={size === "sm" ? 16 : size === "md" ? 32 : 48}
           height={size === "sm" ? 16 : size === "md" ? 32 : 48}
+        />
+        {removable && (
+          <button
+            type="button"
+            className="absolute -top-1 -right-1 z-10 rounded-full bg-background border border-border text-foreground hover:bg-accent hover:text-accent-foreground transition-colors"
+            onClick={onRemove}
+            aria-label="Remove image"
+          >
+            <XIcon className="h-4 w-4" />
+          </button>
+        )}
+      </div>
+    );
+  }
+
+  // Image block with storage path (new approach)
+  if (
+    block.type === "image" &&
+    (block as any).source_type === "url" &&
+    typeof (block as any).url === "string"
+  ) {
+    // Use preview_url from metadata if available, otherwise use the storage path
+    const displayUrl = block.metadata?.preview_url || (block as any).url;
+    let imgClass: string = "rounded-xl object-cover h-16 w-16 text-lg";
+    if (size === "sm") imgClass = "rounded-xl object-cover h-10 w-10 text-base";
+    if (size === "lg") imgClass = "rounded-xl object-cover h-24 w-24 text-xl";
+    return (
+      <div className={cn("relative inline-block", className)}>
+        <Image
+          src={displayUrl}
+          alt={String(block.metadata?.name || "uploaded image")}
+          className={imgClass}
+          width={size === "sm" ? 16 : size === "md" ? 32 : 48}
+          height={size === "sm" ? 16 : size === "md" ? 32 : 48}
+          unoptimized  // Required for external URLs from storage
         />
         {removable && (
           <button
