@@ -1,0 +1,346 @@
+name: NHS Outcomes Data Pipeline
+
+# Runs monthly to refresh NHS performance data (RTT, Cancer, Oversight)
+# Can also be triggered manually for backfills or ad-hoc refreshes
+
+on:
+  schedule:
+    # Run on 15th of each month at 2am UTC (after NHS data typically published)
+    # RTT: Published ~11-13 days after month-end
+    # Cancer: Provisional data ~2 weeks, final ~6 weeks after month-end
+    # Oversight: Quarterly updates
+    - cron: '0 2 15 * *'
+
+  workflow_dispatch:  # Allow manual trigger
+    inputs:
+      command:
+        description: 'Pipeline command to run'
+        required: true
+        default: 'refresh_latest'
+        type: choice
+        options:
+          - refresh_latest  # Only latest period for each data source
+          - backfill        # Historical data from start_period to present
+          - rtt_only        # Only RTT data
+          - cancer_only     # Only Cancer data
+          - oversight_only  # Only Oversight Framework data
+
+      start_period:
+        description: 'Start period for backfill (YYYY-MM, e.g., 2015-10)'
+        required: false
+        default: '2015-10'
+
+      refresh_views:
+        description: 'Refresh materialized views after pipeline completes'
+        required: false
+        default: true
+        type: boolean
+
+env:
+  PYTHON_VERSION: '3.11'
+  POETRY_VERSION: '1.7.1'
+
+jobs:
+  run-pipeline:
+    runs-on: ubuntu-latest
+    timeout-minutes: 180  # 3 hour max for full backfill
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Set up Python ${{ env.PYTHON_VERSION }}
+        uses: actions/setup-python@v5
+        with:
+          python-version: ${{ env.PYTHON_VERSION }}
+          cache: 'pip'
+
+      - name: Install Poetry
+        uses: snok/install-poetry@v1
+        with:
+          version: ${{ env.POETRY_VERSION }}
+          virtualenvs-create: true
+          virtualenvs-in-project: true
+
+      - name: Cache Poetry dependencies
+        uses: actions/cache@v4
+        with:
+          path: pipelines/outcomes_data/.venv
+          key: poetry-${{ runner.os }}-${{ hashFiles('pipelines/outcomes_data/poetry.lock') }}
+          restore-keys: |
+            poetry-${{ runner.os }}-
+
+      - name: Install pipeline dependencies
+        working-directory: pipelines/outcomes_data
+        run: poetry install --no-dev --no-interaction
+
+      - name: Cache NHS data downloads
+        uses: actions/cache@v4
+        with:
+          path: pipelines/outcomes_data/.cache
+          key: nhs-data-${{ github.run_id }}
+          restore-keys: |
+            nhs-data-
+
+      - name: Test database connection
+        working-directory: pipelines/outcomes_data
+        env:
+          POSTGRES_HOST: ${{ secrets.PROD_POOLER_HOST }}
+          POSTGRES_PORT: ${{ secrets.PROD_POOLER_PORT }}
+          POSTGRES_DB: ${{ secrets.PROD_DB_NAME || 'postgres' }}
+          POSTGRES_USER: ${{ secrets.PROD_DB_USER || 'postgres' }}
+          POSTGRES_PASSWORD: ${{ secrets.PROD_DB_PASSWORD }}
+          POOLER_TENANT_ID: ${{ secrets.PROD_TENANT_ID }}
+        run: |
+          echo "Testing connection to production database..."
+          poetry run outcomes-data test-db
+
+      - name: Determine pipeline command
+        id: determine_command
+        run: |
+          COMMAND="${{ github.event.inputs.command || 'refresh_latest' }}"
+          START_PERIOD="${{ github.event.inputs.start_period || '2015-10' }}"
+
+          case "$COMMAND" in
+            refresh_latest)
+              echo "cmd=run-all" >> $GITHUB_OUTPUT
+              echo "args=" >> $GITHUB_OUTPUT
+              echo "description=Refreshing latest period for all data sources" >> $GITHUB_OUTPUT
+              ;;
+            backfill)
+              echo "cmd=run-all" >> $GITHUB_OUTPUT
+              echo "args=--start $START_PERIOD" >> $GITHUB_OUTPUT
+              echo "description=Backfilling from $START_PERIOD to present" >> $GITHUB_OUTPUT
+              ;;
+            rtt_only)
+              echo "cmd=rtt refresh-latest" >> $GITHUB_OUTPUT
+              echo "args=" >> $GITHUB_OUTPUT
+              echo "description=Refreshing RTT data only" >> $GITHUB_OUTPUT
+              ;;
+            cancer_only)
+              echo "cmd=cancer refresh-latest" >> $GITHUB_OUTPUT
+              echo "args=" >> $GITHUB_OUTPUT
+              echo "description=Refreshing Cancer data only" >> $GITHUB_OUTPUT
+              ;;
+            oversight_only)
+              echo "cmd=oversight run" >> $GITHUB_OUTPUT
+              echo "args=" >> $GITHUB_OUTPUT
+              echo "description=Refreshing Oversight Framework data only" >> $GITHUB_OUTPUT
+              ;;
+            *)
+              echo "cmd=run-all" >> $GITHUB_OUTPUT
+              echo "args=" >> $GITHUB_OUTPUT
+              echo "description=Refreshing latest period for all data sources (default)" >> $GITHUB_OUTPUT
+              ;;
+          esac
+
+      - name: Run outcomes data pipeline
+        id: run_pipeline
+        working-directory: pipelines/outcomes_data
+        env:
+          # Production database connection via Supavisor pooler
+          POSTGRES_HOST: ${{ secrets.PROD_POOLER_HOST }}
+          POSTGRES_PORT: ${{ secrets.PROD_POOLER_PORT }}
+          POSTGRES_DB: ${{ secrets.PROD_DB_NAME || 'postgres' }}
+          POSTGRES_USER: ${{ secrets.PROD_DB_USER || 'postgres' }}
+          POSTGRES_PASSWORD: ${{ secrets.PROD_DB_PASSWORD }}
+          POOLER_TENANT_ID: ${{ secrets.PROD_TENANT_ID }}
+
+          # Pipeline configuration
+          LOG_LEVEL: INFO
+          HTTP_TIMEOUT_S: 120
+          HTTP_RETRIES: 5
+          CACHE_ROOT: .cache
+        run: |
+          echo "::group::Pipeline Execution"
+          echo "${{ steps.determine_command.outputs.description }}"
+          echo "Command: outcomes-data ${{ steps.determine_command.outputs.cmd }} ${{ steps.determine_command.outputs.args }}"
+          echo "::endgroup::"
+
+          # Run the pipeline
+          poetry run outcomes-data ${{ steps.determine_command.outputs.cmd }} ${{ steps.determine_command.outputs.args }} 2>&1 | tee pipeline.log
+
+          # Check exit code
+          if [ ${PIPESTATUS[0]} -ne 0 ]; then
+            echo "::error::Pipeline execution failed"
+            exit 1
+          fi
+
+          echo "::notice::Pipeline completed successfully"
+
+      - name: Refresh materialized views
+        if: success() && (github.event.inputs.refresh_views != 'false')
+        env:
+          PGHOST: ${{ secrets.PROD_POOLER_HOST }}
+          PGPORT: ${{ secrets.PROD_POOLER_PORT }}
+          PGDATABASE: ${{ secrets.PROD_DB_NAME || 'postgres' }}
+          PGUSER: ${{ secrets.PROD_DB_USER || 'postgres' }}
+          PGPASSWORD: ${{ secrets.PROD_DB_PASSWORD }}
+        run: |
+          echo "::group::Refreshing Materialized Views"
+
+          # Install psql client
+          sudo apt-get update && sudo apt-get install -y postgresql-client
+
+          # Build connection string with tenant if needed
+          if [ -n "${{ secrets.PROD_TENANT_ID }}" ]; then
+            PGUSER="${PGUSER}@${{ secrets.PROD_TENANT_ID }}"
+          fi
+
+          # Refresh materialized view with timing
+          echo "Refreshing performance_data.insight_metrics_long..."
+          START_TIME=$(date +%s)
+
+          psql -c "REFRESH MATERIALIZED VIEW performance_data.insight_metrics_long;"
+
+          END_TIME=$(date +%s)
+          DURATION=$((END_TIME - START_TIME))
+
+          echo "::notice::Materialized view refreshed in ${DURATION}s"
+
+          # Get row count
+          ROW_COUNT=$(psql -t -c "SELECT COUNT(*) FROM performance_data.insight_metrics_long;")
+          echo "::notice::Materialized view now contains $(echo $ROW_COUNT | xargs) rows"
+
+          echo "::endgroup::"
+
+      - name: Generate summary statistics
+        if: success()
+        env:
+          PGHOST: ${{ secrets.PROD_POOLER_HOST }}
+          PGPORT: ${{ secrets.PROD_POOLER_PORT }}
+          PGDATABASE: ${{ secrets.PROD_DB_NAME || 'postgres' }}
+          PGUSER: ${{ secrets.PROD_DB_USER || 'postgres' }}
+          PGPASSWORD: ${{ secrets.PROD_DB_PASSWORD }}
+        run: |
+          echo "::group::Pipeline Statistics"
+
+          # Build connection string with tenant if needed
+          if [ -n "${{ secrets.PROD_TENANT_ID }}" ]; then
+            PGUSER="${PGUSER}@${{ secrets.PROD_TENANT_ID }}"
+          fi
+
+          # Query data counts and periods
+          psql << 'EOF'
+          \echo '═══════════════════════════════════════════════════════════'
+          \echo 'NHS Outcomes Data Pipeline Summary'
+          \echo '═══════════════════════════════════════════════════════════'
+          \echo ''
+
+          SELECT
+            'RTT Metrics' as dataset,
+            COUNT(*) as total_rows,
+            COUNT(DISTINCT period) as periods,
+            MIN(period) as earliest_period,
+            MAX(period) as latest_period,
+            COUNT(DISTINCT org_code) as organisations
+          FROM performance_data.rtt_metrics_gold
+
+          UNION ALL
+
+          SELECT
+            'Cancer Metrics',
+            COUNT(*),
+            COUNT(DISTINCT period),
+            MIN(period),
+            MAX(period),
+            COUNT(DISTINCT org_code)
+          FROM performance_data.cancer_target_metrics
+
+          UNION ALL
+
+          SELECT
+            'Oversight Metrics',
+            COUNT(*),
+            COUNT(DISTINCT reporting_date),
+            MIN(reporting_date),
+            MAX(reporting_date),
+            COUNT(DISTINCT org_code)
+          FROM performance_data.oversight_metrics_raw
+
+          UNION ALL
+
+          SELECT
+            'Oversight League Table',
+            COUNT(*),
+            COUNT(DISTINCT reporting_date),
+            MIN(reporting_date),
+            MAX(reporting_date),
+            COUNT(DISTINCT org_code)
+          FROM performance_data.oversight_league_table_raw
+
+          UNION ALL
+
+          SELECT
+            'Organisations',
+            COUNT(*),
+            NULL,
+            NULL,
+            NULL,
+            COUNT(*)
+          FROM performance_data.dim_organisations;
+
+          \echo ''
+          \echo '═══════════════════════════════════════════════════════════'
+          EOF
+
+          echo "::endgroup::"
+
+      - name: Upload pipeline logs
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: pipeline-logs-${{ github.run_id }}
+          path: pipelines/outcomes_data/pipeline.log
+          retention-days: 30
+
+      - name: Create success summary
+        if: success()
+        run: |
+          echo "## ✅ NHS Outcomes Data Pipeline Succeeded" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "**Command**: ${{ steps.determine_command.outputs.description }}" >> $GITHUB_STEP_SUMMARY
+          echo "**Triggered**: ${{ github.event_name == 'schedule' && 'Scheduled run' || 'Manual trigger' }}" >> $GITHUB_STEP_SUMMARY
+          echo "**Completed**: $(date -u '+%Y-%m-%d %H:%M:%S UTC')" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "See job logs for detailed statistics." >> $GITHUB_STEP_SUMMARY
+
+      - name: Notify on failure
+        if: failure()
+        uses: actions/github-script@v7
+        with:
+          script: |
+            const runUrl = `${context.payload.repository.html_url}/actions/runs/${context.runId}`;
+            const command = '${{ steps.determine_command.outputs.description }}';
+
+            await github.rest.issues.create({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              title: '🚨 NHS Outcomes Data Pipeline Failed',
+              labels: ['pipeline-failure', 'automated'],
+              body: `## Pipeline Failure Report
+
+**Command**: ${command}
+**Trigger**: ${{ github.event_name }}
+**Failed at**: ${new Date().toISOString()}
+**Workflow run**: ${runUrl}
+
+### Possible Causes
+- Database connection issues
+- NHS England website structure changed
+- CSV format changes
+- Network timeout
+
+### Next Steps
+1. Check the [workflow logs](${runUrl}) for error details
+2. Verify production database credentials are correct
+3. Check if NHS England has updated their data structure
+4. Review pipeline.log artifact for detailed errors
+
+### Manual Recovery
+If needed, trigger a manual run with:
+1. Go to Actions → NHS Outcomes Data Pipeline
+2. Click "Run workflow"
+3. Select appropriate command and parameters
+              `
+            });

@@ -87,13 +87,26 @@ class FirefliesClient:
         from_date: Optional[str] = None,
         to_date: Optional[str] = None,
         keyword: Optional[str] = None,
+        scope: Optional[str] = None,
         participants: Optional[list[str]] = None,
         organizers: Optional[list[str]] = None,
         limit: int = 10,
         skip: int = 0,
         include_summary: bool = False,
     ) -> Dict[str, Any]:
-        """List transcripts with filtering options."""
+        """List transcripts with filtering options.
+
+        Args:
+            from_date: Start date filter in ISO 8601 format
+            to_date: End date filter in ISO 8601 format
+            keyword: Search keyword
+            scope: Keyword search scope - 'title', 'sentences', or 'all'
+            participants: Filter by participant emails
+            organizers: Filter by organizer emails
+            limit: Maximum number of results
+            skip: Number of results to skip
+            include_summary: Include summary fields in response
+        """
         # Build summary fields conditionally
         summary_fields = """
             keywords
@@ -108,6 +121,7 @@ class FirefliesClient:
             $fromDate: DateTime
             $toDate: DateTime
             $keyword: String
+            $scope: String
             $participants: [String!]
             $organizers: [String!]
             $limit: Int
@@ -117,6 +131,7 @@ class FirefliesClient:
                 fromDate: $fromDate
                 toDate: $toDate
                 keyword: $keyword
+                scope: $scope
                 participants: $participants
                 organizers: $organizers
                 limit: $limit
@@ -139,6 +154,7 @@ class FirefliesClient:
             "fromDate": from_date,
             "toDate": to_date,
             "keyword": keyword,
+            "scope": scope,
             "participants": participants,
             "organizers": organizers,
             "limit": limit,

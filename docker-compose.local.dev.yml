@@ -597,6 +597,15 @@ services:
       - IMAGE_PUBLIC_ACCESS=${IMAGE_PUBLIC_ACCESS}
       - GCP_SERVICE_ACCOUNT_KEY=${GCP_SERVICE_ACCOUNT_KEY}
       - SUPADATA_API_TOKEN=${SUPADATA_API_TOKEN}
+      # NHS Analytics - Database credentials
+      - POSTGRES_PASSWORD=${POSTGRES_PASSWORD}
+      - POSTGRES_USER=${POSTGRES_USER:-postgres}
+      - POSTGRES_DB=${POSTGRES_DB:-postgres}
+      - POSTGRES_PORT=${POSTGRES_PORT:-5432}
+      # Sandbox configuration (local Docker for development)
+      - SANDBOX_MODE=auto
+      - ENVIRONMENT=development
+      - DOCKER_NETWORK_NAME=e18-agent-os_default
       # MCP configuration (hard-coded defaults for local dev)
       - ENABLE_OAUTH_DISCOVERY=true
       - ENABLE_ARCADE=${ENABLE_ARCADE:-false}
@@ -631,6 +640,8 @@ services:
       - ./apps/mcp/pyproject.toml:/app/pyproject.toml:ro
       - ./apps/mcp/README.md:/app/README.md:ro
       - mcp_server_storage:/app/data  # Persist application data only
+      # Docker socket access for local sandboxes (Docker-in-Docker)
+      - /var/run/docker.sock:/var/run/docker.sock:rw
     depends_on:
       migration-init:
         condition: service_completed_successfully

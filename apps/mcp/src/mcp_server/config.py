@@ -3,7 +3,7 @@
 import os
 from typing import List, Optional
 
-from pydantic import Field
+from pydantic import Field, AliasChoices
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 
@@ -34,6 +34,20 @@ class Settings(BaseSettings):
         default=None, description="E2B API key for code sandbox execution"
     )
 
+    # Sandbox Configuration
+    sandbox_mode: str = Field(
+        default="auto",
+        description="Sandbox mode: 'auto' (detect), 'local' (Docker), 'e2b' (cloud)"
+    )
+    docker_network_name: str = Field(
+        default="e18-agent-os_default",
+        description="Docker network name for local sandboxes"
+    )
+    environment: str = Field(
+        default="development",
+        description="Environment: development, staging, production"
+    )
+
     # MCP Server Configuration
     mcp_server_port: int = Field(default=8000, description="MCP server port")
     mcp_server_host: str = Field(default="0.0.0.0", description="MCP server host")
@@ -49,7 +63,9 @@ class Settings(BaseSettings):
         default=None, description="Supabase anonymous key"
     )
     supabase_service_role_key: Optional[str] = Field(
-        default=None, description="Supabase service role key"
+        default=None,
+        description="Supabase service role key",
+        validation_alias=AliasChoices('supabase_service_role_key', 'supabase_service_key')
     )
     
     # OAuth 2.1 and MCP Authentication Configuration

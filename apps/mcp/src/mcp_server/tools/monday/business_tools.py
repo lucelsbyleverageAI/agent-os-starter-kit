@@ -334,160 +334,366 @@ class GetCustomerInfoTool(CustomTool):
             return None
 
 
-class GetProcessesTool(CustomTool):
-    """Get a list of all processes from the designated process board."""
-    
+class ListProcessesTool(CustomTool):
+    """List processes from the Process Master board with simple filtering and pagination."""
+
     toolkit_name = "monday"
     toolkit_display_name = "Monday.com"
 
     @property
     def name(self) -> str:
-        return "get_processes"
+        return "list_processes"
 
     @property
     def description(self) -> str:
-        return "Returns a list of all processes from the designated process board. Each process includes comprehensive details including updates and linked items when requested. This tool is tailored to the business context and assumes a specific board structure."
+        return """Lists processes from the Process Master board with optional filtering and pagination.
+
+RECOMMENDED WORKFLOW:
+1. Call get_unique_filter_values() first to understand available filter options
+2. Use list_processes() with filters to narrow down results
+3. Use get_item(item_id=...) to get full details for specific processes of interest
+
+RETURNED COLUMNS:
+- Name, Department, Sub-Department, Status, In-Flight, System/s, Developer, Technology User, Item ID
+
+PAGINATION:
+- Default: 50 items starting from offset 0
+- Use offset to paginate (e.g., offset=50 for second page, offset=100 for third page)
+- Pagination metadata included in response
+
+FILTERING:
+- All filter parameters accept lists of values (OR logic within a column, AND logic across columns)
+- Example: department=["IT", "Finance"] AND status=["In Progress"]
+- Returns processes matching (IT OR Finance) AND (In Progress)
+- Use get_unique_filter_values() to discover available values
+
+FOR FULL DETAILS:
+- Use get_item(item_id, include_updates=True, include_linked_items=True) for complete process information"""
 
     def get_parameters(self) -> List[ToolParameter]:
         return [
             ToolParameter(
                 name="limit",
                 type="integer",
-                description="The maximum number of processes to return. Defaults to 100.",
+                description="Number of processes to return per page. Defaults to 50.",
                 required=False,
-                default=100,
+                default=50,
             ),
             ToolParameter(
-                name="include_updates",
-                type="boolean",
-                description="Whether to include recent updates for each process. Defaults to True.",
-                required=False,
-                default=True,
-            ),
-            ToolParameter(
-                name="max_updates",
+                name="offset",
                 type="integer",
-                description="The maximum number of updates to include per process. Defaults to 10.",
+                description="Number of processes to skip (for pagination). Defaults to 0. Use limit=50, offset=50 for second page.",
                 required=False,
-                default=10,
+                default=0,
             ),
             ToolParameter(
-                name="include_linked_items",
-                type="boolean",
-                description="Whether to include details of items linked to each process. Defaults to False.",
+                name="department",
+                type="array",
+                description="Filter by department(s). Example: ['IT', 'Finance']. Get available values from get_unique_filter_values().",
                 required=False,
-                default=False,
             ),
             ToolParameter(
-                name="max_linked_items",
-                type="integer",
-                description="The maximum number of linked items to include per process. Defaults to 20.",
+                name="sub_department",
+                type="array",
+                description="Filter by sub-department(s). Example: ['Application Support']. Get available values from get_unique_filter_values().",
                 required=False,
-                default=20,
             ),
             ToolParameter(
-                name="max_characters",
-                type="integer",
-                description="The maximum number of characters in the returned markdown. Defaults to 100000.",
+                name="status",
+                type="array",
+                description="Filter by status value(s). Example: ['In Progress', 'Completed']. Get available values from get_unique_filter_values().",
                 required=False,
-                default=100000,
+            ),
+            ToolParameter(
+                name="in_flight",
+                type="array",
+                description="Filter by in-flight status(es). Example: ['Live']. Get available values from get_unique_filter_values().",
+                required=False,
+            ),
+            ToolParameter(
+                name="system",
+                type="array",
+                description="Filter by system(s). Example: ['EPR', 'PAS']. Get available values from get_unique_filter_values().",
+                required=False,
+            ),
+            ToolParameter(
+                name="developer",
+                type="array",
+                description="Filter by developer(s). Get available values from get_unique_filter_values().",
+                required=False,
+            ),
+            ToolParameter(
+                name="technology_user",
+                type="array",
+                description="Filter by technology user(s). Get available values from get_unique_filter_values().",
+                required=False,
             ),
         ]
 
     async def _execute_impl(self, user_id: str, **kwargs: Any) -> str:
-        """Execute the get processes tool."""
+        """Execute the list processes tool."""
         try:
-            limit = kwargs.get("limit", 100)
-            include_updates = kwargs.get("include_updates", True)
-            max_updates = kwargs.get("max_updates", 10)
-            include_linked_items = kwargs.get("include_linked_items", False)
-            max_linked_items = kwargs.get("max_linked_items", 20)
-            max_characters = kwargs.get("max_characters", 100000)
-            
+            # Extract parameters
+            limit = kwargs.get("limit", 50)
+            offset = kwargs.get("offset", 0)
+
+            # Filter parameters (all optional arrays)
+            filters = {
+                "department__1": kwargs.get("department", []),
+                "sub_department__1": kwargs.get("sub_department", []),
+                "status1__1": kwargs.get("status", []),
+                "in_flight__1": kwargs.get("in_flight", []),
+                "system__1": kwargs.get("system", []),
+                "dropdown7__1": kwargs.get("developer", []),
+                "dropdown_mkmc3g1h": kwargs.get("technology_user", []),
+            }
+
             # Use the hardcoded process board ID
             process_board_id = PROCESS_BOARD_ID
-            
             client = get_monday_client()
-            response = await client.get_board_items(process_board_id, limit)
-            
+
+            # Fetch items - get enough to handle offset + limit
+            fetch_limit = min(500, offset + limit + 100)  # Fetch extra for filtering
+            response = await client.get_board_items(process_board_id, fetch_limit)
+
             boards = response.get("data", {}).get("boards", [])
-            
             if not boards:
                 return f"*Process board with ID '{process_board_id}' not found.*"
-            
+
             board = boards[0]
-            board_name = board.get("name", "Process Board")
+            board_name = board.get("name", "Process Master")
             items_page = board.get("items_page", {})
-            items = items_page.get("items", [])
-            
-            if not items:
+            all_items = items_page.get("items", [])
+
+            if not all_items:
                 return f"# {board_name}\n\n*No processes found.*"
-            
-            # Start building the markdown response
-            markdown_parts = [f"# Processes from {board_name} ({len(items)} found)\n"]
-            markdown_parts.append(f"**Board ID:** {process_board_id}\n")
-            
-            current_length = len("\n".join(markdown_parts))
-            
-            for item in items:
-                # Get detailed information for each process if updates or linked items are requested
-                if include_updates or include_linked_items:
-                    try:
-                        item_id = item.get("id")
-                        if item_id:
-                            detailed_response = await client.get_item_details(
-                                item_id,
-                                include_updates=include_updates,
-                                max_updates=max_updates,
-                                include_linked_items=include_linked_items
-                            )
-                            detailed_items = detailed_response.get("data", {}).get("items", [])
-                            if detailed_items:
-                                item = detailed_items[0]  # Use the detailed version
-                    except Exception as e:
-                        logger.warning(f"Failed to get detailed info for process {item.get('id')}: {str(e)}")
-                        # Continue with basic item info
-                
-                # Extract file URLs
-                assets = item.get("assets", [])
-                file_urls = extract_public_file_urls(assets)
-                
-                # Format process using utility function
-                formatted_item = format_monday_item(
-                    item,
-                    include_updates=include_updates,
-                    max_updates=max_updates,
-                    include_linked_items=include_linked_items,
-                    max_linked_items=max_linked_items,
-                    max_characters=max_characters // max(1, len(items))  # Distribute character limit across items
-                )
-                
-                # Add file links if any
-                if file_urls:
-                    files_section = "\n\n### Files\n"
-                    for file_url in file_urls:
-                        files_section += f"- {file_url}\n"
-                    formatted_item += files_section
-                
-                # Check character limit
-                potential_length = current_length + len(formatted_item) + 100  # Buffer for separators
-                if potential_length > max_characters:
-                    remaining_items = len(items) - len(markdown_parts) + 2  # Account for header lines
-                    if remaining_items > 0:
-                        markdown_parts.append(f"\n*Note: Output truncated due to character limit. {remaining_items} more processes available.*")
-                    break
-                
-                # Add a separator and the formatted item
-                markdown_parts.append("---\n")
-                markdown_parts.append(formatted_item)
-                
-                current_length = potential_length
-            
-            markdown = "\n".join(markdown_parts)
-            
+
+            # Apply filters
+            filtered_items = self._apply_filters(all_items, filters)
+            total_count = len(filtered_items)
+
+            # Apply pagination
+            paginated_items = filtered_items[offset:offset + limit]
+
+            if not paginated_items and offset > 0:
+                return f"# {board_name}\n\n*No processes found at offset {offset}. Total matching processes: {total_count}*"
+
+            # Format as markdown table
+            markdown = self._format_process_table(
+                paginated_items,
+                board_name,
+                offset,
+                limit,
+                total_count,
+                filters
+            )
+
             return markdown
-            
+
         except Exception as e:
             error_msg = handle_monday_error(e)
-            logger.error(f"Error in get_processes: {error_msg}")
-            raise ToolExecutionError("get_processes", error_msg)
+            logger.error(f"Error in list_processes: {error_msg}")
+            raise ToolExecutionError("list_processes", error_msg)
+
+    def _apply_filters(self, items: List[dict], filters: dict) -> List[dict]:
+        """Apply multi-value filters to items (OR within column, AND across columns)."""
+        filtered = items
+
+        for column_id, filter_values in filters.items():
+            if not filter_values:  # Skip empty filters
+                continue
+
+            # Convert filter values to lowercase for case-insensitive matching
+            filter_values_lower = [str(v).lower() for v in filter_values]
+
+            # Filter items: must match at least one value in the filter list (OR logic)
+            filtered = [
+                item for item in filtered
+                if self._item_matches_column_filter(item, column_id, filter_values_lower)
+            ]
+
+        return filtered
+
+    def _item_matches_column_filter(self, item: dict, column_id: str, filter_values_lower: List[str]) -> bool:
+        """Check if item matches any of the filter values for a specific column."""
+        column_values = item.get("column_values", [])
+
+        for col in column_values:
+            if col.get("id") == column_id:
+                text = col.get("text", "")
+                if text and text.lower() in filter_values_lower:
+                    return True
+
+        return False
+
+    def _get_column_value(self, item: dict, column_id: str) -> str:
+        """Extract column value by column ID."""
+        column_values = item.get("column_values", [])
+        for col in column_values:
+            if col.get("id") == column_id:
+                return col.get("text", "") or ""
+        return ""
+
+    def _format_process_table(
+        self,
+        items: List[dict],
+        board_name: str,
+        offset: int,
+        limit: int,
+        total_count: int,
+        filters: dict
+    ) -> str:
+        """Format processes as a markdown table."""
+        # Build filter info string
+        active_filters = []
+        filter_map = {
+            "department__1": "department",
+            "sub_department__1": "sub_department",
+            "status1__1": "status",
+            "in_flight__1": "in_flight",
+            "system__1": "system",
+            "dropdown7__1": "developer",
+            "dropdown_mkmc3g1h": "technology_user",
+        }
+        for col_id, values in filters.items():
+            if values:
+                filter_name = filter_map.get(col_id, col_id)
+                active_filters.append(f"{filter_name}={values}")
+
+        filter_info = f" (Filters: {', '.join(active_filters)})" if active_filters else ""
+
+        # Build header
+        markdown_parts = [
+            f"# {board_name} - Processes\n",
+            f"**Total matching processes:** {total_count}",
+            f"**Showing:** {len(items)} processes (offset {offset} to {offset + len(items)}){filter_info}",
+        ]
+
+        # Pagination info
+        if offset + limit < total_count:
+            next_offset = offset + limit
+            markdown_parts.append(f"**Next page:** Use offset={next_offset} to see more")
+
+        if offset > 0:
+            prev_offset = max(0, offset - limit)
+            markdown_parts.append(f"**Previous page:** Use offset={prev_offset}")
+
+        markdown_parts.append("")  # Blank line
+
+        # Build table header
+        markdown_parts.append("| Name | Department | Sub-Dept | Status | In-Flight | System/s | Developer | Tech User | Item ID |")
+        markdown_parts.append("|------|------------|----------|--------|-----------|----------|-----------|-----------|---------|")
+
+        # Build table rows
+        for item in items:
+            name = item.get("name", "Unnamed")[:40]  # Truncate long names
+            dept = self._get_column_value(item, "department__1")[:20]
+            sub_dept = self._get_column_value(item, "sub_department__1")[:20]
+            status = self._get_column_value(item, "status1__1")[:20]
+            in_flight = self._get_column_value(item, "in_flight__1")[:20]
+            system = self._get_column_value(item, "system__1")[:20]
+            developer = self._get_column_value(item, "dropdown7__1")[:20]
+            tech_user = self._get_column_value(item, "dropdown_mkmc3g1h")[:20]
+            item_id = item.get("id", "")
+
+            markdown_parts.append(
+                f"| {name} | {dept} | {sub_dept} | {status} | {in_flight} | {system} | {developer} | {tech_user} | {item_id} |"
+            )
+
+        return "\n".join(markdown_parts)
+
+
+class GetUniqueFilterValuesTool(CustomTool):
+    """Get unique values for all filterable columns in the Process Master board."""
+
+    toolkit_name = "monday"
+    toolkit_display_name = "Monday.com"
+
+    @property
+    def name(self) -> str:
+        return "get_unique_filter_values"
+
+    @property
+    def description(self) -> str:
+        return """Returns all unique values for filterable columns in the Process Master board.
+
+USE THIS FIRST: Before filtering processes, call this tool to discover what filter values are available.
+
+RETURNED COLUMNS:
+- Department
+- Sub-Department
+- Status
+- In-Flight
+- System/s
+- Developer
+- Technology User
+
+OUTPUT: Lists all unique values found for each column, helping you construct precise filters for list_processes()."""
+
+    def get_parameters(self) -> List[ToolParameter]:
+        return []  # No parameters needed
+
+    async def _execute_impl(self, user_id: str, **kwargs: Any) -> str:
+        """Execute the get unique filter values tool."""
+        try:
+            # Use the hardcoded process board ID
+            process_board_id = PROCESS_BOARD_ID
+            client = get_monday_client()
+
+            # Fetch all items (up to 500)
+            response = await client.get_board_items(process_board_id, 500)
+
+            boards = response.get("data", {}).get("boards", [])
+            if not boards:
+                return f"*Process board with ID '{process_board_id}' not found.*"
+
+            board = boards[0]
+            items_page = board.get("items_page", {})
+            all_items = items_page.get("items", [])
+
+            if not all_items:
+                return "*No processes found.*"
+
+            # Column IDs to extract unique values from
+            columns = {
+                "department__1": "Department",
+                "sub_department__1": "Sub-Department",
+                "status1__1": "Status",
+                "in_flight__1": "In-Flight",
+                "system__1": "System/s",
+                "dropdown7__1": "Developer",
+                "dropdown_mkmc3g1h": "Technology User",
+            }
+
+            # Extract unique values
+            unique_values = {col_id: set() for col_id in columns.keys()}
+
+            for item in all_items:
+                column_values = item.get("column_values", [])
+                for col in column_values:
+                    col_id = col.get("id")
+                    if col_id in unique_values:
+                        text = col.get("text", "")
+                        if text:
+                            unique_values[col_id].add(text)
+
+            # Format as markdown
+            markdown_parts = ["# Process Master - Unique Filter Values\n"]
+            markdown_parts.append(f"**Total processes analyzed:** {len(all_items)}\n")
+
+            for col_id, col_title in columns.items():
+                values = sorted(unique_values[col_id])  # Sort alphabetically
+                markdown_parts.append(f"## {col_title}")
+                if values:
+                    for value in values:
+                        markdown_parts.append(f"- {value}")
+                else:
+                    markdown_parts.append("- *(No values found)*")
+                markdown_parts.append("")  # Blank line
+
+            return "\n".join(markdown_parts)
+
+        except Exception as e:
+            error_msg = handle_monday_error(e)
+            logger.error(f"Error in get_unique_filter_values: {error_msg}")
+            raise ToolExecutionError("get_unique_filter_values", error_msg)

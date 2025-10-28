@@ -1,7 +1,7 @@
 """Fireflies AI tools implementation for the MCP server."""
 
 from typing import Any, List
-from datetime import datetime
+from datetime import datetime, timedelta, timezone
 
 from ..base import CustomTool, ToolParameter
 from ...utils.logging import get_logger
@@ -48,8 +48,18 @@ class ListMeetingsTool(CustomTool):
         return (
             "List meetings you participated in from Fireflies AI. "
             "Returns meeting titles, dates, participants, and transcript IDs. "
-            "Supports filtering by date range, keywords, and participants. "
-            "Use transcript IDs with other tools to get summaries or full transcripts."
+            "\n\n"
+            "SEARCH STRATEGY:\n"
+            "- Broad search (finding meetings over longer period): Use high limit (up to 50), set include_summary=False, use skip for pagination\n"
+            "- Narrow search (recent/specific meetings): Use low limit (5-10), set include_summary=True for context\n"
+            "\n"
+            "FILTERS:\n"
+            "- Date range: Use from_date/to_date (ISO 8601 format) to narrow timeframe\n"
+            "- Keyword: Searches meeting TITLES ONLY (note: meeting titles are often poorly named)\n"
+            "- Participants: Filter by email addresses to find meetings with specific people\n"
+            "- Organizers: Filter by meeting organizer emails\n"
+            "\n"
+            "Use transcript IDs with get_meeting_summary or get_meeting_transcript tools for details."
         )
 
     def get_parameters(self) -> List[ToolParameter]:
@@ -65,6 +75,13 @@ class ListMeetingsTool(CustomTool):
                 type="string",
                 description="End date filter in ISO 8601 format (e.g., '2024-12-31T23:59:59Z'). Only meetings on or before this date will be returned.",
                 required=False,
+            ),
+            ToolParameter(
+                name="time_range",
+                type="string",
+                description="Convenient time range filter (e.g., 'day', 'week', 'month', 'year'). If provided, this overrides from_date/to_date parameters. Calculates dates from current time backwards.",
+                required=False,
+                enum=["day", "week", "month", "year"],
             ),
             ToolParameter(
                 name="keyword",
@@ -122,8 +139,29 @@ class ListMeetingsTool(CustomTool):
                 )
 
             # Get parameters
-            from_date = kwargs.get("from_date")
-            to_date = kwargs.get("to_date")
+            time_range = kwargs.get("time_range")
+
+            # Calculate from_date/to_date based on time_range if provided
+            if time_range:
+                now = datetime.now(timezone.utc)
+                if time_range == "day":
+                    from_date = (now - timedelta(days=1)).isoformat()
+                elif time_range == "week":
+                    from_date = (now - timedelta(weeks=1)).isoformat()
+                elif time_range == "month":
+                    from_date = (now - timedelta(days=30)).isoformat()
+                elif time_range == "year":
+                    from_date = (now - timedelta(days=365)).isoformat()
+                else:
+                    # Invalid time_range, fall back to explicit dates
+                    from_date = kwargs.get("from_date")
+                    to_date = kwargs.get("to_date")
+                to_date = now.isoformat()
+            else:
+                # Use explicit from_date/to_date if provided
+                from_date = kwargs.get("from_date")
+                to_date = kwargs.get("to_date")
+
             keyword = kwargs.get("keyword")
             participant_emails = kwargs.get("participant_emails", [])
             organizer_emails = kwargs.get("organizer_emails")
@@ -180,45 +218,14 @@ class ListMeetingsTool(CustomTool):
                 if transcript_url:
                     markdown_parts.append(f"**URL:** {transcript_url}")
 
-                # Include summary if requested
+                # Include summary if requested (only overview or short_summary for brevity)
                 if include_summary and "summary" in transcript:
                     summary = transcript["summary"]
                     if summary:
-                        markdown_parts.append("\n**Summary:**")
-
-                        # Overview (longer summary)
-                        if summary.get("overview"):
-                            markdown_parts.append(f"> {summary['overview']}\n")
-                        # Short summary (fallback if no overview)
-                        elif summary.get("short_summary"):
-                            markdown_parts.append(f"> {summary['short_summary']}\n")
-
-                        # Bullet gist
-                        if summary.get("bullet_gist"):
-                            markdown_parts.append("**Key Points:**")
-                            markdown_parts.append(f"{summary['bullet_gist']}\n")
-
-                        # Action items
-                        if summary.get("action_items"):
-                            action_items = summary["action_items"]
-                            if action_items:
-                                markdown_parts.append("**Action Items:**")
-                                # action_items can be either a list or a string
-                                if isinstance(action_items, list):
-                                    for item in action_items:
-                                        markdown_parts.append(f"- {item}")
-                                else:
-                                    # If it's a string, display it as-is
-                                    markdown_parts.append(action_items)
-                                markdown_parts.append("")
-
-                        # Keywords
-                        if summary.get("keywords"):
-                            keywords = summary["keywords"]
-                            if keywords:
-                                markdown_parts.append(
-                                    f"*Keywords:* {', '.join(keywords)}"
-                                )
+                        # Show overview (preferred) or short_summary as fallback
+                        summary_text = summary.get("overview") or summary.get("short_summary")
+                        if summary_text:
+                            markdown_parts.append(f"\n**Summary:** {summary_text}")
 
                 markdown_parts.append("")
 
@@ -245,6 +252,16 @@ class GetMeetingSummaryTool(CustomTool):
         return (
             "Get a detailed AI-generated summary for a specific meeting from Fireflies AI. "
             "Returns overview, key topics, action items, keywords, and meeting type. "
+            "\n\n"
+            "PREFERRED TOOL: Use this as your DEFAULT for understanding meeting content. "
+            "It provides high signal-to-noise ratio compared to full transcripts. "
+            "\n\n"
+            "WHEN TO USE:\n"
+            "- User asks 'what was the meeting about'\n"
+            "- Finding action items or key decisions\n"
+            "- Understanding topics discussed\n"
+            "- Getting meeting overview without verbatim details\n"
+            "\n"
             "Use the transcript ID from list_meetings tool."
         )
 
@@ -360,7 +377,17 @@ class GetMeetingTranscriptTool(CustomTool):
         return (
             "Get the full transcript for a specific meeting from Fireflies AI. "
             "Returns speaker-attributed transcript with optional timestamps and AI-detected filters "
-            "(tasks, questions, metrics, sentiment). Use the transcript ID from list_meetings tool."
+            "(tasks, questions, metrics, sentiment). "
+            "\n\n"
+            "⚠️ USE SPARINGLY: Transcripts consume significant context and contain low signal-to-noise ratio. "
+            "Prefer get_meeting_summary for most use cases. "
+            "\n\n"
+            "WHEN TO USE:\n"
+            "- User explicitly asks for 'exact words' or 'verbatim quotes'\n"
+            "- Need specific phrasing or who said what exactly\n"
+            "- Summary lacks sufficient detail for user's specific question\n"
+            "\n"
+            "Use the transcript ID from list_meetings tool."
         )
 
     def get_parameters(self) -> List[ToolParameter]:
@@ -481,159 +508,3 @@ class GetMeetingTranscriptTool(CustomTool):
             error_msg = handle_fireflies_error(e)
             logger.error(f"Error in get_meeting_transcript: {error_msg}")
             raise ToolExecutionError("get_meeting_transcript", error_msg)
-
-
-class SearchMeetingsTool(CustomTool):
-    """Search across meetings with keyword and filter options."""
-
-    toolkit_name = "fireflies"
-    toolkit_display_name = "Fireflies AI"
-
-    @property
-    def name(self) -> str:
-        return "search_meetings"
-
-    @property
-    def description(self) -> str:
-        return (
-            "Search across your Fireflies AI meetings using keywords. "
-            "Searches in meeting titles and transcript content. "
-            "Supports filtering by date range, participants, and organizers. "
-            "Returns matching meetings with relevant context."
-        )
-
-    def get_parameters(self) -> List[ToolParameter]:
-        return [
-            ToolParameter(
-                name="keyword",
-                type="string",
-                description="Search keyword to find in meeting titles and transcript content. Required.",
-                required=True,
-            ),
-            ToolParameter(
-                name="from_date",
-                type="string",
-                description="Start date filter in ISO 8601 format (e.g., '2024-01-01T00:00:00Z'). Only meetings on or after this date will be searched.",
-                required=False,
-            ),
-            ToolParameter(
-                name="to_date",
-                type="string",
-                description="End date filter in ISO 8601 format (e.g., '2024-12-31T23:59:59Z'). Only meetings on or before this date will be searched.",
-                required=False,
-            ),
-            ToolParameter(
-                name="participant_emails",
-                type="array",
-                description="Filter meetings by specific participant email addresses. Your email is automatically included.",
-                required=False,
-                items={"type": "string"},
-            ),
-            ToolParameter(
-                name="organizer_emails",
-                type="array",
-                description="Filter meetings by specific organizer email addresses.",
-                required=False,
-                items={"type": "string"},
-            ),
-            ToolParameter(
-                name="limit",
-                type="integer",
-                description="Maximum number of search results to return. Defaults to 20.",
-                required=False,
-                default=20,
-            ),
-        ]
-
-    async def _execute_impl(self, user_id: str, **kwargs: Any) -> str:
-        """Execute the search meetings tool."""
-        try:
-            # Get user email from context - REQUIRED for data scoping
-            user_email = kwargs.get("_context_user_email")
-
-            if not user_email:
-                raise ToolExecutionError(
-                    "search_meetings",
-                    "User email is required for data scoping. Please ensure you are properly authenticated."
-                )
-
-            # Get parameters
-            keyword = kwargs.get("keyword")
-
-            if not keyword:
-                raise ToolExecutionError("search_meetings", "keyword is required")
-
-            from_date = kwargs.get("from_date")
-            to_date = kwargs.get("to_date")
-            participant_emails = kwargs.get("participant_emails", [])
-            organizer_emails = kwargs.get("organizer_emails")
-            limit = kwargs.get("limit", 20)
-
-            # SECURITY: Always add user email to participants for scoping
-            # This ensures users can only see meetings they participated in
-            if user_email not in participant_emails:
-                participant_emails.append(user_email)
-
-            # Get Fireflies client and query
-            client = get_fireflies_client()
-            response = await client.list_transcripts(
-                from_date=from_date,
-                to_date=to_date,
-                keyword=keyword,
-                participants=participant_emails if participant_emails else None,
-                organizers=organizer_emails,
-                limit=limit,
-                skip=0,
-                include_summary=True,  # Include summary for context
-            )
-
-            transcripts = response.get("data", {}).get("transcripts", [])
-
-            if not transcripts:
-                return f"*No meetings found matching keyword: '{keyword}'*"
-
-            # Format as markdown
-            markdown_parts = [
-                f"# Search Results for '{keyword}' ({len(transcripts)} found)\n"
-            ]
-
-            for transcript in transcripts:
-                transcript_id = transcript.get("id", "")
-                title = transcript.get("title", "Untitled Meeting")
-                date_string = transcript.get("dateString", "")
-                duration = transcript.get("duration", 0)
-                participants = transcript.get("participants", [])
-                transcript_url = transcript.get("transcript_url", "")
-                summary = transcript.get("summary", {})
-
-                markdown_parts.append(f"## {title}")
-                markdown_parts.append(f"**Transcript ID:** `{transcript_id}`")
-                markdown_parts.append(f"**Date:** {date_string}")
-                markdown_parts.append(f"**Duration:** {format_duration(duration)}")
-
-                if participants:
-                    markdown_parts.append(
-                        f"**Participants:** {', '.join(participants)}"
-                    )
-
-                if transcript_url:
-                    markdown_parts.append(f"**URL:** {transcript_url}")
-
-                # Show relevant context from summary
-                if summary:
-                    if summary.get("short_summary"):
-                        markdown_parts.append(f"\n**Summary:** {summary['short_summary']}")
-
-                    if summary.get("keywords"):
-                        keywords = summary["keywords"]
-                        if keywords:
-                            markdown_parts.append(f"**Keywords:** {', '.join(keywords)}")
-
-                markdown_parts.append("")
-
-            return "\n".join(markdown_parts)
-
-        except Exception as e:
-            error_msg = handle_fireflies_error(e)
-            logger.error(f"Error in search_meetings: {error_msg}")
-            raise ToolExecutionError("search_meetings", error_msg)

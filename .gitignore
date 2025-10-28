@@ -99,3 +99,5 @@ node_modules/
 .mcp.json
 
 youtube_scripts/
+
+pipelines/outcomes_data/.cache/

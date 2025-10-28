@@ -28,14 +28,25 @@ from .monday import (
     GetItemTool,
     GetCustomersTool,
     GetCustomerInfoTool,
-    GetProcessesTool,
+    ListProcessesTool,
+    GetUniqueFilterValuesTool,
 )
 
 from .fireflies import (
     ListMeetingsTool,
     GetMeetingSummaryTool,
     GetMeetingTranscriptTool,
-    SearchMeetingsTool,
+)
+
+from .e18_utility_toolkit import (
+    GenerateProcessOnePagerTool,
+)
+
+from .nhs_analytics import (
+    GetNHSOrganisationsTool,
+    GetNHSMetricsCatalogueTool,
+    RunNHSAnalysisCodeTool,
+    GetComprehensiveTrustPerformance,
 )
 
 # Registry of available custom tools
@@ -65,12 +76,21 @@ CUSTOM_TOOLS = [
     GetItemTool(),
     GetCustomersTool(),
     GetCustomerInfoTool(),
-    GetProcessesTool(),
+    ListProcessesTool(),
+    GetUniqueFilterValuesTool(),
 
     # Fireflies Tools
     ListMeetingsTool(),
     GetMeetingSummaryTool(),
     GetMeetingTranscriptTool(),
-    SearchMeetingsTool(),
+
+    # E18 Utility Tools
+    GenerateProcessOnePagerTool(),
+
+    # NHS Analytics Tools
+    GetNHSOrganisationsTool(),
+    GetNHSMetricsCatalogueTool(),
+    RunNHSAnalysisCodeTool(),
+    GetComprehensiveTrustPerformance(),
 
 ] 

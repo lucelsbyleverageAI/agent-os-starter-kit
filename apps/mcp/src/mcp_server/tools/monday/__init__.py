@@ -10,15 +10,17 @@ from .generic_tools import (
 from .business_tools import (
     GetCustomersTool,
     GetCustomerInfoTool,
-    GetProcessesTool,
+    ListProcessesTool,
+    GetUniqueFilterValuesTool,
 )
 
 __all__ = [
     "ListBoardsTool",
-    "GetBoardColumnsTool", 
+    "GetBoardColumnsTool",
     "ListBoardItemsTool",
     "GetItemTool",
     "GetCustomersTool",
     "GetCustomerInfoTool",
-    "GetProcessesTool",
+    "ListProcessesTool",
+    "GetUniqueFilterValuesTool",
 ]

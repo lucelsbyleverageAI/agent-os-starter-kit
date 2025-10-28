@@ -1,0 +1,32 @@
+[tool.poetry]
+name = "outcomes-data"
+version = "0.2.0"
+description = "NHS outcomes data pipeline (RTT, Cancer, Oversight) - Clean architecture v2"
+authors = ["e18"]
+packages = [ { include = "outcomes_data", from = "." } ]
+include = ["outcomes_data/**/*.py"]
+
+[tool.poetry.dependencies]
+python = "^3.10"
+requests = "^2.32.3"
+beautifulsoup4 = "^4.12.3"
+pandas = "^2.2.2"
+chardet = "^5.2.0"
+psycopg = "^3.2.1"
+python-dotenv = "^1.1.1"
+typer = "^0.12.0"
+pydantic = "^2.0.0"
+pydantic-settings = "^2.0.0"
+
+[tool.poetry.group.dev.dependencies]
+black = "^24.8.0"
+ruff = "^0.6.7"
+pytest = "^8.0.0"
+openpyxl = "^3.1.5"
+
+[tool.poetry.scripts]
+outcomes-data = "outcomes_data.cli:app"
+
+[build-system]
+requires = ["poetry-core>=1.9.0"]
+build-backend = "poetry.core.masonry.api"
