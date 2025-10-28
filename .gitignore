@@ -97,3 +97,5 @@ docs/
 node_modules/
 
 .mcp.json
+
+youtube_scripts/
