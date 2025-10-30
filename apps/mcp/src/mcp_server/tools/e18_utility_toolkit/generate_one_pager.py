@@ -28,9 +28,9 @@ TEMPLATE_PATH = Path(__file__).parent / "assets" / "e18-process-one-pager-templa
 
 # Word/character limits based on template analysis
 LIMITS = {
-    "headline_statement": {"words": 8, "tolerance": 0.2},  # ~8 words max
+    "headline_statement": {"words": 6, "tolerance": 0.2},  # ~6 words max
     "process_name": {"words": 12, "tolerance": 0.2},  # ~12 words max
-    "nhs_org_name": {"chars": 25, "tolerance": 0.2},  # ~25 chars max
+    "nhs_org_name": {"chars": 50, "tolerance": 0.2},  # ~50 chars max
     "process_category": {"words": 5, "tolerance": 0.2},  # ~5 words max
     "manual_process": {"words": 70, "tolerance": 0.2},  # ~70 words max
     "challenges": {"words": 70, "tolerance": 0.2},  # ~70 words max
@@ -71,7 +71,7 @@ class GenerateProcessOnePagerTool(CustomTool):
                 name="headline_statement",
                 type="string",
                 description=(
-                    "Bold, impactful headline statement (5-10 words max). "
+                    "Bold, impactful headline statement (6-7 words max). "
                     "Keep concise and action-oriented. Use outcome metrics where possible."
                 ),
                 required=True
@@ -90,7 +90,7 @@ class GenerateProcessOnePagerTool(CustomTool):
                 name="nhs_org_name",
                 type="string",
                 description=(
-                    "NHS organisation name. "
+                    "NHS organisation name. Full name is preferred to abbreviations. "
                     "Example: 'NHS Greater Manchester'. 'Leeds Teaching Hospitals NHS Trust'."
                 ),
                 required=True
