@@ -82,11 +82,6 @@ class Settings(BaseSettings):
         default=None, description="Secret for signing/validating MCP access tokens"
     )
 
-    # Storage Configuration
-    image_storage_enabled: bool = Field(
-        default=True, description="Enable Supabase storage for agent outputs (images, plots, etc.)"
-    )
-
     # Custom Tools Configuration
     enable_custom_tools: bool = Field(
         default=True, description="Enable custom tools"

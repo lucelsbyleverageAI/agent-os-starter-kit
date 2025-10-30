@@ -168,9 +168,6 @@ def upload_output_to_supabase(
         ConfigurationError: If storage is not configured
         ToolExecutionError: If upload fails
     """
-    if not settings.image_storage_enabled:
-        raise ConfigurationError("Image storage is disabled")
-
     try:
         client = SupabaseStorageClient.get_client()
         bucket_name = SupabaseStorageClient.get_bucket_name()

@@ -436,8 +436,8 @@ except Exception as e:
         thread_id: str
     ) -> Dict[str, Any]:
         """Process image data for storage or base64 return."""
-        # Check if Supabase storage is available and configured
-        if SUPABASE_STORAGE_AVAILABLE and settings.image_storage_enabled:
+        # Always attempt to upload to Supabase storage
+        if SUPABASE_STORAGE_AVAILABLE:
             try:
                 # Convert image data to bytes
                 if content_type == "image/svg+xml":
@@ -492,7 +492,7 @@ except Exception as e:
                     thread_id=thread_id,
                 )
 
-        # Fallback to base64
+        # Fallback to base64 (if Supabase unavailable or upload failed)
         return {
             "type": content_type,
             "data": image_data,

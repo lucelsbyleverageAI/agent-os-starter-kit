@@ -195,7 +195,6 @@ def config() -> None:
         click.echo(f"    Arcade API: {settings.arcade_base_url}")
         click.echo(f"    Enabled Services: {', '.join(settings.enabled_services_list)}")
     click.echo(f"  Custom Tools: {'Enabled' if settings.enable_custom_tools else 'Disabled'}")
-    click.echo(f"  Image Storage: {'Enabled' if settings.image_storage_enabled else 'Disabled'}")
 
 
 def _register_arcade_commands():
