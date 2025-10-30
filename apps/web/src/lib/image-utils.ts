@@ -3,7 +3,7 @@
  */
 
 export interface ExtractedImage {
-  type: 'base64' | 'gcp' | 'url';
+  type: 'base64' | 'url';
   value: string;
   metadata?: any;
 }
@@ -22,17 +22,6 @@ export function isBase64Image(str: string): boolean {
     !str.startsWith('http') &&
     !str.includes('/images/') &&
     !str.includes('\\') // Avoid file paths
-  );
-}
-
-/**
- * Check if a string is a GCP image path (not a URL)
- */
-export function isGcpImagePath(str: string): boolean {
-  return (
-    typeof str === 'string' &&
-    /\/images\/.+\.(png|jpg|jpeg|webp|gif|bmp)$/i.test(str) &&
-    !str.startsWith('http') // Not a URL
   );
 }
 
@@ -231,15 +220,6 @@ export function extractImagesFromResponse(obj: any): ExtractedImage[] {
             metadata: { path }
           });
         }
-      } else if (isGcpImagePath(val)) {
-        if (!seenValues.has(val)) {
-          seenValues.add(val);
-          images.push({
-            type: 'gcp',
-            value: val,
-            metadata: { path }
-          });
-        }
       } else if (isImageUrlPermissive(val)) {
         if (!seenValues.has(val)) {
           seenValues.add(val);
@@ -292,46 +272,15 @@ export function base64ToDataUrl(base64: string, mimeType: string = 'image/png'):
 
 /**
  * Get the URL for rendering an extracted image
- * For GCP images, this calls the API to get a signed URL
  */
 export async function getImageRenderUrl(image: ExtractedImage): Promise<string> {
   switch (image.type) {
     case 'base64':
       return base64ToDataUrl(image.value);
-      
+
     case 'url':
       return image.value;
-      
-    case 'gcp':
-      // Check if GCP image storage is enabled in the frontend configuration
-      if (process.env.NEXT_PUBLIC_IMAGE_STORAGE_ENABLED !== 'true') {
-        // Return a placeholder or throw an error to indicate that GCP is not configured
-        console.warn(`GCP image rendering is disabled. Cannot fetch signed URL for: ${image.value}`);
-        // Return a placeholder image or a specific error indicator URL
-        return '/placeholder-image.svg'; // Or an appropriate fallback
-      }
-      
-      try {
-        // Clean the filename - remove leading slash if present
-        const cleanFilename = image.value.startsWith('/') ? image.value.substring(1) : image.value;
-        
-        const response = await fetch(
-          `/api/langconnect/gcp/signed-url?filename=${encodeURIComponent(cleanFilename)}`
-        );
-        
-        if (!response.ok) {
-          const errorText = await response.text();
-          console.error('GCP signed URL API error:', response.status, response.statusText, errorText);
-          throw new Error(`Failed to get signed URL: ${response.statusText} (${response.status})`);
-        }
-        
-        const data = await response.json();
-        return data.url;
-      } catch (error) {
-        console.error('Error getting signed URL for GCP image:', image.value, error);
-        throw error;
-      }
-      
+
     default:
       throw new Error(`Unknown image type: ${(image as any).type}`);
   }
@@ -341,11 +290,7 @@ export async function getImageRenderUrl(image: ExtractedImage): Promise<string> 
  * Get a display name for an image based on its metadata or value
  */
 export function getImageDisplayName(image: ExtractedImage): string {
-  if (image.type === 'gcp') {
-    // Extract filename from GCP path
-    const parts = image.value.split('/');
-    return parts[parts.length - 1] || 'GCP Image';
-  } else if (image.type === 'url') {
+  if (image.type === 'url') {
     // Extract filename from URL
     try {
       const url = new URL(image.value);
@@ -358,7 +303,7 @@ export function getImageDisplayName(image: ExtractedImage): string {
   } else if (image.type === 'base64') {
     return 'Base64 Image';
   }
-  
+
   return 'Image';
 }
 

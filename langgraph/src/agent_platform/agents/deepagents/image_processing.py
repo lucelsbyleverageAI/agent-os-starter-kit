@@ -59,46 +59,62 @@ def dispatch_image_processing(
                 image_url_dict = content_item.get('image_url', {})
                 image_url = image_url_dict.get('url', '')
                 
-                # Extract GCP path from various sources
-                gcp_path = None
-                
-                # Check attachments for gcsPath (new format)
-                if (hasattr(latest_message, 'additional_kwargs') and 
+                # Extract storage path from various sources (Supabase storage)
+                storage_path = None
+                bucket_name = None
+
+                # Check attachments for storagePath (new format)
+                if (hasattr(latest_message, 'additional_kwargs') and
                     isinstance(latest_message.additional_kwargs, dict) and
                     'attachments' in latest_message.additional_kwargs):
-                    
+
                     attachments = latest_message.additional_kwargs['attachments']
                     if isinstance(attachments, list):
                         for attachment in attachments:
-                            if (isinstance(attachment, dict) and 
-                                attachment.get('type') == 'image' and
-                                attachment.get('gcsPath')):
-                                gcp_path = attachment['gcsPath']
-                                # Remove gs:// prefix if present
-                                if gcp_path.startswith('gs://'):
-                                    import os
-                                    bucket_name = os.getenv("GCP_STORAGE_BUCKET", "")
-                                    gcp_path = gcp_path.replace(f'gs://{bucket_name}/', '')
-                                break
-                
-                # Check metadata for gcp_path (legacy)
-                if not gcp_path:
+                            if (isinstance(attachment, dict) and
+                                attachment.get('type') == 'image'):
+                                # Support both new storagePath and legacy gcsPath
+                                storage_path = attachment.get('storagePath') or attachment.get('gcsPath')
+                                bucket_name = attachment.get('bucket')
+                                if storage_path:
+                                    # Remove storage:// prefix if present
+                                    if storage_path.startswith('storage://'):
+                                        parts = storage_path.replace('storage://', '').split('/', 1)
+                                        if len(parts) == 2:
+                                            bucket_name = parts[0]
+                                            storage_path = parts[1]
+                                    break
+
+                # Check metadata for storage_path (try both new and legacy keys)
+                if not storage_path:
                     metadata = content_item.get('metadata', {})
-                    if isinstance(metadata, dict) and metadata.get('gcp_path'):
-                        gcp_path = metadata['gcp_path']
-                
-                # Extract from signed URL if no gcp_path found
-                if not gcp_path and 'storage.googleapis.com' in image_url:
+                    if isinstance(metadata, dict):
+                        storage_path = metadata.get('storage_path') or metadata.get('gcp_path')
+                        bucket_name = metadata.get('bucket')
+
+                # Extract from Supabase signed URL if no storage_path found
+                if not storage_path:
                     import os
-                    bucket_name = os.getenv("GCP_STORAGE_BUCKET", "")
-                    if bucket_name and f"/{bucket_name}/" in image_url:
-                        parts = image_url.split(f"/{bucket_name}/", 1)
-                        if len(parts) > 1:
-                            gcp_path = parts[1].split('?')[0]
-                
-                if gcp_path and image_url:
+                    supabase_url = os.getenv("SUPABASE_PUBLIC_URL", os.getenv("SUPABASE_URL", ""))
+                    if supabase_url and supabase_url in image_url:
+                        # Parse Supabase storage URL: http://localhost:8000/storage/v1/object/sign/bucket-name/path...
+                        if '/storage/v1/object/' in image_url:
+                            # Extract bucket and path from URL
+                            parts = image_url.split('/storage/v1/object/', 1)
+                            if len(parts) > 1:
+                                object_path = parts[1].split('/', 1)
+                                if len(object_path) > 1:
+                                    # Skip 'sign' or 'public' prefix
+                                    if object_path[0] in ['sign', 'public']:
+                                        remaining = object_path[1].split('/', 1)
+                                        if len(remaining) > 1:
+                                            bucket_name = remaining[0]
+                                            storage_path = remaining[1].split('?')[0]  # Remove query params
+
+                if storage_path and image_url:
                     images_found.append({
-                        'gcp_path': gcp_path,
+                        'storage_path': storage_path,
+                        'bucket': bucket_name or 'chat-uploads',  # Default to chat-uploads bucket
                         'image_url': image_url
                     })
     
@@ -113,7 +129,8 @@ def dispatch_image_processing(
         image_state = {
             **state,  # Include all existing state
             'current_image': {
-                'gcp_path': image_info['gcp_path'],
+                'storage_path': image_info['storage_path'],
+                'bucket': image_info['bucket'],
                 'image_url': image_info['image_url'],
                 'image_index': i
             }
@@ -137,11 +154,12 @@ async def process_single_image(
     3. Returns file system update for this specific image
     """
     current_image = state.get('current_image', {})
-    gcp_path = current_image.get('gcp_path')
+    storage_path = current_image.get('storage_path')
+    bucket = current_image.get('bucket', 'chat-uploads')
     image_url = current_image.get('image_url')
     image_index = current_image.get('image_index', 0)
-    
-    if not gcp_path or not image_url:
+
+    if not storage_path or not image_url:
         logger.error("[IMAGE_PROCESS] missing_image_data index=%s", image_index)
         return Command(
             update={
@@ -149,8 +167,8 @@ async def process_single_image(
             },
             goto="continue_after_image_processing"
         )
-    
-    logger.debug("[IMAGE_PROCESS] processing_image index=%s gcp_path=%s", image_index, gcp_path)
+
+    logger.debug("[IMAGE_PROCESS] processing_image index=%s storage_path=%s bucket=%s", image_index, storage_path, bucket)
     
     # Set up vision model for metadata generation
     vision_model = ChatOpenAI(
@@ -193,14 +211,16 @@ async def process_single_image(
         description = f"User uploaded image (metadata generation failed: {str(e)})"
         logger.exception("[IMAGE_PROCESS] metadata_generation_failed index=%s", image_index)
     
-    # Prefer a public HTTPS URL as the file key if bucket env is present
+    # Construct Supabase storage reference
     import os
-    bucket_name = os.getenv("GCP_STORAGE_BUCKET", "")
-    public_url = f"https://storage.googleapis.com/{bucket_name}/{gcp_path}" if bucket_name else f"gs://{gcp_path}"
-    
+    supabase_url = os.getenv("SUPABASE_PUBLIC_URL", os.getenv("SUPABASE_URL", ""))
+
+    # Create storage:// URI for consistent reference
+    storage_uri = f"storage://{bucket}/{storage_path}"
+
     # Make the key unique by adding image index to handle duplicate URLs
-    unique_key = f"{public_url}#image_{image_index}"
-    
+    unique_key = f"{storage_uri}#image_{image_index}"
+
     # Create file entry for this image
     file_entry = {
         unique_key: {
@@ -208,18 +228,19 @@ async def process_single_image(
             "metadata": {
                 "type": "image",
                 "source": "user_upload",
-                # store both public https and gs paths
-                "gcp_url": public_url,
-                "gcp_path": gcp_path,
-                # Name should be the public URL
-                "name": public_url,
-                "url": public_url,
+                # Store Supabase storage references
+                "storage_uri": storage_uri,
+                "storage_path": storage_path,
+                "bucket": bucket,
+                # Name should be the storage URI
+                "name": storage_uri,
+                "url": image_url,  # Keep the signed URL for rendering
                 "description": description
             }
         }
     }
-    
-    logger.info("[IMAGE_PROCESS] completed index=%s public_url=%s", image_index, public_url)
+
+    logger.info("[IMAGE_PROCESS] completed index=%s storage_uri=%s", image_index, storage_uri)
     
     # Return file system update for this image (reducer will merge with others)
     return Command(
