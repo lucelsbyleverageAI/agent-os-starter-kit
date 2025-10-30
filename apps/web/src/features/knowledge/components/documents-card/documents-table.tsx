@@ -51,9 +51,8 @@ import { EditDocumentDialog } from "./edit-document-dialog";
 import { cn } from "@/lib/utils";
 import { getScrollbarClasses } from "@/lib/scrollbar-styles";
 import { useRouter } from "next/navigation";
-import { isImageDocument, getSignedImageUrl } from "@/lib/image-utils";
+import { isImageDocument } from "@/lib/image-utils";
 import { ImagePreviewDialog } from "@/components/ui/image-preview-dialog";
-import { useAuthContext } from "@/providers/Auth";
 import {
   downloadMarkdownAsDocx,
   downloadAsMarkdown,
@@ -134,7 +133,6 @@ export function DocumentsTable({
   totalDocumentCount,
 }: DocumentsTableProps) {
   const router = useRouter();
-  const { session } = useAuthContext();
   const { deleteDocument } = useKnowledgeContext();
   const [deletingDocumentId, setDeletingDocumentId] = useState<string | null>(null);
   const [editDocumentId, setEditDocumentId] = useState<string | null>(null);
@@ -150,7 +148,6 @@ export function DocumentsTable({
   const [sortConfig, setSortConfig] = useState<SortConfig>({ field: 'date', direction: 'desc' });
 
   // Image state
-  const [imageUrls, setImageUrls] = useState<Map<string, string>>(new Map());
   const [previewImage, setPreviewImage] = useState<{url: string, title: string} | null>(null);
 
   // Download state
@@ -501,56 +498,6 @@ export function DocumentsTable({
     setSearchTerm('');
   }, []);
 
-  // Fetch signed URLs for image documents
-  useEffect(() => {
-    if (!session?.accessToken || documents.length === 0) {
-      return;
-    }
-
-    // Capture accessToken in a variable to ensure TypeScript knows it's not null
-    const accessToken = session.accessToken;
-
-    const fetchImageUrls = async () => {
-      // Find all image documents that have storage paths
-      const imageDocs = documents.filter(doc =>
-        isImageDocument(doc.metadata) && doc.metadata.storage_path
-      );
-
-      if (imageDocs.length === 0) {
-        return;
-      }
-
-      try {
-        // Fetch signed URLs individually with cache-busting per document
-        // Note: Each document needs its own cache-busting timestamp based on updated_at
-        const docIdToUrlMap = new Map<string, string>();
-
-        await Promise.all(
-          imageDocs.map(async (doc) => {
-            try {
-              // Use document's updated_at as cache-buster to ensure fresh images after replacement
-              const cacheBuster = doc.metadata.updated_at || Date.now();
-              const signedUrl = await getSignedImageUrl(
-                doc.metadata.storage_path,
-                accessToken,
-                cacheBuster
-              );
-
-              docIdToUrlMap.set(doc.metadata.file_id, signedUrl);
-            } catch (error) {
-              console.error(`Failed to fetch signed URL for document ${doc.metadata.file_id}:`, error);
-            }
-          })
-        );
-
-        setImageUrls(docIdToUrlMap);
-      } catch (error) {
-        console.error('Failed to fetch image URLs:', error);
-      }
-    };
-
-    fetchImageUrls();
-  }, [documents, session?.accessToken]);
 
   return (
     <div className="space-y-4 p-1">
@@ -728,17 +675,14 @@ export function DocumentsTable({
 
                     {/* Image Thumbnail */}
                     <div className="col-span-1 flex items-center">
-                      {isImageDocument(doc.metadata) && (() => {
-                        const hasUrl = imageUrls.has(doc.metadata.file_id);
-                        const url = imageUrls.get(doc.metadata.file_id);
-                        console.log(`📸 Rendering doc ${doc.metadata.file_id}: hasUrl=${hasUrl}, url=${url}`);
-                        return hasUrl;
-                      })() ? (
+                      {isImageDocument(doc.metadata) && doc.metadata.storage_path ? (
                         <button
                           onClick={(e) => {
                             e.stopPropagation();
+                            // Use proxy route for preview image as well
+                            const previewUrl = `/api/langconnect/storage/image?path=${encodeURIComponent(doc.metadata.storage_path)}&bucket=collections`;
                             setPreviewImage({
-                              url: imageUrls.get(doc.metadata.file_id)!,
+                              url: previewUrl,
                               title: doc.metadata.name
                             });
                           }}
@@ -746,7 +690,7 @@ export function DocumentsTable({
                           title="Click to preview full image"
                         >
                           <img
-                            src={imageUrls.get(doc.metadata.file_id)}
+                            src={`/api/langconnect/storage/image?path=${encodeURIComponent(doc.metadata.storage_path)}&bucket=collections`}
                             alt={doc.metadata.name}
                             className="w-full h-full object-cover"
                           />

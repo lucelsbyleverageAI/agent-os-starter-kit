@@ -375,6 +375,27 @@ async def batch_generate_signed_urls(
         return {}
 
 
+def extract_storage_path_from_metadata(block: dict) -> str:
+    """
+    Extract storage path from a content block's metadata.
+
+    This is used as a fallback when the URL has been replaced with a signed URL
+    or data URL, but the original storage_path is preserved in metadata.
+
+    Args:
+        block: Content block dictionary
+
+    Returns:
+        Storage path string, or empty string if not found
+    """
+    metadata = block.get("metadata", {})
+    if isinstance(metadata, dict):
+        storage_path = metadata.get("storage_path", "")
+        if storage_path and STORAGE_PATH_PATTERN.match(storage_path):
+            return storage_path
+    return ""
+
+
 def extract_storage_paths_from_content(content: Any) -> List[str]:
     """
     Extract storage paths from message content.
@@ -382,10 +403,16 @@ def extract_storage_paths_from_content(content: Any) -> List[str]:
     IMPORTANT: Only extracts from IMAGE CONTENT BLOCKS, not from text blocks.
     This ensures we only replace URLs where the LLM needs to actually view the image.
 
+    Strategy:
+    ---------
+    1. First, try to extract from the URL field (for new messages with storage paths)
+    2. If URL is already converted (starts with http/data), check metadata for original storage_path
+    3. This ensures we can re-convert images on every invocation, even historical messages
+
     Supported Formats:
     ------------------
-    1. LangChain standard: {"type": "image", "source_type": "url", "url": "..."}
-    2. OpenAI style: {"type": "image_url", "image_url": {"url": "..."}}
+    1. LangChain standard: {"type": "image", "source_type": "url", "url": "...", "metadata": {"storage_path": "..."}}
+    2. OpenAI style: {"type": "image_url", "image_url": {"url": "..."}, "metadata": {"storage_path": "..."}}
 
     Args:
         content: Message content (string or list of content blocks)
@@ -406,7 +433,9 @@ def extract_storage_paths_from_content(content: Any) -> List[str]:
         # LangChain standard format: {"type": "image", "source_type": "url", "url": "..."}
         if block.get("type") == "image" and block.get("source_type") == "url":
             url = block.get("url", "")
-            if url and not url.startswith("http"):
+
+            # Try to extract from URL first (for new messages with storage paths)
+            if url and not url.startswith("http") and not url.startswith("data:"):
                 # This might be a storage path
                 matches = STORAGE_PATH_PATTERN.findall(url)
                 # Matches are tuples: (uuid, filename)
@@ -418,11 +447,28 @@ def extract_storage_paths_from_content(content: Any) -> List[str]:
                 if STORAGE_PATH_PATTERN.match(url):
                     paths.append(url)
 
+            # If URL is already converted, try metadata (for historical messages)
+            elif url and (url.startswith("http") or url.startswith("data:")):
+                storage_path = extract_storage_path_from_metadata(block)
+                if storage_path:
+                    paths.append(storage_path)
+                    logger.info(
+                        f"[MESSAGE_UTILS] Extracted storage_path from metadata for converted URL "
+                        f"(historical message): {storage_path}"
+                    )
+                else:
+                    logger.warning(
+                        f"[MESSAGE_UTILS] Found converted URL but no storage_path in metadata! "
+                        f"URL: {url[:60]}..., metadata keys: {list(block.get('metadata', {}).keys())}"
+                    )
+
         # OpenAI style format: {"type": "image_url", "image_url": {"url": "..."}}
         elif block.get("type") == "image_url":
             image_url_obj = block.get("image_url", {})
             if isinstance(image_url_obj, dict):
                 url = image_url_obj.get("url", "")
+
+                # Try to extract from URL first
                 if url and not url.startswith("http") and not url.startswith("data:"):
                     # This might be a storage path
                     matches = STORAGE_PATH_PATTERN.findall(url)
@@ -435,6 +481,21 @@ def extract_storage_paths_from_content(content: Any) -> List[str]:
                     if STORAGE_PATH_PATTERN.match(url):
                         paths.append(url)
 
+                # If URL is already converted, try metadata
+                elif url and (url.startswith("http") or url.startswith("data:")):
+                    storage_path = extract_storage_path_from_metadata(block)
+                    if storage_path:
+                        paths.append(storage_path)
+                        logger.info(
+                            f"[MESSAGE_UTILS] Extracted storage_path from metadata for converted URL "
+                            f"(historical message, OpenAI format): {storage_path}"
+                        )
+                    else:
+                        logger.warning(
+                            f"[MESSAGE_UTILS] Found converted URL (OpenAI format) but no storage_path in metadata! "
+                            f"URL: {url[:60]}..., metadata keys: {list(block.get('metadata', {}).keys())}"
+                        )
+
     return paths
 
 
@@ -444,6 +505,12 @@ def replace_storage_paths_in_content(content: Any, url_mapping: Dict[str, str]) 
 
     IMPORTANT: Only replaces in IMAGE CONTENT BLOCKS, not in text blocks.
     Text references to storage paths are left completely untouched.
+
+    Strategy:
+    ---------
+    1. For new messages: Replace storage_path in URL field
+    2. For historical messages: Check metadata for storage_path and replace if found
+    3. This ensures ALL images get fresh URLs on every invocation
 
     Args:
         content: Message content (string or list of content blocks)
@@ -466,28 +533,67 @@ def replace_storage_paths_in_content(content: Any, url_mapping: Dict[str, str]) 
             modified_blocks.append(block)
             continue
 
+        # Create a deep copy to ensure metadata is preserved properly
         modified_block = block.copy()
+        if "metadata" in block and isinstance(block["metadata"], dict):
+            modified_block["metadata"] = block["metadata"].copy()
 
         # LangChain standard format: {"type": "image", "source_type": "url", "url": "..."}
         if block.get("type") == "image" and block.get("source_type") == "url":
             url = block.get("url", "")
-            # Replace storage path with signed URL
+
+            # Try to match against storage path in URL (for new messages)
+            replaced = False
             for storage_path, signed_url in url_mapping.items():
                 if storage_path in url or url == storage_path:
                     modified_block["url"] = signed_url
                     logger.debug(f"[MESSAGE_UTILS] Replaced storage path in image block: {storage_path[:30]}...")
+                    replaced = True
                     break
+
+            # If URL already converted, check metadata (for historical messages)
+            if not replaced and (url.startswith("http") or url.startswith("data:")):
+                metadata_path = extract_storage_path_from_metadata(block)
+                if metadata_path and metadata_path in url_mapping:
+                    modified_block["url"] = url_mapping[metadata_path]
+                    logger.info(
+                        f"[MESSAGE_UTILS] Replaced converted URL using metadata storage_path "
+                        f"(historical message): {metadata_path}"
+                    )
+                elif metadata_path:
+                    logger.warning(
+                        f"[MESSAGE_UTILS] Found metadata storage_path but no mapping! "
+                        f"Path: {metadata_path}, available mappings: {list(url_mapping.keys())}"
+                    )
 
         # OpenAI style format: {"type": "image_url", "image_url": {"url": "..."}}
         elif block.get("type") == "image_url" and isinstance(block.get("image_url"), dict):
             image_url_obj = block["image_url"].copy()
             url = image_url_obj.get("url", "")
-            # Replace storage path with signed URL
+
+            # Try to match against storage path in URL
+            replaced = False
             for storage_path, signed_url in url_mapping.items():
                 if storage_path in url or url == storage_path:
                     modified_block["image_url"] = {"url": signed_url}
                     logger.debug(f"[MESSAGE_UTILS] Replaced storage path in image_url block: {storage_path[:30]}...")
+                    replaced = True
                     break
+
+            # If URL already converted, check metadata
+            if not replaced and (url.startswith("http") or url.startswith("data:")):
+                metadata_path = extract_storage_path_from_metadata(block)
+                if metadata_path and metadata_path in url_mapping:
+                    modified_block["image_url"] = {"url": url_mapping[metadata_path]}
+                    logger.info(
+                        f"[MESSAGE_UTILS] Replaced converted URL using metadata storage_path "
+                        f"(historical message, OpenAI format): {metadata_path}"
+                    )
+                elif metadata_path:
+                    logger.warning(
+                        f"[MESSAGE_UTILS] Found metadata storage_path (OpenAI format) but no mapping! "
+                        f"Path: {metadata_path}, available mappings: {list(url_mapping.keys())}"
+                    )
 
         # All other blocks (including text) are left completely untouched
         modified_blocks.append(modified_block)
@@ -702,7 +808,9 @@ def create_image_preprocessor(
             return state
 
         # Process messages
-        messages = state.get("messages", [])
+        # Check for llm_input_messages first (set by trimming hook), fall back to messages
+        messages_key = "llm_input_messages" if "llm_input_messages" in state else "messages"
+        messages = state.get(messages_key, [])
         if not messages:
             return state
 
@@ -714,8 +822,8 @@ def create_image_preprocessor(
                 expiry_seconds
             )
 
-            # Return modified state
-            return {**state, "messages": processed_messages}
+            # Return modified state with processed messages in the same key we read from
+            return {**state, messages_key: processed_messages}
 
         except Exception as e:
             logger.exception(f"[IMAGE_HOOK] Error processing messages: {e}")
