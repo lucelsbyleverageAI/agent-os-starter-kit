@@ -129,12 +129,16 @@ def _agent_builder(
     image_hook = create_image_preprocessor(langconnect_api_url)
 
     # Combine with existing pre_model_hook
+    # IMPORTANT: Trim FIRST (when images are storage paths), THEN convert images
     combined_pre_hook = None
     if pre_model_hook and image_hook:
         async def combined_hook(state):
-            state = await image_hook(state, runnable_config)
+            # 1. Trim first (when images are just storage paths ~50 tokens each)
             trimming_result = pre_model_hook(state)  # Trimming hook is sync, no await
-            return {**state, **trimming_result}
+            state = {**state, **trimming_result}
+            # 2. Then convert images to signed URLs (or base64 in local dev)
+            state = await image_hook(state, runnable_config)
+            return state
         combined_pre_hook = combined_hook
     elif image_hook:
         combined_pre_hook = image_hook

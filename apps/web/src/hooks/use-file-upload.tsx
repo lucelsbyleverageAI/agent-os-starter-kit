@@ -621,7 +621,19 @@ ${extractedContent}
       const item = items[i];
       if (item.kind === "file") {
         const file = item.getAsFile();
-        if (file) files.push(file);
+        if (file) {
+          // Add timestamp suffix to pasted images to prevent false duplicate detection
+          // Browsers often name pasted images "image.png" by default
+          if (file.name === "image.png" || file.name === "image.jpg" || file.name === "image.jpeg") {
+            const timestamp = Date.now();
+            const extension = file.name.split('.').pop();
+            const newName = `pasted-image-${timestamp}.${extension}`;
+            const renamedFile = new File([file], newName, { type: file.type });
+            files.push(renamedFile);
+          } else {
+            files.push(file);
+          }
+        }
       }
     }
     if (files.length === 0) {
