@@ -101,3 +101,5 @@ node_modules/
 youtube_scripts/
 
 pipelines/outcomes_data/.cache/
+
+DeepAgent/

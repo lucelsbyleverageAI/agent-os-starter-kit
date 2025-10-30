@@ -696,6 +696,7 @@ export const AgentsProvider: React.FC<{ children: ReactNode }> = ({
    *
    * @deprecated Kept for backward compatibility - always returns null
    */
+  // eslint-disable-next-line @typescript-eslint/no-unused-vars
   const getAssistantListCache = useCallback((_userId: string, _expectedVersion: string): AssistantListCache | null => {
     return null;
   }, []);
@@ -706,6 +707,7 @@ export const AgentsProvider: React.FC<{ children: ReactNode }> = ({
    *
    * @deprecated Kept for backward compatibility - does nothing
    */
+  // eslint-disable-next-line @typescript-eslint/no-unused-vars
   const setAssistantListCache = useCallback((_userId: string, _assistantData: { assistants: AssistantInfo[]; assistant_counts: any; user_role: string; is_dev_admin: boolean; deployment_id: string; deployment_name: string }, _versionKey: string) => {
     // No-op: caching disabled
   }, []);

@@ -2,11 +2,12 @@
 #
 # Available commands:
 #   make start-dev     - Start complete development stack with hot reloading
+#   make start-demo    - Start stack with production-optimized frontend (faster, no recompilation)
 #   make stop          - Stop all services
 #   make clean         - Stop all services and remove volumes (WARNING: Deletes all data!)
 #   make export-n8n    - Export n8n workflows and credentials to repo folders
 
-.PHONY: start-dev stop clean export-n8n help
+.PHONY: start-dev start-demo stop clean export-n8n help
 
 # Default target
 help:
@@ -15,6 +16,9 @@ help:
 	@echo "Development Stack:"
 	@echo "  make start-dev     - Start complete development stack with hot reloading"
 	@echo "                      (Docker services + LangGraph/Web locally)"
+	@echo ""
+	@echo "  make start-demo    - Start with production-optimized frontend"
+	@echo "                      ⚡ Faster, no recompilation - ideal for demos"
 	@echo ""
 	@echo "  make stop          - Stop all services (Docker + background processes)"
 	@echo ""
@@ -35,6 +39,12 @@ start-dev:
 	@echo "🚀 Starting Agent Platform development stack..."
 	@poetry install
 	@poetry run python scripts/start_local_services.py
+
+# Start with production-optimized frontend (no hot reloading)
+start-demo:
+	@echo "🚀 Starting Agent Platform with production frontend..."
+	@poetry install
+	@poetry run python scripts/start_local_services.py --production-frontend
 
 # Stop all services
 stop:

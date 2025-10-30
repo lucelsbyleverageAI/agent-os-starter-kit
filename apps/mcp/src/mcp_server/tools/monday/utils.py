@@ -60,7 +60,11 @@ def clean_html_content(html_content: str) -> str:
 
 
 def extract_public_file_urls(assets: List[Dict[str, Any]]) -> List[str]:
-    """Extract public URLs from assets."""
+    """Extract public URLs from assets.
+
+    DEPRECATED: This function is no longer used. File URLs are now displayed
+    inline with file columns in format_column_value().
+    """
     if not assets:
         return []
     
@@ -183,7 +187,7 @@ def format_linked_item_details(item: Dict[str, Any], board_id: str, max_chars: i
     return details
 
 
-def format_column_value(column: Dict[str, Any], max_linked_items: int = 20) -> Optional[str]:
+def format_column_value(column: Dict[str, Any], max_linked_items: int = 20, assets: Optional[List[Dict[str, Any]]] = None, item_id: Optional[str] = None) -> Optional[str]:
     """Format a single column value based on its type."""
     col_type = column.get("type")
     text = column.get("text")
@@ -293,6 +297,43 @@ def format_column_value(column: Dict[str, Any], max_linked_items: int = 20) -> O
             return f"**{title}:** 📊 {text}" if text else None
         
         elif col_type in ["file", "assets"]:
+            # Format file columns with filename and download URLs
+            if not text:
+                return None
+
+            # The text field contains comma-separated private URLs, not filenames
+            private_urls = [url.strip() for url in text.split(",")]
+
+            # Match URLs with assets to get filenames and public URLs
+            formatted_files = []
+            if assets:
+                for private_url in private_urls:
+                    # Find matching asset by private URL
+                    matching_asset = None
+                    for asset in assets:
+                        if asset.get("url") == private_url:
+                            matching_asset = asset
+                            break
+
+                    if matching_asset:
+                        filename = matching_asset.get("name", "Unknown File")
+                        public_url = matching_asset.get("public_url") or matching_asset.get("url", "")
+                        file_entry = f"  • Filename: {filename}\n    Download URL: {public_url}"
+                        # Add download tool instruction if item_id is available
+                        if item_id:
+                            file_entry += f"\n    💡 To download: Use 'download_monday_file' tool with item_id='{item_id}' and filename='{filename}'"
+                        formatted_files.append(file_entry)
+                    else:
+                        # Asset not found, show URL as fallback
+                        formatted_files.append(f"  • Filename: (filename not available)\n    Download URL: {private_url}")
+            else:
+                # No assets provided, show URLs only
+                for private_url in private_urls:
+                    formatted_files.append(f"  • Filename: (filename not available)\n    Download URL: {private_url}")
+
+            if formatted_files:
+                return f"**{title}:**\n" + "\n".join(formatted_files)
+
             return f"**{title}:** 📎 {text}" if text else None
         
         elif col_type == "mirror":
@@ -353,7 +394,11 @@ def format_column_value(column: Dict[str, Any], max_linked_items: int = 20) -> O
 
 
 def format_assets(assets: List[Dict[str, Any]]) -> str:
-    """Format assets as markdown."""
+    """Format assets as markdown.
+
+    DEPRECATED: This function is no longer used. File attachments are now displayed
+    inline with file columns in format_column_value().
+    """
     if not assets:
         return ""
     
@@ -474,28 +519,24 @@ def format_monday_item(
             markdown_parts.append(f"**Creator:** {creator.get('name')}")
         
         markdown_parts.append("")
-        
+
+        # Get assets for file column formatting
+        assets = item.get("assets", [])
+
         # Format column values
         column_values = item.get("column_values", [])
         if column_values:
             formatted_columns = []
-            
+
             for column in column_values:
-                formatted = format_column_value(column, max_linked_items)
+                formatted = format_column_value(column, max_linked_items, assets, item_id)
                 if formatted:
                     formatted_columns.append(formatted)
-            
+
             if formatted_columns:
                 markdown_parts.append("## 📋 Details\n")
                 markdown_parts.append("\n\n".join(formatted_columns))
                 markdown_parts.append("")
-        
-        # Format assets
-        assets = item.get("assets", [])
-        if assets:
-            assets_markdown = format_assets(assets)
-            if assets_markdown:
-                markdown_parts.append(assets_markdown)
         
         # Format updates if requested
         if include_updates:

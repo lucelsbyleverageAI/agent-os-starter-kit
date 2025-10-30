@@ -131,8 +131,8 @@ def _agent_builder(
     # Combine with existing pre_model_hook
     combined_pre_hook = None
     if pre_model_hook and image_hook:
-        async def combined_hook(state, config):
-            state = await image_hook(state, config)
+        async def combined_hook(state):
+            state = await image_hook(state, runnable_config)
             trimming_result = pre_model_hook(state)  # Trimming hook is sync, no await
             return {**state, **trimming_result}
         combined_pre_hook = combined_hook

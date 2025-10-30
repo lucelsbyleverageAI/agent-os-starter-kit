@@ -1,9 +1,10 @@
 import { ToolComponent, ToolRegistryEntry, ToolRegistry } from "../types";
-import { 
-  SilentToolCall, 
+import {
+  SilentToolCall,
   SimpleToolCall,
   ResearchProgressTool,
-  FinalResearchReportTool
+  FinalResearchReportTool,
+  GenerateProcessOnePagerTool
 } from "./components";
 // Unused imports removed
 
@@ -19,6 +20,11 @@ export const TOOL_REGISTRY: ToolRegistry = {
   // Final research report tool
   "*:final_research_report": {
     component: FinalResearchReportTool,
+  },
+
+  // E18 Process One-Pager generation tool
+  "*:generate_process_one_pager": {
+    component: GenerateProcessOnePagerTool,
   },
 
 

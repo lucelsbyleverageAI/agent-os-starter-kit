@@ -120,18 +120,23 @@ def start_langgraph():
         print("⚠️  LangGraph not yet responding (may still be starting)")
         return process
 
-def start_web_frontend():
-    """Start web frontend development server."""
-    print("🌐 Starting web frontend development server...")
-    
+def start_web_frontend(production_mode=False):
+    """Start web frontend server.
+
+    Args:
+        production_mode: If True, builds and runs in production mode. If False, runs in dev mode.
+    """
+    mode_label = "production" if production_mode else "development"
+    print(f"🌐 Starting web frontend {mode_label} server...")
+
     script_dir = Path(__file__).parent
     project_root = script_dir.parent
     web_dir = project_root / "apps" / "web"
-    
+
     if not web_dir.exists():
         print(f"❌ Web frontend directory not found: {web_dir.absolute()}")
         return None
-    
+
     # First install dependencies
     print("📦 Installing web frontend dependencies...")
     try:
@@ -139,26 +144,49 @@ def start_web_frontend():
     except subprocess.CalledProcessError as e:
         print(f"❌ Failed to install web frontend dependencies: {e}")
         return None
-    
-    print(f"🚀 Starting: yarn run dev (in {web_dir})")
-    
+
     # Use host environment (preserves localhost URLs)
     env = os.environ.copy()
-    
-    process = subprocess.Popen(
-        ["yarn", "run", "dev"],
-        cwd=str(web_dir),
-        env=env,
-        stdin=None,
-        stdout=None,
-        stderr=None
-    )
+
+    if production_mode:
+        # Build the production version first
+        print(f"🏗️  Building production version (in {web_dir})...")
+        try:
+            subprocess.run(["yarn", "build"], cwd=str(web_dir), check=True, env=env)
+            print("✅ Production build completed")
+        except subprocess.CalledProcessError as e:
+            print(f"❌ Failed to build web frontend: {e}")
+            return None
+
+        # Start the production server
+        print(f"🚀 Starting: yarn run start (in {web_dir})")
+        process = subprocess.Popen(
+            ["yarn", "run", "start"],
+            cwd=str(web_dir),
+            env=env,
+            stdin=None,
+            stdout=None,
+            stderr=None
+        )
+    else:
+        # Start the development server
+        print(f"🚀 Starting: yarn run dev (in {web_dir})")
+        process = subprocess.Popen(
+            ["yarn", "run", "dev"],
+            cwd=str(web_dir),
+            env=env,
+            stdin=None,
+            stdout=None,
+            stderr=None
+        )
+
     background_processes.append(process)
-    
+
     # Give it time to start up
-    print("⏳ Waiting for web frontend to start...")
-    time.sleep(8)
-    
+    wait_time = 5 if production_mode else 8
+    print(f"⏳ Waiting for web frontend to start...")
+    time.sleep(wait_time)
+
     # Check if it's responding
     try:
         response = requests.get("http://localhost:3000", timeout=5)
@@ -269,6 +297,7 @@ def main():
     parser = argparse.ArgumentParser(description="Start Agent Platform in local development mode")
     parser.add_argument('--skip-frontend', action='store_true', help='Skip starting web frontend')
     parser.add_argument('--skip-langgraph', action='store_true', help='Skip starting LangGraph')
+    parser.add_argument('--production-frontend', action='store_true', help='Run web frontend in production mode (build + start)')
     args = parser.parse_args()
 
     print("🚀 Starting Agent Platform in LOCAL DEVELOPMENT mode...")
@@ -316,7 +345,7 @@ def main():
         # Start Web Frontend (optional)
         web_frontend_process = None
         if not args.skip_frontend:
-            web_frontend_process = start_web_frontend()
+            web_frontend_process = start_web_frontend(production_mode=args.production_frontend)
         else:
             print("⚠️  Skipping Web Frontend (--skip-frontend flag)")
         

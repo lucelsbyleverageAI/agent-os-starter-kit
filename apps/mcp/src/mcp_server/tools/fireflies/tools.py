@@ -25,9 +25,9 @@ def format_duration(seconds: int) -> str:
         return f"{hours}h {minutes}m"
 
 
-def format_timestamp(milliseconds: int) -> str:
+def format_timestamp(milliseconds: float) -> str:
     """Format milliseconds to MM:SS timestamp."""
-    total_seconds = milliseconds // 1000
+    total_seconds = int(milliseconds // 1000)
     minutes = total_seconds // 60
     seconds = total_seconds % 60
     return f"{minutes:02d}:{seconds:02d}"

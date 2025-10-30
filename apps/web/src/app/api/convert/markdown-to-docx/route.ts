@@ -16,7 +16,7 @@ function markdownToHtml(markdown: string): string {
 
   // Tables (basic markdown table support)
   html = html.replace(
-    /(\|[^\n]+\|\r?\n)((?:\|[-: ]+\|[-: \|]*\r?\n))(\|[^\n]+\|\r?\n?)+/g,
+    /(\|[^\n]+\|\r?\n)((?:\|[-: ]+\|[-: |]*\r?\n))(\|[^\n]+\|\r?\n?)+/g,
     (match) => {
       const lines = match.trim().split("\n");
       if (lines.length < 2) return match;
@@ -53,11 +53,11 @@ function markdownToHtml(markdown: string): string {
   html = html.replace(/`([^`]+)`/g, "<code>$1</code>");
 
   // Bold (**text** and __text__)
-  html = html.replace(/\*\*([^\*]+)\*\*/g, "<strong>$1</strong>");
+  html = html.replace(/\*\*([^*]+)\*\*/g, "<strong>$1</strong>");
   html = html.replace(/__([^_]+)__/g, "<strong>$1</strong>");
 
   // Italic (*text* and _text_)
-  html = html.replace(/\*([^\*\n]+)\*/g, "<em>$1</em>");
+  html = html.replace(/\*([^*\n]+)\*/g, "<em>$1</em>");
   html = html.replace(/_([^_\n]+)_/g, "<em>$1</em>");
 
   // Headers (h1-h6)

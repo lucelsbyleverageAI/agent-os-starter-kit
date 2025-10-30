@@ -10,7 +10,7 @@ from ...utils.exceptions import ToolExecutionError
 
 from .base import get_monday_client, handle_monday_error
 # Removed MondayToolResponse import - now returning plain markdown strings
-from .utils import format_monday_item, extract_public_file_urls
+from .utils import format_monday_item
 
 logger = get_logger(__name__)
 
@@ -253,11 +253,7 @@ class GetCustomerInfoTool(CustomTool):
                 return f"*Customer with ID '{customer_id}' not found.*"
             
             item = items[0]
-            
-            # Extract file URLs
-            assets = item.get("assets", [])
-            file_urls = extract_public_file_urls(assets)
-            
+
             # Format customer using utility function with business context
             formatted_markdown = format_monday_item(
                 item,
@@ -267,30 +263,23 @@ class GetCustomerInfoTool(CustomTool):
                 max_linked_items=max_linked_items,
                 max_characters=max_characters
             )
-            
+
             # Add customer-specific header context
             customer_name_from_item = item.get("name", "Unknown Customer")
             board = item.get("board", {})
             board_name = board.get("name", "Customer Board")
-            
+
             header = f"# Customer Profile: {customer_name_from_item}\n"
             header += f"**Customer ID:** {customer_id}\n"
             header += f"**Source Board:** {board_name}\n\n"
-            
+
             # Replace the generic header with customer-specific one
             if formatted_markdown.startswith("# "):
                 lines = formatted_markdown.split("\n")
                 formatted_markdown = "\n".join(lines[1:])  # Remove first line
-            
+
             final_markdown = header + formatted_markdown
-            
-            # Add file links if any
-            if file_urls:
-                files_section = "\n\n## Files\n"
-                for file_url in file_urls:
-                    files_section += f"- {file_url}\n"
-                final_markdown += files_section
-            
+
             return final_markdown
             
         except Exception as e:

@@ -72,7 +72,6 @@ class GenerateProcessOnePagerTool(CustomTool):
                 type="string",
                 description=(
                     "Bold, impactful headline statement (5-10 words max). "
-                    "Example: 'Streamlining Waiting List Validation Process'. or 'Save 2,500 annual staff hours with maternity process automation'"
                     "Keep concise and action-oriented. Use outcome metrics where possible."
                 ),
                 required=True
@@ -112,6 +111,7 @@ class GenerateProcessOnePagerTool(CustomTool):
                 description=(
                     "List of 1-5 systems/applications used in the process. "
                     "Examples: ['PAS', 'RADAR', 'Patient Hub'], ['Lorenzo', 'EPR', 'PACS']. "
+                    "If you don't know the systems used, return 'Information not available yet' as a single string."
                     "Will be displayed with pipe separators (e.g., 'PAS | RADAR | Patient Hub')."
                 ),
                 required=True,

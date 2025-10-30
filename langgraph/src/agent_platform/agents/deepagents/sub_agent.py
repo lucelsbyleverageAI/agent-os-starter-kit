@@ -240,8 +240,8 @@ async def _get_agents(
         # Combine image preprocessor with trimming hook
         gp_combined_hook = None
         if gp_trimming_hook and image_preprocessor:
-            async def gp_hook(state, cfg):
-                state = await image_preprocessor(state, cfg)
+            async def gp_hook(state):
+                state = await image_preprocessor(state, config)
                 trimming_result = gp_trimming_hook(state)  # Trimming hook is sync, no await
                 return {**state, **trimming_result}
             gp_combined_hook = gp_hook
@@ -369,8 +369,8 @@ async def _get_agents(
         # Combine image preprocessor with trimming hook
         sub_combined_hook = None
         if sub_trimming_hook and image_preprocessor:
-            async def sub_hook(state, cfg):
-                state = await image_preprocessor(state, cfg)
+            async def sub_hook(state):
+                state = await image_preprocessor(state, config)
                 trimming_result = sub_trimming_hook(state)  # Trimming hook is sync, no await
                 return {**state, **trimming_result}
             sub_combined_hook = sub_hook
