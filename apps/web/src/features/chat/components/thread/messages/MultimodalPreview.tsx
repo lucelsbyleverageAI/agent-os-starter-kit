@@ -59,8 +59,12 @@ export const MultimodalPreview: React.FC<MultimodalPreviewProps> = ({
     (block as any).source_type === "url" &&
     typeof (block as any).url === "string"
   ) {
-    // Use preview_url from metadata if available, otherwise use the storage path
-    const displayUrl = block.metadata?.preview_url || (block as any).url;
+    // Use the storage path to generate a fresh signed URL on-demand via proxy route
+    // This solves the expiry problem where preview_url expires after 30 minutes
+    const storagePath = block.metadata?.storage_path || (block as any).url;
+    const bucket = block.metadata?.bucket || 'chat-uploads';
+    const displayUrl = `/api/langconnect/storage/image?path=${encodeURIComponent(storagePath)}&bucket=${encodeURIComponent(bucket)}`;
+
     let imgClass: string = "rounded-xl object-cover h-16 w-16 text-lg";
     if (size === "sm") imgClass = "rounded-xl object-cover h-10 w-10 text-base";
     if (size === "lg") imgClass = "rounded-xl object-cover h-24 w-24 text-xl";
