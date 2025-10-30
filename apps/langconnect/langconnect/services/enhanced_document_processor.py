@@ -1732,8 +1732,8 @@ class EnhancedDocumentProcessor:
         if progress_callback:
             progress_callback("Processing text content")
 
-        # Generate metadata (with AI if requested and no user-provided title)
-        if processing_options.use_ai_metadata and not title:
+        # Generate metadata (with AI if requested)
+        if processing_options.use_ai_metadata:
             # Use AI to generate title and description
             individual_title, individual_description = await self._generate_individual_document_metadata(
                 filename="Text Input",
