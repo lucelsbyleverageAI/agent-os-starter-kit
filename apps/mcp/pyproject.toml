@@ -23,8 +23,6 @@ anyio = "^4.5.0"
 starlette = "^0.39.0"
 openai = "^1.91.0"
 replicate = "^0.34.0"
-google-cloud-storage = "==3.0.0"
-google-crc32c = "==1.6.0"
 requests = "^2.31.0"
 sentry-sdk = {version = ">=2.8.0", extras = ["fastapi"]}
 docling = "^2.51.0"

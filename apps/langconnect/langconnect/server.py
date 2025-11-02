@@ -16,7 +16,7 @@ from langconnect.api.memory import memory_router
 from langconnect.api.agent_filesystem import router as agent_filesystem_router
 from langconnect.api.default_assistant import router as default_assistant_router
 from langconnect.api.storage import router as storage_router
-from langconnect.config import ALLOWED_ORIGINS, IMAGE_STORAGE_ENABLED
+from langconnect.config import ALLOWED_ORIGINS
 from langconnect.database.collections import CollectionsManager
 from langconnect.services.sync_scheduler import start_sync_scheduler, stop_sync_scheduler
 from langconnect.sentry import init_sentry
@@ -140,14 +140,6 @@ APP.include_router(memory_router)
 APP.include_router(agent_filesystem_router)
 APP.include_router(default_assistant_router)
 APP.include_router(storage_router)
-
-# Conditionally include GCP images router if enabled
-if IMAGE_STORAGE_ENABLED:
-    from langconnect.api.gcp_images import router as gcp_images_router
-    APP.include_router(gcp_images_router)
-    logger.info("GCP Image Storage enabled - mounted /gcp endpoints")
-else:
-    logger.info("GCP Image Storage disabled - /gcp endpoints not available")
 
 
 @APP.get("/health")

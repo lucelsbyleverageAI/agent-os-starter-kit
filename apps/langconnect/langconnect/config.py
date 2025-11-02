@@ -23,9 +23,6 @@ SERVICE_ACCOUNT_KEY = env("LANGCONNECT_SERVICE_ACCOUNT_KEY", cast=str, default="
 if not SERVICE_ACCOUNT_KEY:
     SERVICE_ACCOUNT_KEY = env("LANGCONNECT_SERVICE_ACCOUNT_KEY", cast=str, default="")
 
-# GCP Image Storage Configuration
-IMAGE_STORAGE_ENABLED = env("IMAGE_STORAGE_ENABLED", cast=str, default="false").lower() == "true"
-
 def get_embeddings() -> Embeddings:
     """Get the embeddings instance based on the environment."""
     if IS_TESTING:
