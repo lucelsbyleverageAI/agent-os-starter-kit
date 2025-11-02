@@ -9,6 +9,7 @@ import { ThemeProvider } from "@/providers/Theme";
 import { NuqsAdapter } from "nuqs/adapters/next/app";
 // import { MCPProvider } from "@/providers/MCP";
 import { Toaster } from "@/components/ui/sonner";
+import { ClientDebugTools } from "@/components/ClientDebugTools";
 
 const inter = Inter({ subsets: ["latin"] });
 
@@ -45,6 +46,7 @@ export default function RootLayout({
                     {/* <MCPProvider> */}
                       {children}
                       <Toaster />
+                      <ClientDebugTools />
                     {/* </MCPProvider> */}
                   </AgentsProvider>
                 </UserRoleProvider>

@@ -10,6 +10,7 @@ import logging
 from typing import Annotated, Optional, Dict, Any, List
 from fastapi import APIRouter, Depends, HTTPException, Header, Response, Body
 from uuid import UUID
+import httpx
 
 from langconnect.auth import resolve_user_or_service, AuthenticatedActor
 from langconnect.database.connection import get_db_connection, get_db_pool
@@ -1054,6 +1055,9 @@ async def delete_thread(
     """
     Delete a thread in LangGraph and then remove it from the mirror.
     Also deletes any associated chat images from storage.
+
+    Handles 404 gracefully: if the thread doesn't exist in LangGraph (already deleted
+    or never existed), we still clean up the mirror entry to maintain consistency.
     """
     try:
         if actor.actor_type != "user":
@@ -1074,8 +1078,19 @@ async def delete_thread(
             log.warning(f"Failed to delete storage images for thread {thread_id}: {storage_error}")
 
         # Delete upstream in LangGraph first (user-scoped)
+        # Handle 404 gracefully - thread may already be deleted from LangGraph
         user_token = actor.access_token if hasattr(actor, "access_token") else None
-        await langgraph_service.delete_thread(thread_id, user_token=user_token)
+        try:
+            await langgraph_service.delete_thread(thread_id, user_token=user_token)
+            log.info(f"Deleted thread {thread_id} from LangGraph")
+        except RuntimeError as e:
+            # Check if this is a 404 error (thread doesn't exist in LangGraph)
+            error_message = str(e).lower()
+            if "404" in error_message or "not found" in error_message:
+                log.info(f"Thread {thread_id} not found in LangGraph (404) - proceeding with mirror cleanup")
+            else:
+                # Re-raise other errors (500, 403, network issues, etc.)
+                raise
 
         # Remove from mirror and bump version
         async with get_db_connection() as conn:
@@ -1092,6 +1107,7 @@ async def delete_thread(
             )
             threads_version = cache_state["threads_version"] if cache_state else 1
 
+        log.info(f"Successfully deleted thread {thread_id} from mirror")
         return {"success": True, "thread_id": thread_id, "threads_version": threads_version}
     except HTTPException:
         raise
