@@ -1,5 +1,5 @@
 import React from "react";
-import { File, X as XIcon, FileText } from "lucide-react";
+import { File, X as XIcon, FileText, ZoomIn } from "lucide-react";
 import type { Base64ContentBlock } from "@langchain/core/messages";
 import { cn } from "@/lib/utils";
 import Image from "next/image";
@@ -10,6 +10,8 @@ export interface MultimodalPreviewProps {
   onRemove?: () => void;
   className?: string;
   size?: "sm" | "md" | "lg";
+  expandable?: boolean;
+  onExpand?: (imageUrl: string, imageTitle: string) => void;
 }
 
 export const MultimodalPreview: React.FC<MultimodalPreviewProps> = ({
@@ -18,6 +20,8 @@ export const MultimodalPreview: React.FC<MultimodalPreviewProps> = ({
   onRemove,
   className,
   size = "md",
+  expandable = false,
+  onExpand,
 }) => {
   // Image block with base64 data (legacy)
   if (
@@ -27,18 +31,41 @@ export const MultimodalPreview: React.FC<MultimodalPreviewProps> = ({
     block.mime_type.startsWith("image/")
   ) {
     const url = `data:${block.mime_type};base64,${block.data}`;
+    const imageTitle = String(block.metadata?.name || "uploaded image");
     let imgClass: string = "rounded-xl object-cover h-16 w-16 text-lg";
     if (size === "sm") imgClass = "rounded-xl object-cover h-10 w-10 text-base";
     if (size === "lg") imgClass = "rounded-xl object-cover h-24 w-24 text-xl";
+
+    const imageElement = (
+      <Image
+        src={url}
+        alt={imageTitle}
+        className={imgClass}
+        width={size === "sm" ? 16 : size === "md" ? 32 : 48}
+        height={size === "sm" ? 16 : size === "md" ? 32 : 48}
+      />
+    );
+
     return (
-      <div className={cn("relative inline-block", className)}>
-        <Image
-          src={url}
-          alt={String(block.metadata?.name || "uploaded image")}
-          className={imgClass}
-          width={size === "sm" ? 16 : size === "md" ? 32 : 48}
-          height={size === "sm" ? 16 : size === "md" ? 32 : 48}
-        />
+      <div className={cn("relative inline-block group", className)}>
+        {expandable && onExpand ? (
+          <button
+            type="button"
+            className="relative rounded-xl overflow-hidden transition-all hover:ring-2 hover:ring-primary focus:outline-none focus:ring-2 focus:ring-primary"
+            onClick={(e) => {
+              e.stopPropagation();
+              onExpand(url, imageTitle);
+            }}
+            aria-label="Expand image"
+          >
+            {imageElement}
+            <div className="absolute inset-0 bg-black/50 opacity-0 group-hover:opacity-100 transition-opacity flex items-center justify-center">
+              <ZoomIn className="h-6 w-6 text-white" />
+            </div>
+          </button>
+        ) : (
+          imageElement
+        )}
         {removable && (
           <button
             type="button"
@@ -61,23 +88,45 @@ export const MultimodalPreview: React.FC<MultimodalPreviewProps> = ({
   ) {
     // Use the storage path to generate a fresh signed URL on-demand via proxy route
     // This solves the expiry problem where preview_url expires after 30 minutes
-    const storagePath = block.metadata?.storage_path || (block as any).url;
-    const bucket = block.metadata?.bucket || 'chat-uploads';
+    const storagePath = String(block.metadata?.storage_path || (block as any).url || '');
+    const bucket = String(block.metadata?.bucket || 'chat-uploads');
     const displayUrl = `/api/langconnect/storage/image?path=${encodeURIComponent(storagePath)}&bucket=${encodeURIComponent(bucket)}`;
-
+    const imageTitle = String(block.metadata?.name || "uploaded image");
     let imgClass: string = "rounded-xl object-cover h-16 w-16 text-lg";
     if (size === "sm") imgClass = "rounded-xl object-cover h-10 w-10 text-base";
     if (size === "lg") imgClass = "rounded-xl object-cover h-24 w-24 text-xl";
+
+    const imageElement = (
+      <Image
+        src={displayUrl}
+        alt={imageTitle}
+        className={imgClass}
+        width={size === "sm" ? 16 : size === "md" ? 32 : 48}
+        height={size === "sm" ? 16 : size === "md" ? 32 : 48}
+        unoptimized  // Required for external URLs from storage
+      />
+    );
+
     return (
-      <div className={cn("relative inline-block", className)}>
-        <Image
-          src={displayUrl}
-          alt={String(block.metadata?.name || "uploaded image")}
-          className={imgClass}
-          width={size === "sm" ? 16 : size === "md" ? 32 : 48}
-          height={size === "sm" ? 16 : size === "md" ? 32 : 48}
-          unoptimized  // Required for external URLs from storage
-        />
+      <div className={cn("relative inline-block group", className)}>
+        {expandable && onExpand ? (
+          <button
+            type="button"
+            className="relative rounded-xl overflow-hidden transition-all hover:ring-2 hover:ring-primary focus:outline-none focus:ring-2 focus:ring-primary"
+            onClick={(e) => {
+              e.stopPropagation();
+              onExpand(displayUrl, imageTitle);
+            }}
+            aria-label="Expand image"
+          >
+            {imageElement}
+            <div className="absolute inset-0 bg-black/50 opacity-0 group-hover:opacity-100 transition-opacity flex items-center justify-center">
+              <ZoomIn className="h-6 w-6 text-white" />
+            </div>
+          </button>
+        ) : (
+          imageElement
+        )}
         {removable && (
           <button
             type="button"
