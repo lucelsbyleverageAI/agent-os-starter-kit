@@ -103,7 +103,7 @@ export const ThreadHistorySidebar = forwardRef<
     try {
       const url = new URL(`/api/langconnect/agents/mirror/threads`, window.location.origin);
       url.searchParams.set('assistant_id', agentId);
-      url.searchParams.set('limit', '100');
+      url.searchParams.set('limit', '20');
       if (threadsVersion != null) url.searchParams.set('v', String(threadsVersion));
       const resp = await fetch(url.toString(), {
         headers: {

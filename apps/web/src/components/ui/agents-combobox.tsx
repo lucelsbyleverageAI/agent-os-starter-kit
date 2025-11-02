@@ -32,6 +32,13 @@ import {
   TooltipTrigger,
 } from "@/components/ui/tooltip";
 
+// ✅ NEW: Support both lightweight and full agents
+// Lightweight agents have all the fields needed for display (id, name, deploymentId)
+type AgentForDisplay = Pick<Agent, 'assistant_id' | 'deploymentId' | 'name' | 'tags' | 'graph_id'> & {
+  updated_at?: string;
+  metadata?: Record<string, any> | null;
+};
+
 /**
  * Truncates agent name to 50 characters with ellipsis
  */
@@ -41,7 +48,7 @@ function truncateAgentName(name: string, maxLength: number = 50): string {
 }
 
 export interface AgentsComboboxProps {
-  agents: Agent[];
+  agents: AgentForDisplay[];
   agentsLoading: boolean;
   /**
    * The placeholder text to display when no value is selected.
@@ -89,7 +96,7 @@ export interface AgentsComboboxProps {
  */
 const getSelectedAgentValue = (
   value: string,
-  agents: Agent[],
+  agents: AgentForDisplay[],
 ): React.ReactNode => {
   const [selectedAssistantId, selectedDeploymentId] = value.split(":");
   const selectedAgent = agents.find(
@@ -105,8 +112,8 @@ const getSelectedAgentValue = (
       </span>
     );
   }
-  // Return consistent empty span to avoid hydration mismatch
-  return <span className="flex w-full items-center gap-2 text-muted-foreground font-normal truncate"></span>;
+  // Return null to avoid hydration mismatch when agent data isn't available during SSR
+  return null;
 };
 
 /**
@@ -117,17 +124,17 @@ const getSelectedAgentValue = (
  */
 const getMultipleSelectedAgentValues = (
   values: string[],
-  agents: Agent[],
+  agents: AgentForDisplay[],
 ): React.ReactNode => {
   if (values.length === 0) {
-    // Return consistent empty span to avoid hydration mismatch
-    return <span className="flex w-full items-center gap-2 text-muted-foreground font-normal truncate"></span>;
+    // Return null to avoid hydration mismatch when no agents are selected
+    return null;
   }
   if (values.length === 1) return getSelectedAgentValue(values[0], agents);
   return <span className="flex w-full items-center gap-2 text-foreground font-normal truncate">{`${values.length} agents selected`}</span>;
 };
 
-const getNameFromValue = (value: string, agents: Agent[]) => {
+const getNameFromValue = (value: string, agents: AgentForDisplay[]) => {
   const [selectedAssistantId, selectedDeploymentId] = value.split(":");
   const selectedAgent = agents.find(
     (item) =>

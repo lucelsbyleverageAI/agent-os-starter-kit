@@ -14,7 +14,7 @@ import { Assistant } from "@langchain/langgraph-sdk";
  * @returns True if the agent is a user default assistant (_x_oap_is_default === true)
  */
 export function isUserDefaultAssistant(
-  agent: Agent | Assistant,
+  agent: { metadata?: any } | Agent | Assistant,
 ): boolean {
   const raw = (agent as any)?.metadata;
   let md: any = raw;
@@ -39,7 +39,7 @@ export function isUserDefaultAssistant(
  * @returns True if the agent is a graph template assistant (created_by === "system")
  */
 export function isGraphTemplateAssistant(
-  agent: Agent | Assistant,
+  agent: { metadata?: any } | Agent | Assistant,
 ): boolean {
   return agent.metadata?.created_by === "system";
 }
@@ -55,7 +55,7 @@ export function isGraphTemplateAssistant(
  * @param agent The agent to check
  * @returns True if the agent is the primary assistant for a graph
  */
-export function isPrimaryAssistant(agent: Agent | Assistant): boolean {
+export function isPrimaryAssistant(agent: { metadata?: any } | Agent | Assistant): boolean {
   const raw = (agent as any)?.metadata;
   let md: any = raw;
   if (typeof raw === 'string') {
@@ -65,7 +65,7 @@ export function isPrimaryAssistant(agent: Agent | Assistant): boolean {
   return flag === true || flag === 'true' || flag === 1;
 }
 
-export function isUserSpecifiedDefaultAgent(agent: Agent): boolean {
+export function isUserSpecifiedDefaultAgent(agent: { graph_id: string; deploymentId: string; metadata?: any }): boolean {
   const deployments = getDeployments();
   const defaultDeployment = deployments.find((d) => d.isDefault);
   if (!defaultDeployment) {
@@ -84,7 +84,7 @@ export function isUserSpecifiedDefaultAgent(agent: Agent): boolean {
  * @param agentGroup An array of agents belonging to the same group.
  * @returns A new array with the sorted agents.
  */
-export function sortAgentGroup(agentGroup: Agent[]): Agent[] {
+export function sortAgentGroup<T extends { updated_at?: string; metadata?: any }>(agentGroup: T[]): T[] {
   return [...agentGroup].sort((a, b) => {
     const aIsDefault = isUserDefaultAssistant(a);
     const bIsDefault = isUserDefaultAssistant(b);
@@ -112,11 +112,11 @@ export function sortAgentGroup(agentGroup: Agent[]): Agent[] {
  * @param agents An array of agents.
  * @returns An array of arrays, where each inner array contains agents belonging to the same graph.
  */
-export function groupAgentsByGraphs<AgentOrAssistant extends Agent | Assistant>(
-  agents: AgentOrAssistant[],
-): AgentOrAssistant[][] {
+export function groupAgentsByGraphs<T extends { graph_id: string }>(
+  agents: T[],
+): T[][] {
   return Object.values(
-    agents.reduce<Record<string, AgentOrAssistant[]>>((acc, agent) => {
+    agents.reduce<Record<string, T[]>>((acc, agent) => {
       const groupId = agent.graph_id;
       if (!acc[groupId]) {
         acc[groupId] = [];
@@ -150,7 +150,7 @@ export function groupAgentsByGraphs<AgentOrAssistant extends Agent | Assistant>(
  * // Backend says user cannot delete
  * canUserDeleteAssistant({ allowed_actions: ['view', 'chat', 'edit'] }) // false
  */
-export function canUserDeleteAssistant(agent: Agent): boolean {
+export function canUserDeleteAssistant(agent: { allowed_actions?: string[] }): boolean {
   if (!agent.allowed_actions) {
     throw new Error(
       'canUserDeleteAssistant: allowed_actions is missing from agent. ' +
@@ -185,7 +185,7 @@ export function canUserDeleteAssistant(agent: Agent): boolean {
  * // Backend says user cannot edit
  * canUserEditAssistant({ allowed_actions: ['view', 'chat'] }) // false
  */
-export function canUserEditAssistant(agent: Agent): boolean {
+export function canUserEditAssistant(agent: { allowed_actions?: string[] }): boolean {
   if (!agent.allowed_actions) {
     throw new Error(
       'canUserEditAssistant: allowed_actions is missing from agent. ' +
@@ -230,7 +230,7 @@ export function canUserEditAssistant(agent: Agent): boolean {
  *   permission_level: 'owner'
  * }) // false
  */
-export function canUserRevokeOwnAccess(agent: Agent): boolean {
+export function canUserRevokeOwnAccess(agent: { allowed_actions?: string[]; permission_level?: string }): boolean {
   if (!agent.allowed_actions) {
     throw new Error(
       'canUserRevokeOwnAccess: allowed_actions is missing from agent. ' +

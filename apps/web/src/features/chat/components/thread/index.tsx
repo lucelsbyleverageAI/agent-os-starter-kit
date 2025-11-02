@@ -35,6 +35,12 @@ import { TasksFilesSidebar } from "../tasks-files-sidebar";
 import { FileViewDialog } from "../file-view-dialog";
 import { useDeepAgentWorkspace } from "@/hooks/use-deep-agent-workspace";
 import { FileItem } from "@/types/deep-agent";
+import { ThreadLoadingSkeleton } from "./ThreadLoadingSkeleton";
+import {
+  getThreadMessageCache,
+  setThreadMessageCache,
+  invalidateThreadCache,
+} from "@/features/chat/utils/thread-message-cache";
 
 // Helper function to get time-based greeting
 function getTimeBasedGreeting(): string {
@@ -133,13 +139,20 @@ export function Thread({ historyOpen = false, configOpen = false }: ThreadProps)
 
 
   const { session, user } = useAuthContext();
-  const { agents } = useAgentsContext();
+  const { agents, hydrateAgent } = useAgentsContext();
 
   const stream = useStreamContext();
   const [preservedMessages, setPreservedMessages] = useState<Message[]>([]);
   const lastThreadIdRef = useRef<string | null>(threadId);
+  const streamRef = useRef(stream); // Track stream instance to detect remounts
   const streamMessages = stream.messages;
   const isLoading = stream.isLoading;
+
+  // Track thread switching state for loading UI
+  const [isThreadSwitching, setIsThreadSwitching] = useState(false);
+
+  // Track if we're showing cached messages while syncing fresh data
+  const [showingCachedMessages, setShowingCachedMessages] = useState(false);
   
   // Track pending first message touch for new threads
   const [pendingFirstMessageTouch, setPendingFirstMessageTouch] = useState<{
@@ -152,13 +165,76 @@ export function Thread({ historyOpen = false, configOpen = false }: ThreadProps)
   // Use preserved messages only when stream messages are empty and we have preserved ones
   const messages = streamMessages?.length === 0 && preservedMessages.length > 0 ? preservedMessages : streamMessages;
 
-  // Clear protection when thread changes
+  // Hydrate lightweight agents when thread is loaded
+  useEffect(() => {
+    if (!agentId || !agents?.length) return;
+
+    const agent = agents.find(a => a.assistant_id === agentId);
+    if (!agent) return;
+
+    // Check if lightweight using type guard
+    if ('_isLightweight' in agent && agent._isLightweight) {
+      console.log(`[Thread] Hydrating lightweight agent ${agentId}...`);
+      // Hydrate in background (don't block UI)
+      hydrateAgent(agentId).catch(err => {
+        console.error('[Thread] Failed to hydrate agent:', err);
+      });
+    }
+  }, [agentId, agents, hydrateAgent]);
+
+  // Clear protection when thread changes and check cache
   useEffect(() => {
     if (threadId !== lastThreadIdRef.current) {
+      // Clear preserved messages IMMEDIATELY to prevent rebounding
+      // This ensures we don't briefly show the previous thread's messages
       setPreservedMessages([]);
+      setShowingCachedMessages(false);
+
+      // Check if we have cached messages for this thread
+      if (threadId) {
+        const cachedThread = getThreadMessageCache(threadId);
+
+        // Validate cached threadId matches current threadId
+        if (cachedThread && cachedThread.threadId === threadId && cachedThread.messages.length > 0) {
+          // Cache hit! Show cached messages immediately
+          console.log(`[Thread] 🚀 Cache hit! Showing ${cachedThread.messages.length} cached messages while fetching fresh data`);
+          setPreservedMessages(cachedThread.messages);
+          setShowingCachedMessages(true);
+          setIsThreadSwitching(false); // Don't show skeleton, show cached messages instead
+        } else {
+          // Cache miss: show loading skeleton
+          console.log("[Thread] Cache miss, showing skeleton");
+          setIsThreadSwitching(true);
+        }
+      } else {
+        // No threadId (new conversation)
+        setIsThreadSwitching(false);
+      }
+
       lastThreadIdRef.current = threadId;
     }
   }, [threadId]);
+
+  // Detect StreamSession remount and reset loading state appropriately
+  // This handles rapid thread switching where threadId doesn't change but StreamSession does
+  useEffect(() => {
+    if (streamRef.current !== stream) {
+      // StreamSession has remounted (due to key change)
+      streamRef.current = stream;
+
+      // If we have a threadId but no messages, we should be loading (unless we have cached messages)
+      // Check cache directly rather than relying on preservedMessages state which might be updating
+      if (threadId) {
+        const cachedThread = getThreadMessageCache(threadId);
+        const hasCache = cachedThread && cachedThread.threadId === threadId && cachedThread.messages.length > 0;
+
+        if (!hasCache && streamMessages?.length === 0) {
+          console.log("[Thread] StreamSession remounted for uncached thread, showing loading state");
+          setIsThreadSwitching(true);
+        }
+      }
+    }
+  }, [stream, threadId, streamMessages]);
 
   // Handle pending first message touch when threadId becomes available
   useEffect(() => {
@@ -209,11 +285,36 @@ export function Thread({ historyOpen = false, configOpen = false }: ThreadProps)
   }, [threadId, pendingFirstMessageTouch, session?.accessToken]);
 
   // Store messages when we have them, add new messages when they arrive
+  // Also cache messages and clear loading/syncing states
   useEffect(() => {
     if (streamMessages?.length > 0) {
       setPreservedMessages([...streamMessages]);
+
+      // Clear switching state once messages have loaded
+      // Note: StreamSession remounts on threadId change, so these are always fresh messages
+      if (isThreadSwitching) {
+        console.log(`[Thread] Fresh messages arrived for ${threadId}, clearing loading state`);
+        setIsThreadSwitching(false);
+      }
+
+      // Clear cached message state - we now have fresh data
+      if (showingCachedMessages) {
+        console.log("[Thread] Fresh messages arrived, clearing cached state");
+        setShowingCachedMessages(false);
+      }
+
+      // Cache these messages for future instant loading
+      // Wrapped in try-catch to prevent cache errors from affecting UI
+      if (threadId) {
+        try {
+          setThreadMessageCache(threadId, agentId, streamMessages);
+        } catch (error) {
+          // Cache failure is non-critical - app continues without caching
+          console.warn("[Thread] Cache storage failed, continuing without cache:", error);
+        }
+      }
     }
-  }, [streamMessages]);
+  }, [streamMessages, isThreadSwitching, showingCachedMessages, threadId, agentId]);
 
   // Detect unintentional message drops within the same thread
   useEffect(() => {
@@ -365,6 +466,13 @@ export function Thread({ historyOpen = false, configOpen = false }: ThreadProps)
       },
     );
 
+    // Invalidate thread cache when user sends a message
+    // Cache will be refreshed when new messages arrive
+    if (threadId) {
+      invalidateThreadCache(threadId);
+      console.log(`[Thread] Cache invalidated for thread ${threadId} (user sent message)`);
+    }
+
     // Fire-and-forget mirror touch to create/update the thread list entry immediately
     try {
       const nowIso = new Date().toISOString();
@@ -450,7 +558,7 @@ export function Thread({ historyOpen = false, configOpen = false }: ThreadProps)
 
     // Do this so the loading state is correct
     prevMessageLength.current = prevMessageLength.current - 1;
-    
+
     stream.submit(undefined, {
       checkpoint: parentCheckpoint,
       streamMode: ["values"],
@@ -462,12 +570,22 @@ export function Thread({ historyOpen = false, configOpen = false }: ThreadProps)
         supabaseAccessToken: session?.accessToken,
       },
     });
+
+    // Invalidate thread cache when regenerating messages
+    if (threadId) {
+      invalidateThreadCache(threadId);
+      console.log(`[Thread] Cache invalidated for thread ${threadId} (message regenerated)`);
+    }
   };
 
   const hasMessages = messages.length > 0;
   const hasNoAIOrToolMessages = !messages.find(
     (m: Message) => m.type === "ai" || m.type === "tool",
   );
+
+  // Computed value: should we show loading spinner?
+  // Show loading when: we have a threadId (not new chat) AND no messages AND not showing cached messages
+  const shouldShowLoading = threadId && !hasMessages && !showingCachedMessages;
 
   return (
     <>
@@ -489,9 +607,12 @@ export function Thread({ historyOpen = false, configOpen = false }: ThreadProps)
         <StickToBottom className="flex flex-1 min-h-0 flex-col overflow-hidden">
           <div className={cn(
             "flex flex-1 min-h-0 flex-col",
-            !hasMessages && "items-center justify-center"
+            !hasMessages && !shouldShowLoading && "items-center justify-center"
           )}>
-            {!hasMessages ? (
+            {shouldShowLoading ? (
+              // Thread loading: show loading skeleton
+              <ThreadLoadingSkeleton />
+            ) : !hasMessages ? (
               // Empty state: personalized greeting and composer
               <div className={cn("flex flex-col items-center gap-12 px-2 md:px-4 w-full", chatWidth)}>
                 <div className="flex flex-col items-center justify-center text-center">
@@ -558,12 +679,12 @@ export function Thread({ historyOpen = false, configOpen = false }: ThreadProps)
                     <AlertCircle className="h-4 w-4 text-orange-600" />
                     <AlertTitle className="text-orange-800">Agent Mismatch Warning</AlertTitle>
                     <AlertDescription className="text-orange-700">
-                      The original agent for this conversation was deleted. You're now using a fallback agent, 
+                      The original agent for this conversation was deleted. You're now using a fallback agent,
                       so the conversation may not work as expected. Consider starting a new chat for the best experience.
                     </AlertDescription>
                   </Alert>
                 )}
-                
+
                 {messages
                   .filter((m: Message) => !m.id?.startsWith(DO_NOT_RENDER_ID_PREFIX))
                   .map((message: Message, index: number) =>

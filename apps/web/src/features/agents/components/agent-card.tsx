@@ -5,6 +5,7 @@ import {
   Bot,
   Copy,
   Edit,
+  LoaderCircle,
   MessageSquare,
   MoreVertical,
   Users,
@@ -43,8 +44,21 @@ import { ConfirmationDialog } from "@/components/ui/confirmation-dialog";
 import { getTagLabel } from "@/lib/agent-tags";
 import { logger } from "@/lib/logger";
 
+// Minimal agent type for display - matches what AgentCard actually uses
+type MinimalAgentForCard = {
+  assistant_id: string;
+  deploymentId: string;
+  name: string;
+  description?: string;
+  tags?: string[];
+  graph_id: string;
+  permission_level?: 'owner' | 'editor' | 'viewer' | 'admin';
+  allowed_actions?: string[];
+  metadata?: any;
+};
+
 interface AgentCardProps {
-  agent: Agent;
+  agent: Agent | MinimalAgentForCard;
   showDeployment?: boolean;
 }
 
@@ -64,9 +78,10 @@ export function AgentCard({ agent, showDeployment }: AgentCardProps) {
   const [showSharingDialog, setShowSharingDialog] = useState(false);
   const [showDeleteConfirmation, setShowDeleteConfirmation] = useState(false);
   const [showRevokeConfirmation, setShowRevokeConfirmation] = useState(false);
+  const [isHydrating, setIsHydrating] = useState(false);
   const { session } = useAuthContext();
   const { getAgent, createAgent, deleteAgent, revokeMyAccess } = useAgents();
-  const { refreshAgents, invalidateAssistantListCache, invalidateAssistantCaches, invalidateAllAssistantCaches, addAgentToList, defaultAssistant, setDefaultAssistant, refreshDefaultAssistant } = useAgentsContext();
+  const { refreshAgents, invalidateAssistantListCache, invalidateAssistantCaches, invalidateAllAssistantCaches, addAgentToList, defaultAssistant, setDefaultAssistant, refreshDefaultAssistant, hydrateAgent } = useAgentsContext();
 
   const isDefaultAgent = isUserDefaultAssistant(agent);
   const isUserDefault = defaultAssistant?.assistant_id === agent.assistant_id;
@@ -148,6 +163,28 @@ export function AgentCard({ agent, showDeployment }: AgentCardProps) {
       notify.error("Failed to Set Default", {
         description: result.errorMessage || "Could not set default assistant",
       });
+    }
+  };
+
+  const handleEditClick = async () => {
+    // Check if agent needs hydration (doesn't have config field)
+    const needsHydration = !('config' in agent);
+
+    if (needsHydration) {
+      setIsHydrating(true);
+      try {
+        await hydrateAgent(agent.assistant_id);
+        setShowEditDialog(true);
+      } catch (error) {
+        logger.error('[AgentCard] Failed to hydrate agent:', error);
+        notify.error("Failed to Load", {
+          description: "Could not load agent configuration. Please try again.",
+        });
+      } finally {
+        setIsHydrating(false);
+      }
+    } else {
+      setShowEditDialog(true);
     }
   };
 
@@ -236,6 +273,11 @@ export function AgentCard({ agent, showDeployment }: AgentCardProps) {
     }
   };
 
+  // Type guard to check if agent is full Agent (has config)
+  const isFullAgent = (a: Agent | MinimalAgentForCard): a is Agent => {
+    return 'config' in a;
+  };
+
   // Use shared utility functions for consistent permission checking
   const canEdit = canUserEditAssistant(agent);
   const canShare = isDefaultAgent ? false : isOwner;
@@ -268,8 +310,12 @@ export function AgentCard({ agent, showDeployment }: AgentCardProps) {
               </DropdownMenuTrigger>
               <DropdownMenuContent align="end">
                 {canEdit && (
-                  <DropdownMenuItem onClick={() => setShowEditDialog(true)}>
-                    <Edit className="h-4 w-4 mr-2" />
+                  <DropdownMenuItem onClick={handleEditClick} disabled={isHydrating}>
+                    {isHydrating ? (
+                      <LoaderCircle className="h-4 w-4 mr-2 animate-spin" />
+                    ) : (
+                      <Edit className="h-4 w-4 mr-2" />
+                    )}
                     Edit Agent
                   </DropdownMenuItem>
                 )}
@@ -406,10 +452,15 @@ export function AgentCard({ agent, showDeployment }: AgentCardProps) {
               <Button
                 variant="outline"
                 size="sm"
-                onClick={() => setShowEditDialog(true)}
+                onClick={handleEditClick}
+                disabled={isHydrating}
                 className="h-8 cursor-pointer"
               >
-                <Edit className="h-3.5 w-3.5 mr-1.5" />
+                {isHydrating ? (
+                  <LoaderCircle className="h-3.5 w-3.5 mr-1.5 animate-spin" />
+                ) : (
+                  <Edit className="h-3.5 w-3.5 mr-1.5" />
+                )}
                 Edit
               </Button>
             )}
@@ -427,17 +478,17 @@ export function AgentCard({ agent, showDeployment }: AgentCardProps) {
         </div>
       </Card>
 
-      {/* Edit Dialog */}
+      {/* Edit Dialog - Agent will be hydrated by handleEditClick before opening */}
       {canEdit && (
         <EditAgentDialog
-          agent={agent}
+          agent={agent as Agent}
           open={showEditDialog}
           onOpenChange={setShowEditDialog}
         />
       )}
 
       {/* Sharing Dialog */}
-      {canShare && (
+      {canShare && isFullAgent(agent) && (
         <AssistantSharingDialog
           assistant={agent}
           open={showSharingDialog}

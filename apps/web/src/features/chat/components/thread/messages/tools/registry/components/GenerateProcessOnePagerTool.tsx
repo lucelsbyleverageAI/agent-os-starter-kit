@@ -28,18 +28,45 @@ export function GenerateProcessOnePagerTool({
 
   if (toolResult?.content) {
     try {
-      const parsed = typeof toolResult.content === "string"
-        ? JSON.parse(toolResult.content)
-        : toolResult.content;
+      const rawContent = toolResult.content;
 
-      if (parsed.success) {
-        resultData = parsed;
-      } else {
-        errorMessage = parsed.error || parsed.message || "Failed to generate process one-pager";
+      // Handle array content (MessageContentComplex[]) - extract first element
+      const content = Array.isArray(rawContent)
+        ? (rawContent.length > 0 ? rawContent[0] : null)
+        : rawContent;
+
+      if (!content) {
+        errorMessage = "No content received from tool";
+      } else if (typeof content === "string") {
+        // If content is a string, check if it looks like an error message before parsing
+        if (content.startsWith("Error:") || content.startsWith("error:")) {
+          errorMessage = content;
+        } else {
+          // Try to parse as JSON
+          try {
+            const parsed = JSON.parse(content);
+            if (parsed.success) {
+              resultData = parsed;
+            } else {
+              errorMessage = parsed.error || parsed.message || "Failed to generate process one-pager";
+            }
+          } catch {
+            // If JSON parsing fails, treat the content as an error message
+            errorMessage = content || "Failed to generate process one-pager";
+          }
+        }
+      } else if (typeof content === "object") {
+        // Content is already an object
+        const parsed = content as unknown as ProcessOnePagerResult;
+        if (parsed.success) {
+          resultData = parsed;
+        } else {
+          errorMessage = parsed.error || parsed.message || "Failed to generate process one-pager";
+        }
       }
     } catch (e) {
-      console.error('Error parsing process one-pager result:', e);
-      errorMessage = "Failed to parse tool result";
+      // Silently handle any unexpected errors in parsing logic
+      errorMessage = "An unexpected error occurred while processing the result";
     }
   }
 

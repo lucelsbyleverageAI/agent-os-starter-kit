@@ -56,7 +56,7 @@ function InboxSidebarInternal() {
   const lastSelectedAgentRef = React.useRef<string | null>(null);
 
   // Function to handle agent selection
-  const handleAgentSelect = async (agent: Agent) => {
+  const handleAgentSelect = async (agent: { assistant_id: string; deploymentId: string }) => {
     const agentId = `${agent.assistant_id}:${agent.deploymentId}`;
 
     // Skip if already selected to prevent loops
