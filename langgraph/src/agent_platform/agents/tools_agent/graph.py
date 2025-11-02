@@ -236,13 +236,18 @@ async def graph(config: RunnableConfig):
     # Create image preprocessor
     image_hook = create_image_preprocessor(langconnect_api_url)
 
-    # Combine hooks: image processing first, then trimming
+    # Combine hooks: TRIMMING first (based on storage paths), THEN image processing
+    # This ensures trimming decisions are based on the small storage path tokens,
+    # not the massive base64 data that comes from image conversion in local dev.
     combined_hook = None
     if trimming_hook and image_hook:
         async def combined_pre_model_hook(state, config):
-            state = await image_hook(state, config)  # Images first
-            trimming_result = trimming_hook(state)  # Then trim (sync, no await)
-            return {**state, **trimming_result}
+            # 1. Trim first (when images are just storage paths ~50 tokens each)
+            trimming_result = trimming_hook(state)
+            state = {**state, **trimming_result}
+            # 2. Then convert images to signed URLs (or base64 in local dev)
+            state = await image_hook(state, config)
+            return state
         combined_hook = combined_pre_model_hook
     elif image_hook:
         combined_hook = image_hook
