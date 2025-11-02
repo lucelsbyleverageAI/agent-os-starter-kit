@@ -195,7 +195,9 @@ export function ChatHistory() {
   const isMountedRef = useRef(true);
   // Store session in ref to avoid fetchThreads recreation on token changes
   const sessionRef = useRef(session);
-  
+  // Store offset in ref to avoid stale closure issues in fetchThreads
+  const offsetRef = useRef(0);
+
   // Agent filter popover state
   const [filterOpen, setFilterOpen] = useState(false);
   
@@ -213,6 +215,11 @@ export function ChatHistory() {
   useEffect(() => {
     sessionRef.current = session;
   }, [session]);
+
+  // Keep offsetRef in sync with offset state
+  useEffect(() => {
+    offsetRef.current = offset;
+  }, [offset]);
 
   // Fetch threads for all agents or filtered by agent using mirror endpoints
   const fetchThreads = useCallback(async (agentFilter?: string, append = false, threadsVersion?: number, backgroundRefresh = false) => {
@@ -236,7 +243,9 @@ export function ChatHistory() {
       const reqId = ++requestSeqRef.current;
 
       let allThreads: Thread[] = [];
-      const currentOffset = append ? offset : 0;
+      const currentOffset = append ? offsetRef.current : 0;
+
+      console.log('[thread-pagination]', { append, currentOffset, offsetRefValue: offsetRef.current, offsetState: offset });
 
       // Use latest known threads version to bust caches if none explicitly provided
       const versionToUse = threadsVersion ?? latestThreadsVersionRef.current;
@@ -244,7 +253,7 @@ export function ChatHistory() {
       if (agentFilter === "all" || !agentFilter) {
         // Fetch threads from mirror (all agents for current user)
         const url = new URL(`/api/langconnect/agents/mirror/threads`, window.location.origin);
-        url.searchParams.set('limit', '100');
+        url.searchParams.set('limit', '20');
         url.searchParams.set('offset', currentOffset.toString());
         if (versionToUse != null) url.searchParams.set('v', String(versionToUse));
         
@@ -283,7 +292,7 @@ export function ChatHistory() {
         const [agentId, _deploymentId] = agentFilter.split(":");
         const url = new URL(`/api/langconnect/agents/mirror/threads`, window.location.origin);
         url.searchParams.set('assistant_id', agentId);
-        url.searchParams.set('limit', '100');
+        url.searchParams.set('limit', '20');
         url.searchParams.set('offset', currentOffset.toString());
         if (versionToUse != null) url.searchParams.set('v', String(versionToUse));
 
@@ -326,16 +335,34 @@ export function ChatHistory() {
       }
 
       if (append) {
-        setThreads(prev => [...prev, ...allThreads]);
+        setThreads(prev => {
+          // Deduplicate threads by thread_id
+          const existingIds = new Set(prev.map(t => t.thread_id));
+          const newThreads = allThreads.filter(t => !existingIds.has(t.thread_id));
+
+          console.log('[thread-pagination] appending', {
+            fetchedCount: allThreads.length,
+            existingCount: prev.length,
+            newCount: newThreads.length,
+            duplicatesFiltered: allThreads.length - newThreads.length
+          });
+
+          return [...prev, ...newThreads];
+        });
+
+        // Update offset based on what we fetched from backend (for DB pagination)
+        const newOffset = offsetRef.current + allThreads.length;
+        setOffset(newOffset);
+        offsetRef.current = newOffset;
       } else {
         setThreads(allThreads);
-        setOffset(0);
+        // Set offset to number of threads loaded (not 0) for next Load More
+        const newOffset = allThreads.length;
+        setOffset(newOffset);
+        offsetRef.current = newOffset;
       }
 
-      setHasMore(allThreads.length === 100);
-      if (append) {
-        setOffset(prev => prev + allThreads.length);
-      }
+      setHasMore(allThreads.length === 20);
     } catch (e: any) {
       // Silently ignore intentional aborts
       // Check for abort errors in multiple ways:
@@ -356,7 +383,7 @@ export function ChatHistory() {
       setLoading(false);
       setIsBackgroundRefresh(false);
     }
-  }, [authLoading, offset]); // Removed session?.accessToken - using sessionRef instead
+  }, [authLoading]); // Removed session?.accessToken and offset - using sessionRef and offsetRef instead
 
   // Helper: Fetch "All Agents" list without mutating UI state (used to warm background cache)
   const fetchAllThreadsSilently = useCallback(async (threadsVersion?: number): Promise<Thread[] | null> => {

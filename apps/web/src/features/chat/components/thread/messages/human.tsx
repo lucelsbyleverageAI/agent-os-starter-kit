@@ -21,6 +21,7 @@ import {
   DialogTrigger,
 } from "@/components/ui/dialog";
 import { getScrollbarClasses } from "@/lib/scrollbar-styles";
+import { ImagePreviewDialog } from "@/components/ui/image-preview-dialog";
 
 function extractTextFromXML(text: string): string {
   const contentMatch = text.match(/<Content>([\s\S]*?)<\/Content>/);
@@ -119,6 +120,7 @@ export function HumanMessage({
 
   const [isEditing, setIsEditing] = useState(false);
   const [value, setValue] = useState("");
+  const [previewImage, setPreviewImage] = useState<{url: string, title: string} | null>(null);
   const contentString = getContentString(message.content);
 
   const handleSubmitEdit = () => {
@@ -191,6 +193,8 @@ export function HumanMessage({
                             key={idx}
                             block={block}
                             size="md"
+                            expandable={true}
+                            onExpand={(url, title) => setPreviewImage({ url, title })}
                           />
                         );
                       }
@@ -238,6 +242,15 @@ export function HumanMessage({
           />
         </div>
       </div>
+
+      {previewImage && (
+        <ImagePreviewDialog
+          open={!!previewImage}
+          onOpenChange={(open) => !open && setPreviewImage(null)}
+          imageUrl={previewImage.url}
+          title={previewImage.title}
+        />
+      )}
     </div>
   );
 }

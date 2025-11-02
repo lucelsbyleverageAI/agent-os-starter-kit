@@ -4,7 +4,9 @@ import React, {
   createContext,
   useContext,
   ReactNode,
-  useState
+  useState,
+  useRef,
+  useMemo
 } from "react";
 import { useStream } from "@langchain/langgraph-sdk/react";
 import { type Message } from "@langchain/langgraph-sdk";
@@ -142,9 +144,44 @@ export const StreamProvider: React.FC<{ children: ReactNode }> = ({
   const { agents, loading } = useAgentsContext();
   const [agentId, setAgentId] = useQueryState("agentId");
   const [deploymentId, setDeploymentId] = useQueryState("deploymentId");
+  const [threadId] = useQueryState("threadId"); // Get threadId for keying StreamSession
   const [value, setValue] = useState("");
   const [open, setOpen] = useState(false);
   const { session, isLoading: authLoading } = useAuthContext();
+
+  // Track previous threadId to distinguish thread creation from thread switching
+  const lastKnownThreadIdRef = useRef<string | null>(threadId);
+
+  // Generate stable key that doesn't change during thread creation (null → id)
+  // but DOES change during thread switching (id-A → id-B)
+  const streamKey = useMemo(() => {
+    const prev = lastKnownThreadIdRef.current;
+    const current = threadId;
+
+    // Scenario 1: Thread creation (null → "new-id")
+    // Don't change key - let the stream naturally receive the new threadId
+    if (prev === null && current !== null) {
+      lastKnownThreadIdRef.current = current;
+      return 'new-chat';
+    }
+
+    // Scenario 2: Thread switch ("old-id" → "new-id")
+    // Change key to force remount and prevent race conditions
+    if (prev !== null && current !== null && prev !== current) {
+      lastKnownThreadIdRef.current = current;
+      return current;
+    }
+
+    // Scenario 3: New chat (both null or returning to null)
+    if (current === null) {
+      lastKnownThreadIdRef.current = null;
+      return 'new-chat';
+    }
+
+    // Scenario 4: Same thread or first render with threadId
+    lastKnownThreadIdRef.current = current;
+    return current ?? 'new-chat';
+  }, [threadId]);
 
   const handleValueChange = (v: string) => {
     setValue(v);
@@ -246,6 +283,7 @@ export const StreamProvider: React.FC<{ children: ReactNode }> = ({
 
   return (
     <StreamSession
+      key={streamKey} // Smart key: stable during creation, changes on switch
       agentId={agentId}
       deploymentId={deploymentId}
       accessToken={session?.accessToken ?? undefined}

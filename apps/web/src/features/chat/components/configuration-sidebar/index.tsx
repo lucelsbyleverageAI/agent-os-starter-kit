@@ -146,7 +146,7 @@ export const ConfigurationSidebar = forwardRef<
   const [agentId] = useQueryState("agentId");
   const [deploymentId] = useQueryState("deploymentId");
   const [threadId] = useQueryState("threadId");
-  const { agents, refreshAgentsLoading, refreshAgents, invalidateAssistantListCache } = useAgentsContext();
+  const { agents, refreshAgentsLoading, refreshAgents, invalidateAssistantListCache, hydrateAgent } = useAgentsContext();
   const { session, isLoading: authLoading } = useAuthContext();
   const {
     getSchemaAndUpdateConfig,
@@ -204,12 +204,43 @@ export const ConfigurationSidebar = forwardRef<
       return;
     }
 
+    // Check if we have a lightweight agent and hydrate if needed
+    if ('_isLightweight' in selectedAgent && selectedAgent._isLightweight) {
+      console.log(`[ConfigSidebar] Hydrating lightweight agent ${agentId}...`);
+      hydrateAgent(agentId)
+        .then(fullAgent => {
+          // Load tags and schema from hydrated agent
+          setTags(fullAgent.tags || []);
+          getSchemaAndUpdateConfig(fullAgent).catch(() => {});
+        })
+        .catch(err => {
+          console.error('[ConfigSidebar] Hydration failed:', err);
+          const message = agentMessages.config.fetchError();
+          notify.error(message.title, {
+            description: "Failed to load agent configuration",
+            key: message.key,
+          });
+        });
+      return;
+    }
+
+    // Already full agent - check if it has config
+    const isFullAgent = 'config' in selectedAgent;
+    if (!isFullAgent) {
+      const message = agentMessages.config.fetchError();
+      notify.error(message.title, {
+        description: "Agent configuration is not available",
+        key: message.key,
+      });
+      return;
+    }
+
     // Load tags from selected agent
     setTags(selectedAgent.tags || []);
 
     // Load schema + defaults
     getSchemaAndUpdateConfig(selectedAgent).catch(() => {});
-  }, [open, agentId, deploymentId, agents, refreshAgentsLoading, authLoading, session?.accessToken]);
+  }, [open, agentId, deploymentId, agents, refreshAgentsLoading, authLoading, session?.accessToken, hydrateAgent, getSchemaAndUpdateConfig]);
 
   const handleSave = async () => {
     

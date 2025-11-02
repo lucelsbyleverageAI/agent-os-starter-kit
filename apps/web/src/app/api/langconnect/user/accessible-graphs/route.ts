@@ -128,7 +128,7 @@ export async function GET(req: NextRequest) {
     };
 
     // ==================================================================================
-    // AGGREGATION PATTERN: Two Independent Backend Calls
+    // AGGREGATION PATTERN: Two Independent Backend Calls (Fetched in Parallel)
     // ==================================================================================
     // We call /mirror/graphs and /mirror/assistants separately rather than having a
     // single combined endpoint because:
@@ -140,33 +140,36 @@ export async function GET(req: NextRequest) {
     // 2. INDEPENDENT CACHING: Each endpoint uses ETag-based HTTP caching with different
     //    TTLs (graphs: 5min, assistants: 3min) optimized for their update frequencies.
     //
-    // 3. PERFORMANCE: Sequential calls here are acceptable for UI flows that need both
-    //    resources, while allowing independent queries to avoid unnecessary data transfer.
+    // 3. PERFORMANCE: Parallel fetching reduces total latency (max vs sum of both calls).
+    //    Both endpoints are independent and can be called simultaneously.
     // ==================================================================================
 
-    // STEP 1: Get user-accessible graphs with permissions (mirror-backed)
-    const graphsStart = Date.now();
-    const graphsResponse = await fetch(`${baseApiUrl}/agents/mirror/graphs`, { headers });
-    timer.measure("accessible_graphs", graphsStart);
+    // STEP 1 & 2: Fetch graphs and assistants in parallel for optimal performance
+    const parallelStart = Date.now();
+    const [graphsResponse, assistantsResponse] = await Promise.all([
+      fetch(`${baseApiUrl}/agents/mirror/graphs`, { headers }),
+      fetch(`${baseApiUrl}/agents/mirror/assistants`, { headers })
+    ]);
+    timer.measure("parallel_fetch_both", parallelStart);
 
+    // Validate both responses
     if (!graphsResponse.ok) {
       const errorText = await graphsResponse.text();
       throw new Error(`Accessible graphs fetch failed: ${graphsResponse.status} ${errorText}`);
     }
-
-    const graphsResults = await graphsResponse.json();
-
-    // STEP 2: Fetch current assistants (mirror-backed)
-    const assistantsStart = Date.now();
-    const assistantsResponse = await fetch(`${baseApiUrl}/agents/mirror/assistants`, { headers });
-    timer.measure("fetch_assistants_initial", assistantsStart);
 
     if (!assistantsResponse.ok) {
       const errorText = await assistantsResponse.text();
       throw new Error(`Assistants fetch failed: ${assistantsResponse.status} ${errorText}`);
     }
 
-    const assistantsData = await assistantsResponse.json();
+    // Parse both responses in parallel
+    const parseStart = Date.now();
+    const [graphsResults, assistantsData] = await Promise.all([
+      graphsResponse.json(),
+      assistantsResponse.json()
+    ]);
+    timer.measure("parse_responses", parseStart);
 
     // STEP 3: Discovery Complete - No Enhancement Logic
     // The simplified /graphs/scan endpoint no longer provides enhancement detection

@@ -1,4 +1,4 @@
-import { FormEvent, RefObject, useEffect } from "react";
+import { FormEvent, RefObject, useEffect, useState } from "react";
 import { Base64ContentBlock } from "@langchain/core/messages";
 import { ProcessingAttachment } from "@/hooks/use-file-upload";
 import { useAgentConfig } from "@/hooks/use-agent-config";
@@ -28,9 +28,10 @@ interface DynamicInputComposerProps {
 }
 
 export function DynamicInputComposer(props: DynamicInputComposerProps) {
-  const { agents } = useAgentsContext();
+  const { agents, hydrateAgent } = useAgentsContext();
   const [agentId] = useQueryState("agentId");
   const { inputMode, inputSchema, loading: schemaLoading, getSchemaAndUpdateConfig } = useAgentConfig();
+  const [isHydrating, setIsHydrating] = useState(false);
 
   // Find current agent
   const currentAgent = agents.find(agent => agent.assistant_id === agentId);
@@ -38,13 +39,31 @@ export function DynamicInputComposer(props: DynamicInputComposerProps) {
 
   // Fetch and process schema when agent changes
   useEffect(() => {
-    if (currentAgent) {
+    if (!currentAgent || !agentId) return;
+
+    // Check if lightweight and hydrate if needed
+    if ('_isLightweight' in currentAgent && currentAgent._isLightweight) {
+      console.log(`[DynamicInputComposer] Hydrating lightweight agent ${agentId}...`);
+      setIsHydrating(true);
+      hydrateAgent(agentId)
+        .then(fullAgent => {
+          // Agent is now hydrated in context, load schema
+          getSchemaAndUpdateConfig(fullAgent);
+        })
+        .catch(err => {
+          console.error('[DynamicInputComposer] Failed to hydrate agent:', err);
+        })
+        .finally(() => {
+          setIsHydrating(false);
+        });
+    } else if ('config' in currentAgent) {
+      // Already full agent, just load schema
       getSchemaAndUpdateConfig(currentAgent);
     }
-  }, [currentAgent, getSchemaAndUpdateConfig]);
+  }, [currentAgent?.assistant_id, agentId, hydrateAgent, getSchemaAndUpdateConfig]);
 
-  // Prefer a smooth default: render chat by default while schema loads
-  if (schemaLoading || inputMode === 'loading') {
+  // Prefer a smooth default: render chat by default while schema loads or hydrating
+  if (isHydrating || schemaLoading || inputMode === 'loading') {
     return <ChatComposer {...props} />;
   }
 
