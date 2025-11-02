@@ -316,6 +316,8 @@ export function useAgents() {
       }
 
       try {
+        console.log('[useAgents] Starting update for agent:', agentId);
+
         // Stage 1: Update assistant in LangGraph (mutations remain via SDK)
         const client = createClient(deploymentId, session.accessToken);
         const updatePayload: any = {};
@@ -327,15 +329,15 @@ export function useAgents() {
         }
 
         // Build metadata with tags
-        const updatedMetadata = {
-          ...(formData.metadata || {}),
-          // Tags workaround: Update tags in metadata (same pattern as create).
-          // Sync service will extract to database tags column.
+        // Only include tags in metadata to avoid "Too many properties" error
+        // Don't merge with existing metadata to prevent circular references or oversized objects
+        updatePayload.metadata = {
           _x_oap_tags: formData.tags || [],
         };
-        updatePayload.metadata = updatedMetadata;
 
+        console.log('[useAgents] Updating LangGraph assistant with payload:', updatePayload);
         const updatedAssistant = await client.assistants.update(agentId, updatePayload);
+        console.log('[useAgents] LangGraph update successful');
 
         // Stage 2: Sync changes to LangConnect backend (this will update the mirror)
         try {
@@ -347,6 +349,7 @@ export function useAgents() {
           // Sync will extract tags from metadata when mirroring to database.
           if (formData.metadata) syncPayload.metadata = formData.metadata;
 
+          console.log('[useAgents] Syncing to LangConnect with payload:', syncPayload);
           const syncResponse = await fetch(`/api/langconnect/agents/assistants/${agentId}`, {
             method: "PATCH",
             headers: {
@@ -360,13 +363,18 @@ export function useAgents() {
           });
 
           if (!syncResponse.ok) {
+            console.warn(`[useAgents] Failed to sync to LangConnect: ${syncResponse.status}`);
             logger.warn(`Failed to sync assistant ${agentId} to LangConnect: ${syncResponse.status}`);
+          } else {
+            console.log('[useAgents] LangConnect sync successful');
           }
         } catch (syncError) {
+          console.warn('[useAgents] Failed to sync to LangConnect:', syncError);
           logger.warn(`Failed to sync assistant ${agentId} to LangConnect:`, syncError);
           // Don't fail the update if sync fails - LangGraph update succeeded
         }
 
+        console.log('[useAgents] Update completed successfully');
         return {
           ok: true,
           data: {
@@ -375,6 +383,7 @@ export function useAgents() {
           },
         };
       } catch (error) {
+        console.error('[useAgents] Update failed with error:', error);
         return {
           ok: false,
           errorCode: "UPDATE_FAILED",

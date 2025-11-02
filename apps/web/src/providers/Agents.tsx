@@ -272,11 +272,9 @@ function convertAssistantInfoToAgent(item: AssistantInfo, deploymentId: string):
 const GRAPH_DISCOVERY_CACHE_DURATION = 2 * 60 * 60 * 1000; // 2 hours
 const GRAPH_DISCOVERY_CACHE_KEY_PREFIX = 'agents_graph_discovery_';
 
-// Layer 2: Assistant List Cache (MEDIUM-LIVED - assistants change occasionally)
-// - Users create/edit/delete agents throughout the day
-// - Moderate TTL balances freshness with performance
-const ASSISTANT_LIST_CACHE_DURATION = 30 * 60 * 1000; // 30 minutes
-const ASSISTANT_LIST_CACHE_KEY_PREFIX = 'agents_assistant_list_';
+// Layer 2: Assistant List Cache - DISABLED
+// Assistant list caching was disabled to avoid localStorage quota issues.
+// Backend ETag caching (3-min TTL) provides sufficient performance.
 
 // Note: Per-assistant caches were removed for simplification.
 // Full assistant details are fetched on-demand (not cached in localStorage).
@@ -291,6 +289,10 @@ interface GraphDiscoveryCache {
   version: string;
 }
 
+/**
+ * @deprecated Assistant list caching disabled to avoid localStorage quota issues.
+ * Kept for backward compatibility with getAssistantListCache signature.
+ */
 interface AssistantListCache {
   assistants: AssistantInfo[];
   assistant_counts: any;
@@ -688,84 +690,33 @@ export const AgentsProvider: React.FC<{ children: ReactNode }> = ({
    * @param expectedVersion - Expected version key (from backend)
    * @returns Cached data or null
    */
-  const getAssistantListCache = useCallback((userId: string, expectedVersion: string): AssistantListCache | null => {
-    try {
-      const cacheKey = `${ASSISTANT_LIST_CACHE_KEY_PREFIX}${userId}`;
-      const cached = localStorage.getItem(cacheKey);
-      if (!cached) {
-        return null;
-      }
-      const data = JSON.parse(cached) as AssistantListCache;
-      const now = Date.now();
-
-      // Check TTL expiry
-      if (now - data.timestamp > ASSISTANT_LIST_CACHE_DURATION) {
-        localStorage.removeItem(cacheKey);
-        return null;
-      }
-
-      // Check version match (invalidate if backend changed)
-      if (!data.version || data.version !== expectedVersion) {
-        localStorage.removeItem(cacheKey);
-        return null;
-      }
-
-      return data;
-    } catch (error) {
-      console.warn('[AgentsProvider] Failed to read assistant list cache:', error);
-      return null;
-    }
+  /**
+   * Assistant list caching disabled to avoid localStorage quota issues.
+   * Backend ETag caching (3-min TTL) provides sufficient performance.
+   *
+   * @deprecated Kept for backward compatibility - always returns null
+   */
+  const getAssistantListCache = useCallback((_userId: string, _expectedVersion: string): AssistantListCache | null => {
+    return null;
   }, []);
 
   /**
-   * Store assistant list cache in localStorage.
+   * Assistant list caching disabled to avoid localStorage quota issues.
+   * Backend ETag caching (3-min TTL) provides sufficient performance.
    *
-   * Includes storage usage monitoring to detect potential quota issues.
-   *
-   * @param userId - User ID for cache isolation
-   * @param assistantData - Data to cache
-   * @param versionKey - Current backend version key
+   * @deprecated Kept for backward compatibility - does nothing
    */
-  const setAssistantListCache = useCallback((userId: string, assistantData: { assistants: AssistantInfo[]; assistant_counts: any; user_role: string; is_dev_admin: boolean; deployment_id: string; deployment_name: string }, versionKey: string) => {
-    const cacheData: AssistantListCache = {
-      assistants: assistantData.assistants,
-      assistant_counts: assistantData.assistant_counts,
-      user_role: assistantData.user_role,
-      is_dev_admin: assistantData.is_dev_admin,
-      deployment_id: assistantData.deployment_id,
-      deployment_name: assistantData.deployment_name,
-      timestamp: Date.now(),
-      userId,
-      version: versionKey,
-    };
+  const setAssistantListCache = useCallback((_userId: string, _assistantData: { assistants: AssistantInfo[]; assistant_counts: any; user_role: string; is_dev_admin: boolean; deployment_id: string; deployment_name: string }, _versionKey: string) => {
+    // No-op: caching disabled
+  }, []);
 
-    try {
-      localStorage.setItem(`${ASSISTANT_LIST_CACHE_KEY_PREFIX}${userId}`, JSON.stringify(cacheData));
-
-      // Monitor storage usage after write
-      checkStorageUsage();
-    } catch (error) {
-      console.warn('[AgentsProvider] Failed to write assistant list cache:', error);
-      // If quota exceeded, clear old caches
-      if (error instanceof DOMException && error.name === 'QuotaExceededError') {
-        console.warn('[AgentsProvider] Storage quota exceeded. Clearing graph discovery cache...');
-        try {
-          localStorage.removeItem(`${GRAPH_DISCOVERY_CACHE_KEY_PREFIX}${userId}`);
-          // Retry write after clearing
-          localStorage.setItem(`${ASSISTANT_LIST_CACHE_KEY_PREFIX}${userId}`, JSON.stringify(cacheData));
-        } catch (retryError) {
-          console.error('[AgentsProvider] Failed to recover from quota exceeded error:', retryError);
-        }
-      }
-    }
-  }, [checkStorageUsage]);
-
-  const invalidateAssistantListCache = useCallback((userId: string) => {
-    try {
-      localStorage.removeItem(`${ASSISTANT_LIST_CACHE_KEY_PREFIX}${userId}`);
-    } catch (error) {
-      console.warn('Failed to invalidate assistant list cache:', error);
-    }
+  /**
+   * Assistant list caching disabled - kept for backward compatibility.
+   *
+   * @deprecated Does nothing since caching is disabled
+   */
+  const invalidateAssistantListCache = useCallback((_userId: string) => {
+    // No-op: caching disabled
   }, []);
 
   // Enhancement status cache removed
@@ -842,42 +793,15 @@ export const AgentsProvider: React.FC<{ children: ReactNode }> = ({
       await fetchCacheState();
       const versionKey = computeVersionKey();
 
-      // Layer 1: Check Graph Discovery Cache (2 hours)
+      // Check Graph Discovery Cache (2 hours TTL)
+      // Note: Assistant list caching disabled to avoid localStorage quota issues
+      // Backend ETag caching (3-min TTL) provides sufficient performance for assistants
       const graphData = getGraphDiscoveryCache(userId, versionKey);
-      
-      // Layer 2: Check Assistant List Cache (30 minutes)
-      const assistantData = getAssistantListCache(userId, versionKey);
-      
-      // If we have both core layers cached, we can use them
-      if (graphData && assistantData) {
-    
 
-        // Reconstruct discovery response from cached layers
-        const reconstructedResponse: DiscoveryResponse = {
-          valid_graphs: graphData.valid_graphs,
-          invalid_graphs: graphData.invalid_graphs,
-          assistants: assistantData.assistants,
-          user_role: assistantData.user_role as 'dev_admin' | 'business_admin' | 'user',
-          is_dev_admin: assistantData.is_dev_admin,
-          scan_metadata: graphData.scan_metadata,
-          assistant_counts: assistantData.assistant_counts,
-          deployment_id: assistantData.deployment_id,
-          deployment_name: assistantData.deployment_name
-        };
-
-        // Set discovery data
-        setDiscoveryData(reconstructedResponse);
-        
-        // Convert AssistantInfo to Agent format for frontend consumption
-        const convertedAgents = assistantData.assistants.map((item: AssistantInfo) => convertAssistantInfoToAgent(item, deployment.id));
-        
-        setAgents(convertedAgents);
-        setDisplayItems(mergeGraphsAndAssistants(graphData.valid_graphs, assistantData.assistants, assistantData.user_role));
-        
-        // No per-assistant enrichment
-        
-        setLoading(false);
-        return;
+      if (graphData) {
+        console.log('[AgentsProvider] Using cached graph data, fetching fresh assistant data...');
+        // We have graph cache, but will fetch fresh assistant data from backend
+        // This leverages backend ETag caching without localStorage overhead
       }
     }
 
@@ -891,22 +815,13 @@ export const AgentsProvider: React.FC<{ children: ReactNode }> = ({
     await fetchCacheState();
     const freshVersionKey = computeVersionKey();
 
-    // ✅ CACHE IN LAYERS
-    // Layer 1: Cache graph discovery data (2 hours)
+    // ✅ CACHE GRAPH DISCOVERY DATA
+    // Cache graph discovery data (2 hours TTL)
+    // Note: Assistant list caching disabled to avoid localStorage quota issues
     setGraphDiscoveryCache(userId, {
       valid_graphs: response.valid_graphs,
       invalid_graphs: response.invalid_graphs,
       scan_metadata: response.scan_metadata
-    }, freshVersionKey);
-
-    // Layer 2: Cache assistant list data (30 minutes)
-    setAssistantListCache(userId, {
-      assistants: response.assistants,
-      assistant_counts: response.assistant_counts,
-      user_role: response.user_role,
-      is_dev_admin: response.is_dev_admin,
-      deployment_id: response.deployment_id,
-      deployment_name: response.deployment_name
     }, freshVersionKey);
     
     // Extract data from response
@@ -935,9 +850,7 @@ export const AgentsProvider: React.FC<{ children: ReactNode }> = ({
     fetchCacheState,
     computeVersionKey,
     getGraphDiscoveryCache,
-    getAssistantListCache,
-    setGraphDiscoveryCache,
-    setAssistantListCache
+    setGraphDiscoveryCache
   ]);
 
   // Track when we've made the first request
@@ -1118,24 +1031,28 @@ export const AgentsProvider: React.FC<{ children: ReactNode }> = ({
     },
     debugCacheState: () => {
       const userId = session?.user?.id;
-      
+
       if (userId) {
-        // Check all cache layers
-        const _graphCache = getGraphDiscoveryCache(userId, computeVersionKey());
-        const assistantCache = getAssistantListCache(userId, computeVersionKey());
-        
-        
-        if (assistantCache) {
-          assistantCache.assistants.forEach(a => console.log(`    * ${a.name} (${a.assistant_id}) - ${a.permission_level}`));
+        // Check graph cache layer only (assistant caching disabled)
+        const graphCache = getGraphDiscoveryCache(userId, computeVersionKey());
+
+        if (graphCache) {
+          console.log('[AgentsProvider] Graph cache exists:', {
+            graphCount: graphCache.valid_graphs.length,
+            version: computeVersionKey()
+          });
+        } else {
+          console.log('[AgentsProvider] No graph cache found');
         }
       }
-      
+
       // List all cache keys in localStorage
-      Object.keys(localStorage).forEach(key => {
-        if (key.includes('agents_') || key.includes('assistant_') || key.includes('enriched_')) {
-          // Debug cache keys (console logging removed for performance)
-        }
-      });
+      const cacheKeys = Object.keys(localStorage).filter(key =>
+        key.includes('agents_') || key.includes('assistant_') || key.includes('enriched_')
+      );
+      if (cacheKeys.length > 0) {
+        console.log('[AgentsProvider] Cache keys in localStorage:', cacheKeys);
+      }
     },
     addAgentToList,
     defaultAssistant,
@@ -1158,7 +1075,6 @@ export const AgentsProvider: React.FC<{ children: ReactNode }> = ({
     invalidateGraphDiscoveryCache,
     invalidateAssistantListCache,
     getGraphDiscoveryCache,
-    getAssistantListCache,
     computeVersionKey,
     addAgentToList,
     defaultAssistant,
