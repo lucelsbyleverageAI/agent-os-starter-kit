@@ -51,8 +51,6 @@ export function isImageUrlPermissive(str: string): boolean {
   );
   
   const hasImageDomain = [
-    'storage.googleapis.com',
-    'storage.cloud.google.com',
     's3.amazonaws.com',
     'amazonaws.com',
     'cloudinary.com',
@@ -156,8 +154,6 @@ function extractImageUrlsFromText(text: string): ExtractedImage[] {
   const patterns = [
     // Standard HTTP/HTTPS image URLs with explicit extensions
     /https?:\/\/[^\s"',]+\.(?:png|jpg|jpeg|webp|gif|bmp|svg)(?:\?[^\s"',]*)?/gi,
-    // GCP Storage URLs (more specific)
-    /https?:\/\/storage\.googleapis\.com\/[^\s"',]+\.(?:png|jpg|jpeg|webp|gif|bmp)/gi,
     // Replicate delivery URLs
     /https?:\/\/replicate\.delivery\/[^\s"',]+/gi,
   ];
@@ -180,22 +176,7 @@ function extractImageUrlsFromText(text: string): ExtractedImage[] {
       });
     }
   }
-  
-  // Also look for GCP paths (without full URLs) - be more specific
-  const gcpPathPattern = /['"]?(\/images\/[^\s"',]+\.(?:png|jpg|jpeg|webp|gif|bmp))['"]?/gi;
-  let match;
-  while ((match = gcpPathPattern.exec(text)) !== null) {
-    const path = match[1]; // Get the captured group without quotes
-    if (!seenUrls.has(path)) {
-      seenUrls.add(path);
-      images.push({
-        type: 'gcp',
-        value: path,
-        metadata: { path: ['(extracted from text)'], extractionMethod: 'regex' }
-      });
-    }
-  }
-  
+
   return images;
 }
 
