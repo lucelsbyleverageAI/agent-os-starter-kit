@@ -20,7 +20,7 @@ def is_supabase_storage_available() -> bool:
         import supabase
 
         # Check for required configuration
-        if not settings.supabase_url or not settings.supabase_service_role_key:
+        if not settings.supabase_url or not settings.supabase_service_key:
             logger.warning("Supabase URL or service role key not configured")
             return False
 
@@ -68,7 +68,7 @@ class SupabaseStorageClient:
 
                 cls._client = create_client(
                     settings.supabase_url,
-                    settings.supabase_service_role_key
+                    settings.supabase_service_key
                 )
                 logger.info("Supabase Storage client initialized")
 
