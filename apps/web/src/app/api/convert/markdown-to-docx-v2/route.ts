@@ -135,7 +135,8 @@ function markdownToDocx(markdown: string): Document {
       paragraphs.push(
         new Paragraph({
           text: text,
-          spacing: { before: 100, after: 100, left: 360 },
+          spacing: { before: 100, after: 100 },
+          indent: { left: 360 },
         })
       );
       continue;
