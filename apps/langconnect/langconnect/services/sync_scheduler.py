@@ -14,7 +14,7 @@ from datetime import datetime, timedelta
 from langconnect.services.langgraph_sync import LangGraphSyncService
 from langconnect.services.langgraph_integration import get_langgraph_service
 from langconnect.services.thread_naming_service import ThreadNamingService
-from langconnect.db import get_db_pool
+from langconnect.database.connection import get_db_pool
 
 log = logging.getLogger(__name__)
 

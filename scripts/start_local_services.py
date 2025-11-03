@@ -90,17 +90,8 @@ def start_langgraph(production_mode: bool = False):
     print("📦 Installing LangGraph dependencies...")
     subprocess.run(["poetry", "install"], cwd=str(langgraph_dir), check=True)
 
-    # Build command based on mode
-    if production_mode:
-        # In production mode, build first
-        print("🔨 Building LangGraph for production...")
-        subprocess.run(["poetry", "run", "langgraph", "build"], cwd=str(langgraph_dir), check=True)
-
-        # Start production server
-        cmd = ["poetry", "run", "langgraph", "start"]
-    else:
-        # Development mode with hot reloading
-        cmd = ["poetry", "run", "langgraph", "dev", "--allow-blocking"]
+    # Development mode with hot reloading
+    cmd = ["poetry", "run", "langgraph", "dev", "--allow-blocking"]
 
     print(f"🚀 Starting: {' '.join(cmd)} (in {langgraph_dir})")
 
