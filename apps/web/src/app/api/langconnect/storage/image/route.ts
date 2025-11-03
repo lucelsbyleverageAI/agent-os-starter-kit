@@ -17,14 +17,33 @@ import { createClient } from '@/lib/supabase/server';
 export async function GET(request: NextRequest) {
   try {
     const searchParams = request.nextUrl.searchParams;
-    const storagePath = searchParams.get('path');
-    const bucket = searchParams.get('bucket') || 'chat-uploads';
+    let storagePath = searchParams.get('path');
+    let bucket = searchParams.get('bucket') || 'chat-uploads';
 
     if (!storagePath) {
       return NextResponse.json(
         { error: 'Missing storage path' },
         { status: 400 }
       );
+    }
+
+    // Parse storage URI if it's in storage:// format
+    // e.g., "storage://collections/uuid/filename.jpg"
+    // Should extract bucket="collections" and path="uuid/filename.jpg"
+    if (storagePath.startsWith('storage://')) {
+      const uriWithoutPrefix = storagePath.substring(10); // Remove 'storage://'
+      const firstSlashIndex = uriWithoutPrefix.indexOf('/');
+
+      if (firstSlashIndex === -1) {
+        return NextResponse.json(
+          { error: 'Invalid storage URI format' },
+          { status: 400 }
+        );
+      }
+
+      // Extract bucket and path from URI
+      bucket = uriWithoutPrefix.substring(0, firstSlashIndex);
+      storagePath = uriWithoutPrefix.substring(firstSlashIndex + 1);
     }
 
     // Get authenticated Supabase client
