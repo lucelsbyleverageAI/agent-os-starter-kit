@@ -591,8 +591,10 @@ def get_comprehensive_performance(
         else:
             # Default: deduplicate to one row per metric_id
             distinct_on_clause = "DISTINCT ON (metric_id)"
-            # Prioritize 'Overall' and 'ALL ROUTES' when not using breakdown
+            # Prioritize 'Overall', 'ALL ROUTES', and NULL cancer_type (trust-level aggregates)
             order_by_clause = """metric_id,
+                    -- Prioritize NULL cancer_type (trust-level aggregates) for cancer domain
+                    cancer_type NULLS FIRST,
                     -- Prioritize 'Overall' and 'ALL ROUTES'
                     CASE WHEN rtt_part_type = 'Overall' THEN 0
                          WHEN rtt_part_type IS NULL THEN 1
@@ -605,12 +607,12 @@ def get_comprehensive_performance(
                          ELSE 2 END,
                     rtt_part_type NULLS LAST,
                     entity_level NULLS LAST,
-                    cancer_type NULLS LAST,
                     referral_route NULLS LAST"""
 
         query = f"""
             WITH trust_metrics_raw AS (
                 SELECT
+                    i.org_code,
                     i.metric_id,
                     i.metric_label,
                     i.domain,
@@ -637,6 +639,7 @@ def get_comprehensive_performance(
             ),
             trust_metrics AS (
                 SELECT {distinct_on_clause}
+                    org_code,
                     metric_id,
                     metric_label,
                     domain,
@@ -787,7 +790,8 @@ def get_comprehensive_performance(
                 where_clauses.append("(tm.rtt_part_type = 'Overall' OR tm.rtt_part_type IS NULL)")
 
         if domain == 'cancer' and not include_cancer_breakdown:
-            # Exclude route/type breakdowns, keep ALL ROUTES/NULL only
+            # Exclude route/type breakdowns, keep trust-level aggregates only (cancer_type IS NULL)
+            where_clauses.append("tm.cancer_type IS NULL")
             where_clauses.append("(tm.referral_route = 'ALL ROUTES' OR tm.referral_route IS NULL)")
 
         if where_clauses:
@@ -799,21 +803,29 @@ def get_comprehensive_performance(
         logger.info(f"Querying {domain} domain: period={domain_period}, breakdown={include_rtt_breakdown if domain=='rtt' else include_cancer_breakdown}")
 
         domain_metrics_before = len(all_metrics)
+        query_params = {
+            "org_code": org_code,
+            "period": domain_period,
+            "domain": domain,
+            "trust_type": trust_info["trust_type"],
+            "trust_subtype": trust_info["trust_subtype"],
+            "region": trust_info["region"]
+        }
+        logger.info(f"{domain}: Query params: org_code={org_code}, period={domain_period}, domain={domain}")
+
         with engine.connect() as conn:
-            result = conn.execute(text(query), {
-                "org_code": org_code,
-                "period": domain_period,
-                "domain": domain,
-                "trust_type": trust_info["trust_type"],
-                "trust_subtype": trust_info["trust_subtype"],
-                "region": trust_info["region"]
-            })
+            result = conn.execute(text(query), query_params)
 
             for row in result:
                 all_metrics.append(dict(row._mapping))
 
         domain_metrics_count = len(all_metrics) - domain_metrics_before
         logger.info(f"{domain}: Retrieved {domain_metrics_count} metrics")
+
+        # Log sample of retrieved data for debugging
+        if domain_metrics_count > 0:
+            sample_org_codes = list(set([m.get('org_code', 'N/A') for m in all_metrics[-min(10, domain_metrics_count):]]))
+            logger.info(f"{domain}: Sample org_codes from last {min(10, domain_metrics_count)} rows: {sample_org_codes}")
 
         if domain_metrics_count == 0:
             logger.warning(f"{domain}: NO METRICS retrieved for org_code={org_code}, period={domain_period}. " +

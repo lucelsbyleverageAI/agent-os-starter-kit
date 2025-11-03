@@ -604,7 +604,10 @@ class GetComprehensiveTrustPerformance(CustomTool):
             "and metric. Returns markdown-formatted data including: trust metrics with national/regional/"
             "cohort percentiles, quartile comparisons, regional rankings, and detailed breakdowns by "
             "cancer type, referral route, and RTT pathway type. "
-            "Pure factual data presentation with no analysis or insights."
+            "Pure factual data presentation with no analysis or insights.\n\n"
+            "Note: Cancer route and type breakdowns exclude cancer types with <20 patients for "
+            "statistical validity. Trust-level aggregates (shown in 'Overall Performance by Standard') "
+            "include all patients for official reporting."
         )
 
     def get_parameters(self) -> List[ToolParameter]:
@@ -626,9 +629,9 @@ class GetComprehensiveTrustPerformance(CustomTool):
             ToolParameter(
                 name="include_cancer_breakdown",
                 type="boolean",
-                description="Include cancer type and referral route breakdown (default: true)",
+                description="Include cancer type and referral route breakdown (default: false)",
                 required=False,
-                default=True,
+                default=False,
             ),
             ToolParameter(
                 name="include_rtt_breakdown",
@@ -643,7 +646,7 @@ class GetComprehensiveTrustPerformance(CustomTool):
         """Execute comprehensive trust performance retrieval."""
         org_code = kwargs.get("org_code")
         include_domains = kwargs.get("include_domains", ["rtt", "cancer", "oversight"])
-        include_cancer_breakdown = kwargs.get("include_cancer_breakdown", True)
+        include_cancer_breakdown = kwargs.get("include_cancer_breakdown", False)
         include_rtt_breakdown = kwargs.get("include_rtt_breakdown", True)
 
         if not org_code:
@@ -945,6 +948,11 @@ class GetComprehensiveTrustPerformance(CustomTool):
                 })
 
                 sections.append({
+                    "type": "text",
+                    "content": "**Data quality filtering:** Route and cancer type breakdowns exclude cancer types with fewer than 20 patients to ensure statistical validity. The 'Overall Performance by Standard' section above includes all patients for official reporting."
+                })
+
+                sections.append({
                     "type": "header",
                     "content": "Overall Performance by Standard",
                     "level": 3
@@ -956,81 +964,52 @@ class GetComprehensiveTrustPerformance(CustomTool):
                 ]
                 rows = []
 
-                # Aggregate cancer metrics by metric_id (sum numerators/denominators across cancer types)
-                # This gives overall performance for each cancer standard (28-day, 31-day, 62-day)
-                cancer_aggregated = {}
-                for m in metrics_by_domain['cancer']:
-                    # Only aggregate 'ALL ROUTES' metrics (excludes USC, Screening breakdowns)
-                    if m.get('referral_route') == 'ALL ROUTES' or not m.get('referral_route'):
-                        metric_id = m.get('metric_id')
+                # Use pre-computed trust-level aggregates (cancer_type IS NULL)
+                # These aggregate rows are created in the database view and sum across all cancer types
+                logger.info(f"Cancer: Total metrics before filtering: {len(metrics_by_domain['cancer'])}")
 
-                        if metric_id not in cancer_aggregated:
-                            cancer_aggregated[metric_id] = {
-                                'metric_id': metric_id,
-                                'metric_label': m['metric_label'],
-                                'unit': m['unit'],
-                                'target_threshold': m.get('target_threshold'),
-                                'numerator': 0,
-                                'denominator': 0,
-                                'target_met': None  # Will recalculate
-                            }
+                overall_cancer_metrics = [
+                    m for m in metrics_by_domain['cancer']
+                    if m.get('cancer_type') is None and m.get('referral_route') == 'ALL ROUTES'
+                ]
 
-                        # Aggregate numerators and denominators
-                        if m.get('numerator'):
-                            cancer_aggregated[metric_id]['numerator'] += m['numerator']
-                        if m.get('denominator'):
-                            cancer_aggregated[metric_id]['denominator'] += m['denominator']
+                logger.info(f"Cancer: Found {len(overall_cancer_metrics)} trust-level aggregate metrics (cancer_type IS NULL)")
 
-                logger.info(f"Cancer: Aggregated {len(cancer_aggregated)} metrics from {len(metrics_by_domain['cancer'])} cancer-type-specific metrics")
+                # Defensive deduplication by metric_id (should not be needed, but safeguards against bugs)
+                seen_metric_ids = set()
+                deduplicated_metrics = []
+                duplicate_count = 0
 
-                # Calculate aggregated percentiles (compare aggregated performance across trusts)
-                cancer_period = periods_by_domain.get('cancer')
-                aggregated_percentiles = {}
-                if cancer_period:
-                    try:
-                        aggregated_percentiles = queries.get_aggregated_cancer_percentiles(
-                            engine=engine,
-                            org_code=org_code,
-                            period=cancer_period,
-                            trust_type=trust_info['trust_type'],
-                            trust_subtype=trust_info['trust_subtype']
-                        )
-                        logger.info(f"Cancer: Retrieved aggregated percentiles for {len(aggregated_percentiles)} metrics")
-                    except Exception as e:
-                        logger.warning(f"Cancer: Failed to calculate aggregated percentiles: {e}")
-
-                # Calculate aggregate percentages and target_met status
-                for metric_id, agg in cancer_aggregated.items():
-                    if agg['denominator'] > 0:
-                        agg['value'] = agg['numerator'] / agg['denominator']
-                        # Recalculate target_met based on aggregate value
-                        if agg['target_threshold'] is not None:
-                            # Assume higher is better for cancer standards
-                            agg['target_met'] = agg['value'] >= agg['target_threshold']
+                for m in overall_cancer_metrics:
+                    metric_id = m.get('metric_id')
+                    if metric_id not in seen_metric_ids:
+                        seen_metric_ids.add(metric_id)
+                        deduplicated_metrics.append(m)
                     else:
-                        agg['value'] = None
-                        agg['target_met'] = None
+                        duplicate_count += 1
+                        logger.warning(f"Cancer: Duplicate detected for metric_id={metric_id}, cancer_type={m.get('cancer_type')}, referral_route={m.get('referral_route')}")
 
-                    # Get aggregated percentiles for this metric
-                    percentiles = aggregated_percentiles.get(metric_id, {})
-                    percentile_overall = percentiles.get('overall')
-                    percentile_trust_type = percentiles.get('trust_type')
+                if duplicate_count > 0:
+                    logger.warning(f"Cancer: Removed {duplicate_count} duplicate rows via deduplication")
 
+                overall_cancer_metrics = deduplicated_metrics
+
+                for m in overall_cancer_metrics:
                     rows.append([
-                        agg['metric_label'].replace('_', ' ').title(),
-                        formatters.format_value_with_unit(agg['value'], agg['unit']),
-                        formatters.format_value_with_unit(agg['target_threshold'], agg['unit']) if agg['target_threshold'] else '-',
-                        formatters.format_target_status(agg['target_met']),
-                        formatters.format_percentile_rank(percentile_overall),
-                        formatters.format_percentile_rank(percentile_trust_type),
-                        int(agg['numerator']) if agg.get('numerator') else '-',
-                        int(agg['denominator']) if agg.get('denominator') else '-'
+                        m['metric_label'].replace('_', ' ').title(),
+                        formatters.format_value_with_unit(m['value'], m['unit']),
+                        formatters.format_value_with_unit(m['target_threshold'], m['unit']) if m.get('target_threshold') else '-',
+                        formatters.format_target_status(m.get('target_met')),
+                        formatters.format_percentile_rank(m.get('percentile_overall')),
+                        formatters.format_percentile_rank(m.get('percentile_trust_type')),
+                        int(m['numerator']) if m.get('numerator') else '-',
+                        int(m['denominator']) if m.get('denominator') else '-'
                     ])
 
-                logger.info(f"Cancer: Displaying {len(rows)} aggregated standards in main table")
+                logger.info(f"Cancer: Displaying {len(rows)} trust-level aggregate standards in main table")
 
                 if len(rows) == 0:
-                    logger.warning(f"Cancer: Zero rows after aggregation. Raw cancer metrics: {len(metrics_by_domain['cancer'])}")
+                    logger.warning(f"Cancer: Zero trust-level aggregates found. Total cancer metrics: {len(metrics_by_domain['cancer'])}")
 
                 sections.append({
                     "type": "table",
@@ -1085,10 +1064,15 @@ class GetComprehensiveTrustPerformance(CustomTool):
                             }
                         })
 
-                    # By referral route - show specific routes (USC, Screening, etc.)
-                    # Aggregate across all cancer types for each route
+                    # By referral route - aggregate across cancer types for each specific route
+                    # IMPORTANT: Filter by org_code to ensure we only aggregate THIS trust's data
                     route_aggregated = {}
                     for m in metrics_by_domain['cancer']:
+                        # DEFENSIVE CHECK: Only process rows for the requested org_code
+                        if m.get('org_code') != org_code:
+                            logger.warning(f"Cancer: Skipping row with wrong org_code: {m.get('org_code')} (expected {org_code})")
+                            continue
+
                         referral_route = m.get('referral_route')
                         # Skip ALL ROUTES (already shown in main table)
                         # Only show specific routes like USC, Screening
@@ -1183,6 +1167,16 @@ class GetComprehensiveTrustPerformance(CustomTool):
                 seen_metric_names = set()
                 filtered_metrics = []
 
+                # Check if granular metrics exist (non-summary metrics)
+                has_granular_metrics = any(
+                    not m.get('metric_id', '').startswith(('OF1', 'OF4')) and
+                    'domain score' not in m.get('metric_label', '').lower() and
+                    'domain segment' not in m.get('metric_label', '').lower() and
+                    m.get('metric_label') not in ['Adjusted segment', 'Unadjusted segment', 'Financial override',
+                                                  'Oversight: average metric score', 'Average metric score']
+                    for m in metrics_by_domain['oversight']
+                )
+
                 for m in metrics_by_domain['oversight']:
                     metric_id = m.get('metric_id', '')
                     metric_label = m.get('metric_label', '')
@@ -1196,9 +1190,10 @@ class GetComprehensiveTrustPerformance(CustomTool):
                     if 'domain score' in metric_label.lower() or 'domain segment' in metric_label.lower():
                         continue
 
-                    # Skip overall summary metrics that duplicate granular data
-                    if metric_label in ['Adjusted segment', 'Unadjusted segment', 'Financial override',
-                                       'Oversight: average metric score', 'Average metric score']:
+                    # Skip overall summary metrics ONLY if granular data is available
+                    # If only summary metrics exist, we should show them rather than nothing
+                    if has_granular_metrics and metric_label in ['Adjusted segment', 'Unadjusted segment', 'Financial override',
+                                                                  'Oversight: average metric score', 'Average metric score']:
                         continue
 
                     # Deduplicate by metric label (in case same metric appears with different IDs)
