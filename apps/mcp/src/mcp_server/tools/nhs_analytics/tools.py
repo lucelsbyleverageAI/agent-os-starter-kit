@@ -629,9 +629,9 @@ class GetComprehensiveTrustPerformance(CustomTool):
             ToolParameter(
                 name="include_cancer_breakdown",
                 type="boolean",
-                description="Include cancer type and referral route breakdown (default: false)",
+                description="Include cancer type and referral route breakdown (default: true)",
                 required=False,
-                default=False,
+                default=True,
             ),
             ToolParameter(
                 name="include_rtt_breakdown",
@@ -646,7 +646,7 @@ class GetComprehensiveTrustPerformance(CustomTool):
         """Execute comprehensive trust performance retrieval."""
         org_code = kwargs.get("org_code")
         include_domains = kwargs.get("include_domains", ["rtt", "cancer", "oversight"])
-        include_cancer_breakdown = kwargs.get("include_cancer_breakdown", False)
+        include_cancer_breakdown = kwargs.get("include_cancer_breakdown", True)
         include_rtt_breakdown = kwargs.get("include_rtt_breakdown", True)
 
         if not org_code:

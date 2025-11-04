@@ -105,3 +105,4 @@ pipelines/outcomes_data/.cache/
 DeepAgent/
 
 test_data/
+git_strategy/

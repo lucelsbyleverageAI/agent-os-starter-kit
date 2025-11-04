@@ -557,6 +557,12 @@ services:
       - ./apps/langconnect/pyproject.toml:/app/pyproject.toml:ro
       - ./apps/langconnect/README.md:/app/README.md:ro
       - langconnect_storage:/app/data  # Persist application data only
+    deploy:
+      resources:
+        limits:
+          memory: 12G  # Increased for RTT pipeline processing (large data melting operations)
+        reservations:
+          memory: 4G
     depends_on:
       migration-init:
         condition: service_completed_successfully
