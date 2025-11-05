@@ -45,6 +45,10 @@ class Settings(BaseSettings):
     # Authentication Configuration
     auth_provider: str = Field(default="supabase", description="Authentication provider")
     supabase_url: Optional[str] = Field(default=None, description="Supabase URL")
+    supabase_public_url: Optional[str] = Field(
+        default=None,
+        description="Public Supabase URL for browser-accessible signed URLs (falls back to supabase_url if not set)"
+    )
     supabase_anon_key: Optional[str] = Field(
         default=None, description="Supabase anonymous key"
     )

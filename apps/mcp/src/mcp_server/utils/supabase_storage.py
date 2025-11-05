@@ -212,6 +212,9 @@ def generate_signed_url(filename: str, expiry_seconds: int = 1800) -> str:
     """
     Generate signed URL for temporary access to an output file.
 
+    Uses SUPABASE_PUBLIC_URL if available to ensure URLs are browser-accessible via HTTPS.
+    Falls back to SUPABASE_URL for backwards compatibility.
+
     Args:
         filename: Supabase Storage path (including folder structure)
         expiry_seconds: URL expiry time in seconds (default: 30 minutes)
@@ -224,8 +227,17 @@ def generate_signed_url(filename: str, expiry_seconds: int = 1800) -> str:
         ToolExecutionError: If URL generation fails
     """
     try:
-        client = SupabaseStorageClient.get_client()
+        # Import here to avoid circular dependency
+        from supabase import create_client
+
         bucket_name = SupabaseStorageClient.get_bucket_name()
+
+        # Use public URL if available for browser-accessible signed URLs
+        # This ensures URLs work from external clients (browsers, LLMs) via HTTPS
+        url_for_signing = settings.supabase_public_url or settings.supabase_url
+
+        # Create temporary client for signed URL generation with public URL
+        client = create_client(url_for_signing, settings.supabase_service_key)
 
         # Generate signed URL
         signed_url_response = client.storage.from_(bucket_name).create_signed_url(
@@ -241,13 +253,14 @@ def generate_signed_url(filename: str, expiry_seconds: int = 1800) -> str:
 
         signed_url = signed_url_response['signedURL']
 
-        # Fix URL for development environment
+        # Fix URL for development environment (kong:8000 -> localhost:8000)
         signed_url = fix_storage_url_for_development(signed_url)
 
         logger.debug(
             "Generated signed URL",
             filename=filename,
-            expiry_seconds=expiry_seconds
+            expiry_seconds=expiry_seconds,
+            used_public_url=bool(settings.supabase_public_url)
         )
 
         return signed_url
