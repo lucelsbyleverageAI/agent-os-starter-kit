@@ -1584,6 +1584,8 @@ async def read_image(
                 file_path=storage_path,
                 expiry_seconds=expiry_seconds
             )
+            # Fix URL for local development (kong:8000 -> localhost:8000)
+            signed_url = fix_storage_url_for_development(signed_url)
         except Exception as e:
             logger.exception(f"[FS_READ_IMAGE] Failed to generate signed URL: {e}")
             raise HTTPException(

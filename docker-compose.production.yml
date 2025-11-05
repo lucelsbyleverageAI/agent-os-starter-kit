@@ -555,10 +555,13 @@ services:
       # LangGraph configuration
       - LANGCONNECT_LANGGRAPH_API_URL=${LANGGRAPH_EXTERNAL_URL}
       - LANGSMITH_API_KEY=${LANGSMITH_API_KEY}
-      # Authentication (internal Supabase URLs)
-      - SUPABASE_URL=http://kong_prod:8000
+      # Authentication and Storage
+      - SUPABASE_URL=http://kong_prod:8000  # Internal Docker network URL for auth/REST API
+      - SUPABASE_PUBLIC_URL=${SUPABASE_PUBLIC_URL}  # Public HTTPS URL for storage signed URLs
       - SUPABASE_ANON_KEY=${SUPABASE_ANON_KEY}
       - SUPABASE_SERVICE_KEY=${SUPABASE_SERVICE_KEY}
+      # Environment detection
+      - ENVIRONMENT=production
       # External API Keys
       - LANGCONNECT_SERVICE_ACCOUNT_KEY=${LANGCONNECT_SERVICE_ACCOUNT_KEY}
       - SUPADATA_API_TOKEN=${SUPADATA_API_TOKEN}
@@ -604,12 +607,15 @@ services:
       - MCP_SERVER_LOG_LEVEL=${LOG_LEVEL:-INFO}
       - MCP_SERVER_LOG_NAME=custom-mcp-server
       - MCP_SERVICE_ACCOUNT_KEY=${MCP_SERVICE_ACCOUNT_KEY}
-      # Authentication (internal Supabase URLs)
+      # Authentication and Storage
       - AUTH_PROVIDER=supabase
-      - SUPABASE_URL=http://kong_prod:8000
+      - SUPABASE_URL=http://kong_prod:8000  # Internal Docker network URL for auth/operations
+      - SUPABASE_PUBLIC_URL=${SUPABASE_PUBLIC_URL}  # Public HTTPS URL for storage signed URLs
       - SUPABASE_ANON_KEY=${SUPABASE_ANON_KEY}
       - SUPABASE_SERVICE_KEY=${SUPABASE_SERVICE_KEY}
       - MCP_TOKEN_SIGNING_SECRET=${MCP_TOKEN_SIGNING_SECRET}
+      # Environment detection
+      - ENVIRONMENT=production
       # External API keys
       - ARCADE_API_KEY=${ARCADE_API_KEY}
       - ARCADE_BASE_URL=https://api.arcade.dev
