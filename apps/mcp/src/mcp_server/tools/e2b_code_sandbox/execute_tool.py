@@ -403,8 +403,9 @@ except Exception as e:
                     )
                     result["rich_outputs"].append(image_info)
                     result_data["has_png"] = True
-                    if image_info.get("storage_url"):
-                        result_data["png_storage_url"] = image_info["storage_url"]
+                    if image_info.get("storage_path"):
+                        result_data["png_storage_path"] = image_info["storage_path"]
+                        result_data["png_bucket"] = image_info.get("bucket", "agent-outputs")
 
                 if hasattr(res, "svg") and res.svg:
                     image_info = await self._process_image(
@@ -412,8 +413,9 @@ except Exception as e:
                     )
                     result["rich_outputs"].append(image_info)
                     result_data["has_svg"] = True
-                    if image_info.get("storage_url"):
-                        result_data["svg_storage_url"] = image_info["storage_url"]
+                    if image_info.get("storage_path"):
+                        result_data["svg_storage_path"] = image_info["storage_path"]
+                        result_data["svg_bucket"] = image_info.get("bucket", "agent-outputs")
                 
                 # Handle other outputs
                 for attr in ["html", "json", "javascript", "latex"]:
@@ -471,15 +473,16 @@ except Exception as e:
                 )
 
                 # Upload to Supabase Storage
-                _, storage_url = upload_output_to_supabase(
+                storage_path, _ = upload_output_to_supabase(
                     output_bytes, metadata, content_type
                 )
 
                 return {
                     "type": content_type,
-                    "storage_url": storage_url,
+                    "storage_path": storage_path,
+                    "bucket": "agent-outputs",
                     "filename": filename,
-                    "format": "storage_url",
+                    "format": "storage_path",
                     "size_bytes": len(output_bytes),
                 }
 
