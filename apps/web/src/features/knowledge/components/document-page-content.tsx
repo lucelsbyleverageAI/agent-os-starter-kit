@@ -40,6 +40,10 @@ import {
   downloadMarkdownAsDocx,
   downloadAsMarkdown,
 } from "@/lib/markdown-to-docx";
+import {
+  downloadImage,
+  getImageFormatLabel,
+} from "@/lib/image-download";
 
 interface DocumentDetail {
   id: string;
@@ -347,12 +351,30 @@ export function DocumentPageContent({
   };
 
   // Handle download
-  const handleDownload = async (format: "md" | "docx") => {
+  const handleDownload = async (format: "md" | "docx" | "image") => {
     if (!document) return;
 
     try {
       setDownloading(true);
 
+      // Handle image downloads
+      if (format === "image") {
+        if (!document.metadata.storage_path) {
+          throw new Error("Image storage path not found");
+        }
+
+        const imageProxyUrl = `/api/langconnect/storage/image?path=${encodeURIComponent(document.metadata.storage_path)}&bucket=collections`;
+        await downloadImage(imageProxyUrl, document.title, document.metadata.storage_path);
+
+        const imageFormat = getImageFormatLabel(document.metadata.storage_path);
+        toast.success(`Image downloaded successfully`, {
+          richColors: true,
+          description: `"${document.title}" downloaded as ${imageFormat}`,
+        });
+        return;
+      }
+
+      // Handle text document downloads
       // Get filename without extension
       const filename = document.title.replace(/\.[^/.]+$/, "");
 
@@ -516,18 +538,31 @@ export function DocumentPageContent({
               </Button>
             </DropdownMenuTrigger>
             <DropdownMenuContent align="end">
-              <DropdownMenuItem
-                onClick={() => handleDownload("md")}
-                disabled={downloading || refreshing}
-              >
-                Markdown (.md)
-              </DropdownMenuItem>
-              <DropdownMenuItem
-                onClick={() => handleDownload("docx")}
-                disabled={downloading || refreshing}
-              >
-                Word Document (.docx)
-              </DropdownMenuItem>
+              {isImageDocument(document.metadata) ? (
+                // Image document: single download option
+                <DropdownMenuItem
+                  onClick={() => handleDownload("image")}
+                  disabled={downloading || refreshing}
+                >
+                  Download Image (.{getImageFormatLabel(document.metadata.storage_path || document.title).toLowerCase()})
+                </DropdownMenuItem>
+              ) : (
+                // Text document: Markdown and Word options
+                <>
+                  <DropdownMenuItem
+                    onClick={() => handleDownload("md")}
+                    disabled={downloading || refreshing}
+                  >
+                    Markdown (.md)
+                  </DropdownMenuItem>
+                  <DropdownMenuItem
+                    onClick={() => handleDownload("docx")}
+                    disabled={downloading || refreshing}
+                  >
+                    Word Document (.docx)
+                  </DropdownMenuItem>
+                </>
+              )}
             </DropdownMenuContent>
           </DropdownMenu>
           <AlertDialog>

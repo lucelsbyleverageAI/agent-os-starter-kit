@@ -46,7 +46,6 @@ The web application is configured via environment variables. For a complete list
 -   `NEXT_PUBLIC_SUPABASE_URL` & `NEXT_PUBLIC_SUPABASE_ANON_KEY`: Required for connecting to your Supabase instance.
 -   `NEXT_PUBLIC_BASE_API_URL`: The root URL for the `langconnect` service.
 -   `NEXT_PUBLIC_MCP_SERVER_URL`: The public URL for the MCP server.
--   `NEXT_PUBLIC_IMAGE_STORAGE_ENABLED`: A feature flag to enable/disable rendering of images from GCP.
 
 ---
 
