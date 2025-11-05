@@ -3,7 +3,7 @@
  */
 
 export interface ExtractedImage {
-  type: 'base64' | 'url';
+  type: 'base64' | 'url' | 'storage_path';
   value: string;
   metadata?: any;
 }
@@ -58,6 +58,27 @@ export function isImageUrlPermissive(str: string): boolean {
   ].some(domain => str.includes(domain));
   
   return hasImageExtension || hasImageDomain;
+}
+
+/**
+ * Check if a string is a storage path (UUID/filename pattern)
+ *
+ * Pattern matches:
+ * - {uuid}/{timestamp}_{filename}.{ext}
+ * - {uuid}/{uuid}/{uuid}/{filename}.{ext}
+ *
+ * Examples:
+ * - "456e7890-abcd-1234-efgh-567890abcdef/20250126_143022_image.png" (chat uploads)
+ * - "user-id/agent-id/thread-id/e2b_code_sandbox_20250126_143022_abc123.png" (e2b outputs)
+ */
+export function isStoragePath(str: string): boolean {
+  if (!str || typeof str !== 'string') return false;
+
+  // Pattern: {uuid}/{...}/{filename}.{ext}
+  // Must start with UUID and contain image extension
+  const storagePathPattern = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}\/.+\.(png|jpg|jpeg|gif|webp|bmp|tiff|svg)$/i;
+
+  return storagePathPattern.test(str);
 }
 
 /**
@@ -201,6 +222,20 @@ export function extractImagesFromResponse(obj: any): ExtractedImage[] {
             metadata: { path }
           });
         }
+      } else if (isStoragePath(val)) {
+        // Check for storage path (e.g., "uuid/timestamp_file.png")
+        // These need to be converted to signed URLs by the frontend
+        if (!seenValues.has(val)) {
+          seenValues.add(val);
+          images.push({
+            type: 'storage_path',
+            value: val,
+            metadata: {
+              path,
+              bucket: 'agent-outputs'  // Default to agent-outputs, can be overridden
+            }
+          });
+        }
       } else if (isImageUrlPermissive(val)) {
         if (!seenValues.has(val)) {
           seenValues.add(val);
@@ -261,6 +296,12 @@ export async function getImageRenderUrl(image: ExtractedImage): Promise<string> 
 
     case 'url':
       return image.value;
+
+    case 'storage_path':
+      // Convert storage path to proxy URL that generates fresh signed URLs
+      // This ensures images work even after the original signed URL would have expired
+      const bucket = image.metadata?.bucket || 'agent-outputs';
+      return `/api/langconnect/storage/image?path=${encodeURIComponent(image.value)}&bucket=${encodeURIComponent(bucket)}`;
 
     default:
       throw new Error(`Unknown image type: ${(image as any).type}`);
