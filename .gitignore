@@ -106,3 +106,5 @@ DeepAgent/
 
 test_data/
 git_strategy/
+# Large data files
+pipelines/outcomes_data/outcomes_data/public_aggregated_spreadsheets/**/*.csv
