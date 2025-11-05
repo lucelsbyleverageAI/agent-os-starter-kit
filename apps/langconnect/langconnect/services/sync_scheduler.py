@@ -202,10 +202,10 @@ def get_scheduler() -> SyncScheduler:
     global _scheduler
     if _scheduler is None:
         # Read intervals from environment variables with sensible defaults
-        incremental_interval = int(os.getenv("SYNC_INCREMENTAL_INTERVAL_MINUTES", "2"))
-        full_sync_interval = int(os.getenv("SYNC_FULL_INTERVAL_MINUTES", "15"))
-        cleanup_interval = int(os.getenv("SYNC_CLEANUP_INTERVAL_HOURS", "24"))
-        graph_discovery_interval = int(os.getenv("SYNC_GRAPH_DISCOVERY_INTERVAL_MINUTES", "15"))
+        incremental_interval = int(os.getenv("SYNC_INCREMENTAL_INTERVAL_MINUTES", "15"))
+        full_sync_interval = int(os.getenv("SYNC_FULL_INTERVAL_MINUTES", "30"))
+        cleanup_interval = int(os.getenv("SYNC_CLEANUP_INTERVAL_HOURS", "30"))
+        graph_discovery_interval = int(os.getenv("SYNC_GRAPH_DISCOVERY_INTERVAL_MINUTES", "30"))
 
         _scheduler = SyncScheduler(
             incremental_interval_minutes=incremental_interval,

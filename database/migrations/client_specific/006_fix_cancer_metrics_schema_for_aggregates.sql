@@ -49,6 +49,10 @@ ALTER COLUMN referral_route DROP NOT NULL;
 -- - Pipeline uses empty strings ('') for trust aggregates, not NULLs
 -- - Each trust has ONE aggregate row per period/metric with cancer_type = ''
 
+-- Drop the constraint first if it exists (for idempotency)
+ALTER TABLE performance_data.cancer_target_metrics
+DROP CONSTRAINT IF EXISTS cancer_target_metrics_unique_key;
+
 ALTER TABLE performance_data.cancer_target_metrics
 ADD CONSTRAINT cancer_target_metrics_unique_key
 UNIQUE (period, metric, org_code, cancer_type, referral_route);

@@ -630,7 +630,8 @@ def get_comprehensive_performance(
                     i.rtt_part_type,
                     i.cancer_type,
                     i.referral_route,
-                    i.entity_level
+                    i.entity_level,
+                    i.disagg_key
                 FROM performance_data.insight_metrics_long i
                 WHERE i.org_code = :org_code
                     AND i.period = :period
@@ -657,7 +658,8 @@ def get_comprehensive_performance(
                     rtt_part_type,
                     cancer_type,
                     referral_route,
-                    entity_level
+                    entity_level,
+                    disagg_key
                 FROM trust_metrics_raw
                 ORDER BY
                     {order_by_clause}
@@ -666,6 +668,7 @@ def get_comprehensive_performance(
                 SELECT
                     i.metric_id,
                     i.domain,
+                    i.disagg_key,
                     'national' as cohort_type,
                     PERCENTILE_CONT(0.25) WITHIN GROUP (ORDER BY i.value) as q1,
                     PERCENTILE_CONT(0.50) WITHIN GROUP (ORDER BY i.value) as median,
@@ -675,13 +678,14 @@ def get_comprehensive_performance(
                     AND i.domain = :domain
                     AND i.valid_sample = true
                     AND i.is_rollup = false
-                GROUP BY i.metric_id, i.domain
+                GROUP BY i.metric_id, i.domain, i.disagg_key
 
                 UNION ALL
 
                 SELECT
                     i.metric_id,
                     i.domain,
+                    i.disagg_key,
                     'trust_type' as cohort_type,
                     PERCENTILE_CONT(0.25) WITHIN GROUP (ORDER BY i.value) as q1,
                     PERCENTILE_CONT(0.50) WITHIN GROUP (ORDER BY i.value) as median,
@@ -693,13 +697,14 @@ def get_comprehensive_performance(
                     AND i.valid_sample = true
                     AND i.is_rollup = false
                     AND o.trust_type = :trust_type
-                GROUP BY i.metric_id, i.domain
+                GROUP BY i.metric_id, i.domain, i.disagg_key
 
                 UNION ALL
 
                 SELECT
                     i.metric_id,
                     i.domain,
+                    i.disagg_key,
                     'trust_subtype' as cohort_type,
                     PERCENTILE_CONT(0.25) WITHIN GROUP (ORDER BY i.value) as q1,
                     PERCENTILE_CONT(0.50) WITHIN GROUP (ORDER BY i.value) as median,
@@ -711,13 +716,14 @@ def get_comprehensive_performance(
                     AND i.valid_sample = true
                     AND i.is_rollup = false
                     AND o.trust_subtype = :trust_subtype
-                GROUP BY i.metric_id, i.domain
+                GROUP BY i.metric_id, i.domain, i.disagg_key
 
                 UNION ALL
 
                 SELECT
                     i.metric_id,
                     i.domain,
+                    i.disagg_key,
                     'region' as cohort_type,
                     PERCENTILE_CONT(0.25) WITHIN GROUP (ORDER BY i.value) as q1,
                     PERCENTILE_CONT(0.50) WITHIN GROUP (ORDER BY i.value) as median,
@@ -729,17 +735,18 @@ def get_comprehensive_performance(
                     AND i.valid_sample = true
                     AND i.is_rollup = false
                     AND o.region = :region
-                GROUP BY i.metric_id, i.domain
+                GROUP BY i.metric_id, i.domain, i.disagg_key
             ),
             regional_ranks AS (
                 SELECT
                     i.metric_id,
+                    i.disagg_key,
                     i.org_code,
                     ROW_NUMBER() OVER (
-                        PARTITION BY i.metric_id
+                        PARTITION BY i.metric_id, i.disagg_key
                         ORDER BY CASE WHEN i.higher_is_better THEN i.value ELSE -i.value END DESC
                     ) as regional_rank,
-                    COUNT(*) OVER (PARTITION BY i.metric_id) as regional_total
+                    COUNT(*) OVER (PARTITION BY i.metric_id, i.disagg_key) as regional_total
                 FROM performance_data.insight_metrics_long i
                 JOIN performance_data.dim_organisations o ON i.org_code = o.org_code
                 WHERE i.period = :period
@@ -766,15 +773,15 @@ def get_comprehensive_performance(
                 rr.regional_total
             FROM trust_metrics tm
             LEFT JOIN cohort_stats cs_nat
-                ON tm.metric_id = cs_nat.metric_id AND cs_nat.cohort_type = 'national'
+                ON tm.metric_id = cs_nat.metric_id AND tm.disagg_key = cs_nat.disagg_key AND cs_nat.cohort_type = 'national'
             LEFT JOIN cohort_stats cs_type
-                ON tm.metric_id = cs_type.metric_id AND cs_type.cohort_type = 'trust_type'
+                ON tm.metric_id = cs_type.metric_id AND tm.disagg_key = cs_type.disagg_key AND cs_type.cohort_type = 'trust_type'
             LEFT JOIN cohort_stats cs_subtype
-                ON tm.metric_id = cs_subtype.metric_id AND cs_subtype.cohort_type = 'trust_subtype'
+                ON tm.metric_id = cs_subtype.metric_id AND tm.disagg_key = cs_subtype.disagg_key AND cs_subtype.cohort_type = 'trust_subtype'
             LEFT JOIN cohort_stats cs_region
-                ON tm.metric_id = cs_region.metric_id AND cs_region.cohort_type = 'region'
+                ON tm.metric_id = cs_region.metric_id AND tm.disagg_key = cs_region.disagg_key AND cs_region.cohort_type = 'region'
             LEFT JOIN regional_ranks rr
-                ON tm.metric_id = rr.metric_id AND rr.org_code = :org_code
+                ON tm.metric_id = rr.metric_id AND tm.disagg_key = rr.disagg_key AND rr.org_code = :org_code
         """
 
         # Add filtering for RTT and cancer breakdowns

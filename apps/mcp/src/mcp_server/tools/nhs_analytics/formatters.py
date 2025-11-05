@@ -106,7 +106,8 @@ def format_percentage(value: Optional[float], decimal_places: int = 1) -> str:
         return '-'
 
     # Detect if value is already in 0-100 range or 0-1 range
-    if value > 1:
+    # Use absolute value to handle negative percentages (e.g., -6.32% deficit)
+    if abs(value) > 1:
         pct = value
     else:
         pct = value * 100

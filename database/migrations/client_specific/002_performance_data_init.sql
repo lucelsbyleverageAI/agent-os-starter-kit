@@ -502,6 +502,8 @@ WITH base AS (
 ranked AS (
   SELECT
     b.*,
+    -- Partition by disagg_key to ensure apples-to-apples comparisons
+    -- (e.g., RTT 'Overall' pathway vs 'Overall', not vs 'Part_1A')
     percent_rank() OVER (
       PARTITION BY b.metric_id, b.period, b.disagg_key
       ORDER BY CASE WHEN b.higher_is_better THEN b.value ELSE -b.value END
@@ -541,18 +543,19 @@ SELECT
   is_rollup,
   rollup_method,
   disagg_key,
-  percentile_overall,
-  percentile_trust_type,
-  percentile_trust_subtype,
+  -- Apply inversion for "lower is better" metrics to percentile columns
+  CASE WHEN higher_is_better THEN percentile_overall ELSE 1 - percentile_overall END AS percentile_overall,
+  CASE WHEN higher_is_better THEN percentile_trust_type ELSE 1 - percentile_trust_type END AS percentile_trust_type,
+  CASE WHEN higher_is_better THEN percentile_trust_subtype ELSE 1 - percentile_trust_subtype END AS percentile_trust_subtype,
   ROUND((100 * (CASE WHEN higher_is_better THEN percentile_overall ELSE 1 - percentile_overall END))::NUMERIC, 1) AS normalised_score_0_100_overall,
   NOW() AS last_refreshed_at
 FROM ranked;
 
-COMMENT ON MATERIALIZED VIEW performance_data.insight_metrics_long IS 'Benchmarked metrics with overall/type/subtype percentiles and 0–100 score; period- and grain-consistent.';
-COMMENT ON COLUMN performance_data.insight_metrics_long.percentile_overall IS 'Percentile within metric × period × disaggregation, across all providers (0..1).';
-COMMENT ON COLUMN performance_data.insight_metrics_long.percentile_trust_type IS 'Percentile within same trust_type cohort (0..1).';
-COMMENT ON COLUMN performance_data.insight_metrics_long.percentile_trust_subtype IS 'Percentile within same trust_subtype cohort (0..1).';
-COMMENT ON COLUMN performance_data.insight_metrics_long.normalised_score_0_100_overall IS '0–100 score where higher is always better, derived from percentile_overall and direction.';
+COMMENT ON MATERIALIZED VIEW performance_data.insight_metrics_long IS 'Benchmarked metrics with overall/type/subtype percentiles and 0–100 score; period- and grain-consistent. Percentiles are direction-corrected: higher percentile always means better performance.';
+COMMENT ON COLUMN performance_data.insight_metrics_long.percentile_overall IS 'Percentile within metric × period × disaggregation, across all providers (0..1). Partitioned by disagg_key to ensure apples-to-apples comparisons (e.g., RTT Overall vs Overall, not vs Part_1A). Direction-corrected: inverted for "lower is better" metrics so higher percentile always means better performance.';
+COMMENT ON COLUMN performance_data.insight_metrics_long.percentile_trust_type IS 'Percentile within same trust_type cohort (0..1). Direction-corrected: inverted for "lower is better" metrics so higher percentile always means better performance.';
+COMMENT ON COLUMN performance_data.insight_metrics_long.percentile_trust_subtype IS 'Percentile within same trust_subtype cohort (0..1). Direction-corrected: inverted for "lower is better" metrics so higher percentile always means better performance.';
+COMMENT ON COLUMN performance_data.insight_metrics_long.normalised_score_0_100_overall IS '0–100 score where higher is always better, derived from direction-corrected percentile_overall.';
 
 -- Helpful indexes
 CREATE INDEX IF NOT EXISTS idx_insight_metrics_long_org ON performance_data.insight_metrics_long (org_code);
