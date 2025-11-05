@@ -19,8 +19,15 @@ class StorageService:
     """Service for managing file storage in Supabase Storage."""
 
     def __init__(self):
-        """Initialize the storage service."""
-        self.client = create_client(config.SUPABASE_URL, config.SUPABASE_KEY)
+        """Initialize the storage service.
+
+        Uses SUPABASE_PUBLIC_URL for storage operations to ensure signed URLs
+        are publicly accessible via HTTPS (required by external clients like Claude API).
+        """
+        # Use public URL for storage operations (signed URLs, public URLs)
+        # This ensures URLs are externally accessible via HTTPS
+        storage_url = config.SUPABASE_PUBLIC_URL
+        self.client = create_client(storage_url, config.SUPABASE_KEY)
         self.collections_bucket = COLLECTIONS_BUCKET
         self.chat_uploads_bucket = CHAT_UPLOADS_BUCKET
         self.signed_url_expiry = SIGNED_URL_EXPIRY_SECONDS
