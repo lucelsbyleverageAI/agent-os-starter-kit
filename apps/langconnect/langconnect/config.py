@@ -12,9 +12,13 @@ IS_TESTING = env("IS_TESTING", cast=str, default="").lower() == "true"
 if IS_TESTING:
     SUPABASE_URL = ""
     SUPABASE_KEY = ""
+    SUPABASE_PUBLIC_URL = ""
 else:
     SUPABASE_URL = env("SUPABASE_URL", cast=str, default=undefined)
     SUPABASE_KEY = env("SUPABASE_SERVICE_KEY", cast=str, default=undefined)
+    # Public-facing HTTPS URL for storage signed URLs (external clients, LLMs)
+    # Falls back to SUPABASE_URL if not set (for backwards compatibility)
+    SUPABASE_PUBLIC_URL = env("SUPABASE_PUBLIC_URL", cast=str, default=SUPABASE_URL)
 
 # Service Account Configuration
 # Static API key for external service authentication (n8n, Zapier, etc.)
