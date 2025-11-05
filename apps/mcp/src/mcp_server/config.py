@@ -48,7 +48,7 @@ class Settings(BaseSettings):
     supabase_anon_key: Optional[str] = Field(
         default=None, description="Supabase anonymous key"
     )
-    supabase_service_role_key: Optional[str] = Field(
+    supabase_service_key: Optional[str] = Field(
         default=None, description="Supabase service role key"
     )
     

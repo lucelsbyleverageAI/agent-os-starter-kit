@@ -19,6 +19,7 @@ import { notify } from "@/utils/toast";
 import { threadMessages } from "@/utils/toast-messages";
 import { getScrollbarClasses } from "@/lib/scrollbar-styles";
 import { Button } from "@/components/ui/button";
+import { useCachePolling } from "@/hooks/use-cache-polling";
 
 const getMessageStringContent = (
   content: MessageContent | undefined,
@@ -95,6 +96,9 @@ export const ThreadHistorySidebar = forwardRef<
   const [renameValue, setRenameValue] = useState<string>("");
   const [isRenaming, setIsRenaming] = useState(false);
 
+  // Poll cache state for auto-refresh on thread naming updates
+  const { threadsVersion } = useCachePolling();
+
   // Store the refresh function so it can be called externally
   const refreshThreads = async (threadsVersion?: number) => {
     if (authLoading || !agentId || !session?.accessToken) return;
@@ -152,7 +156,7 @@ export const ThreadHistorySidebar = forwardRef<
 
   // Listen for custom refresh events triggered after thread creation
   useEffect(() => {
-    const handleRefreshThreads = (e: any) => {  
+    const handleRefreshThreads = (e: any) => {
       try {
         const v = e?.detail?.threadsVersion as number | undefined;
         refreshThreads(v);
@@ -164,6 +168,21 @@ export const ThreadHistorySidebar = forwardRef<
     window.addEventListener('refreshThreads', handleRefreshThreads);
     return () => window.removeEventListener('refreshThreads', handleRefreshThreads);
   }, [agentId, session?.accessToken]); // Only depend on the values refreshThreads needs
+
+  /**
+   * Auto-refresh when threads version changes (multi-tab sync & background naming)
+   *
+   * This enables:
+   * - Tab A: Thread gets AI-generated name → backend increments threads_version
+   * - Tab B: Polling detects new version → refreshes thread list → sees updated name
+   *
+   * Pattern matches Agents Provider for consistent multi-tab synchronization.
+   */
+  useEffect(() => {
+    if (threadsVersion !== null && agentId && session?.accessToken) {
+      refreshThreads(threadsVersion);
+    }
+  }, [threadsVersion]);
 
   const handleChangeThread = (id: string) => {
     if (threadId === id) return;

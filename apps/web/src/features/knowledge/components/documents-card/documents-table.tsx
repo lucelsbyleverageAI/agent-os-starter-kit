@@ -44,6 +44,7 @@ import {
 } from "lucide-react";
 import { Document } from "@langchain/core/documents";
 import { useKnowledgeContext } from "../../providers/Knowledge";
+import { useAuthContext } from "@/providers/Auth";
 import { format } from "date-fns";
 import { Collection } from "@/types/collection";
 import { toast } from "sonner";
@@ -57,6 +58,10 @@ import {
   downloadMarkdownAsDocx,
   downloadAsMarkdown,
 } from "@/lib/markdown-to-docx";
+import {
+  downloadImage,
+  getImageFormatLabel,
+} from "@/lib/image-download";
 import {
   DropdownMenu as DownloadFormatMenu,
   DropdownMenuContent as DownloadFormatContent,
@@ -134,6 +139,7 @@ export function DocumentsTable({
 }: DocumentsTableProps) {
   const router = useRouter();
   const { deleteDocument } = useKnowledgeContext();
+  const { session } = useAuthContext();
   const [deletingDocumentId, setDeletingDocumentId] = useState<string | null>(null);
   const [editDocumentId, setEditDocumentId] = useState<string | null>(null);
   const [loadingMore, setLoadingMore] = useState(false);
@@ -393,28 +399,70 @@ export function DocumentsTable({
   };
 
   // Handle document download
-  const handleDownloadDocument = useCallback(async (documentId: string, documentName: string, format: "md" | "docx") => {
+  const handleDownloadDocument = useCallback(async (
+    documentId: string,
+    documentName: string,
+    format: "md" | "docx" | "image",
+    documentMetadata?: any
+  ) => {
     try {
       setDownloadingDocumentId(documentId);
       setDownloadFormatMenu(null);
 
-      // Fetch document content
-      const response = await fetch(
-        `/api/langconnect/collections/${selectedCollection.uuid}/documents/${documentId}/content`,
-        {
-          method: "GET",
-          headers: {
-            "Content-Type": "application/json",
-          },
+      // Handle image downloads
+      if (format === "image" && documentMetadata) {
+        if (!documentMetadata.storage_path) {
+          throw new Error("Image storage path not found");
         }
-      );
 
-      if (!response.ok) {
-        throw new Error(`Failed to fetch document: ${response.statusText}`);
+        const imageUrl = `/api/langconnect/storage/image?path=${encodeURIComponent(documentMetadata.storage_path)}&bucket=collections`;
+        await downloadImage(imageUrl, documentName, documentMetadata.storage_path);
+
+        const imageFormat = getImageFormatLabel(documentMetadata.storage_path);
+        toast.success(`Image downloaded successfully`, {
+          richColors: true,
+          description: `"${documentName}" downloaded as ${imageFormat}`,
+        });
+        return;
       }
 
-      const data = await response.json();
-      const content = data.content || "";
+      // Handle text document downloads
+      // Find the document in our documents array
+      const doc = documents.find(d => d.metadata.file_id === documentId);
+
+      if (!doc) {
+        throw new Error("Document not found");
+      }
+
+      let content = doc.pageContent;
+
+      // If content is not available, fetch it from the API
+      if (!content) {
+        if (!session?.accessToken) {
+          throw new Error("Authentication required to download document");
+        }
+
+        const response = await fetch(
+          `/api/langconnect/collections/${selectedCollection.uuid}/documents/${documentId}`,
+          {
+            headers: {
+              Authorization: `Bearer ${session.accessToken}`,
+            },
+          }
+        );
+
+        if (!response.ok) {
+          const error = await response.json();
+          throw new Error(error.error || "Failed to fetch document");
+        }
+
+        const data = await response.json();
+        content = data.content;
+
+        if (!content) {
+          throw new Error("Document content is empty");
+        }
+      }
 
       // Get filename without extension
       const filename = documentName.replace(/\.[^/.]+$/, "");
@@ -439,7 +487,7 @@ export function DocumentsTable({
     } finally {
       setDownloadingDocumentId(null);
     }
-  }, [selectedCollection.uuid]);
+  }, [documents, session, selectedCollection.uuid]);
 
   // Handle infinite scroll
   const handleLoadMore = useCallback(async () => {
@@ -833,18 +881,31 @@ export function DocumentsTable({
                                 </DropdownMenuItem>
                               </DownloadFormatTrigger>
                               <DownloadFormatContent align="start" side="right">
-                                <DownloadFormatItem
-                                  onClick={() => handleDownloadDocument(doc.metadata.file_id, doc.metadata.name, "md")}
-                                  disabled={downloadingDocumentId === doc.metadata.file_id}
-                                >
-                                  Markdown (.md)
-                                </DownloadFormatItem>
-                                <DownloadFormatItem
-                                  onClick={() => handleDownloadDocument(doc.metadata.file_id, doc.metadata.name, "docx")}
-                                  disabled={downloadingDocumentId === doc.metadata.file_id}
-                                >
-                                  Word Document (.docx)
-                                </DownloadFormatItem>
+                                {isImageDocument(doc.metadata) ? (
+                                  // Image document: single download option
+                                  <DownloadFormatItem
+                                    onClick={() => handleDownloadDocument(doc.metadata.file_id, doc.metadata.name, "image", doc.metadata)}
+                                    disabled={downloadingDocumentId === doc.metadata.file_id}
+                                  >
+                                    Download Image (.{getImageFormatLabel(doc.metadata.storage_path || doc.metadata.name).toLowerCase()})
+                                  </DownloadFormatItem>
+                                ) : (
+                                  // Text document: Markdown and Word options
+                                  <>
+                                    <DownloadFormatItem
+                                      onClick={() => handleDownloadDocument(doc.metadata.file_id, doc.metadata.name, "md")}
+                                      disabled={downloadingDocumentId === doc.metadata.file_id}
+                                    >
+                                      Markdown (.md)
+                                    </DownloadFormatItem>
+                                    <DownloadFormatItem
+                                      onClick={() => handleDownloadDocument(doc.metadata.file_id, doc.metadata.name, "docx")}
+                                      disabled={downloadingDocumentId === doc.metadata.file_id}
+                                    >
+                                      Word Document (.docx)
+                                    </DownloadFormatItem>
+                                  </>
+                                )}
                               </DownloadFormatContent>
                             </DownloadFormatMenu>
 
