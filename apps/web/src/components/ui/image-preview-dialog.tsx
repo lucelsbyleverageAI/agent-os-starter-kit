@@ -38,14 +38,14 @@ export function ImagePreviewDialog({
 }: ImagePreviewDialogProps) {
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent className="max-w-5xl max-h-[90vh]">
-        <DialogHeader>
+      <DialogContent className="max-w-7xl max-h-[95vh] p-0">
+        <DialogHeader className="px-6 pt-6 pb-3">
           <DialogTitle>{title}</DialogTitle>
         </DialogHeader>
 
         <div
           className={cn(
-            "relative w-full max-h-[75vh] overflow-auto rounded-lg border",
+            "relative w-full flex items-center justify-center bg-muted/30 px-6 pb-6",
             ...getScrollbarClasses('both')
           )}
         >
@@ -53,7 +53,7 @@ export function ImagePreviewDialog({
             <img
               src={imageUrl}
               alt={title}
-              className="w-full h-auto"
+              className="max-w-full max-h-[75vh] object-contain rounded-lg"
               onError={(e) => {
                 // Fallback for failed image loads
                 const target = e.target as HTMLImageElement;

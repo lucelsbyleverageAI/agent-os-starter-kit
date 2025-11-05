@@ -1,8 +1,9 @@
 """
 Thread Naming Service
 
-AI-powered automatic thread naming and summarization using GPT-4o-mini.
+AI-powered automatic thread naming and summarization using GPT-5 nano.
 Generates concise names and detailed summaries from conversation history.
+Features token limiting to prevent excessive costs on long conversations.
 """
 
 import logging
@@ -12,6 +13,7 @@ from pydantic import BaseModel, Field
 from openai import AsyncOpenAI
 import asyncpg
 from starlette.config import Config
+import tiktoken
 
 from langconnect.services.langgraph_integration import LangGraphService
 
@@ -20,7 +22,8 @@ env = Config()
 
 # Configuration
 THREAD_NAMING_ENABLED = env("THREAD_NAMING_ENABLED", cast=str, default="true").lower() == "true"
-THREAD_NAMING_MODEL = env("THREAD_NAMING_MODEL", cast=str, default="gpt-4o-mini")
+THREAD_NAMING_MODEL = env("THREAD_NAMING_MODEL", cast=str, default="gpt-5-nano")
+MAX_TOKENS_FOR_NAMING = env("MAX_TOKENS_FOR_NAMING", cast=int, default=20000)
 OPENAI_API_KEY = env("OPENAI_API_KEY", cast=str, default="")
 
 
@@ -39,10 +42,11 @@ class ThreadNamingService:
     """
     Service for AI-powered thread naming and summarization.
 
-    Uses GPT-4o-mini with structured output to generate:
+    Uses GPT-5 nano (default) with structured output to generate:
     - Concise thread names (3-5 words)
     - Detailed conversation summaries (paragraph length)
 
+    Features token limiting to prevent excessive costs on long conversations.
     Respects user rename intent via the user_renamed flag.
     """
 
@@ -101,12 +105,15 @@ class ThreadNamingService:
             )
 
             # Extract messages from response
-            # LangGraph history format: {"values": [{"messages": [...]}]}
-            values = response.get("values", [])
+            # LangGraph history format: Array of ThreadState objects
+            # Each ThreadState: {values: {...}, next: [...], checkpoint: {...}, metadata: {...}, ...}
+            thread_states = response if isinstance(response, list) else []
             all_messages = []
 
-            for value in values:
-                messages = value.get("messages", [])
+            for state in thread_states:
+                # Extract values from each ThreadState
+                state_values = state.get("values", {})
+                messages = state_values.get("messages", [])
                 for msg in messages:
                     # Only include human and AI messages
                     msg_type = msg.get("type", "")
@@ -179,14 +186,68 @@ class ThreadNamingService:
 
         return "\n\n".join(formatted_lines)
 
+    def _trim_messages_to_token_limit(
+        self,
+        messages: List[Dict[str, Any]],
+        max_tokens: int = MAX_TOKENS_FOR_NAMING
+    ) -> List[Dict[str, Any]]:
+        """
+        Trim messages to stay under token limit by removing earliest messages.
+
+        Strategy: Keep removing the oldest messages until we're under the limit.
+        This preserves recent context which is more important for naming.
+
+        Args:
+            messages: List of message dictionaries
+            max_tokens: Maximum tokens allowed (default: 20000)
+
+        Returns:
+            Trimmed list of messages
+        """
+        if not messages:
+            return messages
+
+        try:
+            # Initialize tokenizer for gpt-5 (uses same encoding as gpt-4)
+            encoding = tiktoken.encoding_for_model("gpt-4")
+        except KeyError:
+            # Fallback to cl100k_base encoding (used by GPT-4/GPT-5)
+            encoding = tiktoken.get_encoding("cl100k_base")
+
+        # Count tokens for all messages
+        formatted = self._format_messages_for_llm(messages)
+        total_tokens = len(encoding.encode(formatted))
+
+        # If already under limit, return as-is
+        if total_tokens <= max_tokens:
+            log.info(f"Messages within token limit: {total_tokens}/{max_tokens} tokens")
+            return messages
+
+        # Trim from the start (earliest messages)
+        trimmed_messages = messages.copy()
+        while total_tokens > max_tokens and len(trimmed_messages) > 5:
+            # Always keep at least 5 messages for context
+            trimmed_messages.pop(0)  # Remove oldest message
+            formatted = self._format_messages_for_llm(trimmed_messages)
+            total_tokens = len(encoding.encode(formatted))
+
+        removed_count = len(messages) - len(trimmed_messages)
+        log.info(
+            f"Trimmed {removed_count} messages to fit token limit: "
+            f"{total_tokens}/{max_tokens} tokens ({len(trimmed_messages)} messages kept)"
+        )
+
+        return trimmed_messages
+
     async def generate_name_and_summary(
         self,
         messages: List[Dict[str, Any]]
     ) -> ThreadNamingSummary:
         """
-        Generate thread name and summary using GPT-4o-mini.
+        Generate thread name and summary using GPT-5 nano (or configured model).
 
         Uses OpenAI's structured output feature for reliable parsing.
+        Automatically trims messages to stay within token limits.
 
         Args:
             messages: List of conversation messages
@@ -203,11 +264,15 @@ class ThreadNamingService:
         if not messages:
             raise RuntimeError("Cannot generate name/summary for empty conversation")
 
+        # Trim messages to token limit to prevent excessive costs
+        messages = self._trim_messages_to_token_limit(messages)
+
         # Format messages for LLM
         formatted_conversation = self._format_messages_for_llm(messages)
 
         try:
             # Call OpenAI with structured output
+            # Note: GPT-5 models don't support temperature, top_p, or logprobs
             response = await self.openai_client.beta.chat.completions.parse(
                 model=self.model,
                 messages=[
@@ -227,7 +292,7 @@ class ThreadNamingService:
                     }
                 ],
                 response_format=ThreadNamingSummary,
-                temperature=0.3,  # Lower temperature for consistency
+                verbosity="low",  # Concise output for GPT-5 models
             )
 
             result = response.choices[0].message.parsed
