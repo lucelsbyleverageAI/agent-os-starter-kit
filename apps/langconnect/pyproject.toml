@@ -38,12 +38,11 @@ unstructured = ">=0.17.2"
 supabase = ">=2.15.1"
 docling = ">=2.0.0,<3.0.0"
 youtube-transcript-api = ">=0.6.0,<0.7.0"
-google-cloud-storage = ">=3.0.0"
-google-crc32c = ">=1.6.0"
 requests = ">=2.31.0"
 sentry-sdk = {extras = ["fastapi"], version = ">=2.8.0"}
 mem0ai = ">=0.1.117,<0.2.0"
 openpyxl = ">=3.1.0"
+tiktoken = ">=0.7.0"
 
 [build-system]
 requires = ["poetry-core"]

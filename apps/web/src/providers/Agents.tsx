@@ -1214,6 +1214,7 @@ export const AgentsProvider: React.FC<{ children: ReactNode }> = ({
       deployment_name: response.deployment_name
     }, freshVersionKey);
 
+
     // Extract data from response
     const assistantInfoList = response.assistants;
     const graphs = response.valid_graphs;

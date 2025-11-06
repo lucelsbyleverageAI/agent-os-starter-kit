@@ -3,7 +3,7 @@
  */
 
 export interface ExtractedImage {
-  type: 'base64' | 'gcp' | 'url';
+  type: 'base64' | 'url' | 'storage_path';
   value: string;
   metadata?: any;
 }
@@ -22,17 +22,6 @@ export function isBase64Image(str: string): boolean {
     !str.startsWith('http') &&
     !str.includes('/images/') &&
     !str.includes('\\') // Avoid file paths
-  );
-}
-
-/**
- * Check if a string is a GCP image path (not a URL)
- */
-export function isGcpImagePath(str: string): boolean {
-  return (
-    typeof str === 'string' &&
-    /\/images\/.+\.(png|jpg|jpeg|webp|gif|bmp)$/i.test(str) &&
-    !str.startsWith('http') // Not a URL
   );
 }
 
@@ -62,8 +51,6 @@ export function isImageUrlPermissive(str: string): boolean {
   );
   
   const hasImageDomain = [
-    'storage.googleapis.com',
-    'storage.cloud.google.com',
     's3.amazonaws.com',
     'amazonaws.com',
     'cloudinary.com',
@@ -71,6 +58,27 @@ export function isImageUrlPermissive(str: string): boolean {
   ].some(domain => str.includes(domain));
   
   return hasImageExtension || hasImageDomain;
+}
+
+/**
+ * Check if a string is a storage path (UUID/filename pattern)
+ *
+ * Pattern matches:
+ * - {uuid}/{timestamp}_{filename}.{ext}
+ * - {uuid}/{uuid}/{uuid}/{filename}.{ext}
+ *
+ * Examples:
+ * - "456e7890-abcd-1234-efgh-567890abcdef/20250126_143022_image.png" (chat uploads)
+ * - "user-id/agent-id/thread-id/e2b_code_sandbox_20250126_143022_abc123.png" (e2b outputs)
+ */
+export function isStoragePath(str: string): boolean {
+  if (!str || typeof str !== 'string') return false;
+
+  // Pattern: {uuid}/{...}/{filename}.{ext}
+  // Must start with UUID and contain image extension
+  const storagePathPattern = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}\/.+\.(png|jpg|jpeg|gif|webp|bmp|tiff|svg)$/i;
+
+  return storagePathPattern.test(str);
 }
 
 /**
@@ -167,8 +175,6 @@ function extractImageUrlsFromText(text: string): ExtractedImage[] {
   const patterns = [
     // Standard HTTP/HTTPS image URLs with explicit extensions
     /https?:\/\/[^\s"',]+\.(?:png|jpg|jpeg|webp|gif|bmp|svg)(?:\?[^\s"',]*)?/gi,
-    // GCP Storage URLs (more specific)
-    /https?:\/\/storage\.googleapis\.com\/[^\s"',]+\.(?:png|jpg|jpeg|webp|gif|bmp)/gi,
     // Replicate delivery URLs
     /https?:\/\/replicate\.delivery\/[^\s"',]+/gi,
   ];
@@ -191,22 +197,7 @@ function extractImageUrlsFromText(text: string): ExtractedImage[] {
       });
     }
   }
-  
-  // Also look for GCP paths (without full URLs) - be more specific
-  const gcpPathPattern = /['"]?(\/images\/[^\s"',]+\.(?:png|jpg|jpeg|webp|gif|bmp))['"]?/gi;
-  let match;
-  while ((match = gcpPathPattern.exec(text)) !== null) {
-    const path = match[1]; // Get the captured group without quotes
-    if (!seenUrls.has(path)) {
-      seenUrls.add(path);
-      images.push({
-        type: 'gcp',
-        value: path,
-        metadata: { path: ['(extracted from text)'], extractionMethod: 'regex' }
-      });
-    }
-  }
-  
+
   return images;
 }
 
@@ -231,13 +222,18 @@ export function extractImagesFromResponse(obj: any): ExtractedImage[] {
             metadata: { path }
           });
         }
-      } else if (isGcpImagePath(val)) {
+      } else if (isStoragePath(val)) {
+        // Check for storage path (e.g., "uuid/timestamp_file.png")
+        // These need to be converted to signed URLs by the frontend
         if (!seenValues.has(val)) {
           seenValues.add(val);
           images.push({
-            type: 'gcp',
+            type: 'storage_path',
             value: val,
-            metadata: { path }
+            metadata: {
+              path,
+              bucket: 'agent-outputs'  // Default to agent-outputs, can be overridden
+            }
           });
         }
       } else if (isImageUrlPermissive(val)) {
@@ -292,46 +288,21 @@ export function base64ToDataUrl(base64: string, mimeType: string = 'image/png'):
 
 /**
  * Get the URL for rendering an extracted image
- * For GCP images, this calls the API to get a signed URL
  */
 export async function getImageRenderUrl(image: ExtractedImage): Promise<string> {
   switch (image.type) {
     case 'base64':
       return base64ToDataUrl(image.value);
-      
+
     case 'url':
       return image.value;
-      
-    case 'gcp':
-      // Check if GCP image storage is enabled in the frontend configuration
-      if (process.env.NEXT_PUBLIC_IMAGE_STORAGE_ENABLED !== 'true') {
-        // Return a placeholder or throw an error to indicate that GCP is not configured
-        console.warn(`GCP image rendering is disabled. Cannot fetch signed URL for: ${image.value}`);
-        // Return a placeholder image or a specific error indicator URL
-        return '/placeholder-image.svg'; // Or an appropriate fallback
-      }
-      
-      try {
-        // Clean the filename - remove leading slash if present
-        const cleanFilename = image.value.startsWith('/') ? image.value.substring(1) : image.value;
-        
-        const response = await fetch(
-          `/api/langconnect/gcp/signed-url?filename=${encodeURIComponent(cleanFilename)}`
-        );
-        
-        if (!response.ok) {
-          const errorText = await response.text();
-          console.error('GCP signed URL API error:', response.status, response.statusText, errorText);
-          throw new Error(`Failed to get signed URL: ${response.statusText} (${response.status})`);
-        }
-        
-        const data = await response.json();
-        return data.url;
-      } catch (error) {
-        console.error('Error getting signed URL for GCP image:', image.value, error);
-        throw error;
-      }
-      
+
+    case 'storage_path':
+      // Convert storage path to proxy URL that generates fresh signed URLs
+      // This ensures images work even after the original signed URL would have expired
+      const bucket = image.metadata?.bucket || 'agent-outputs';
+      return `/api/langconnect/storage/image?path=${encodeURIComponent(image.value)}&bucket=${encodeURIComponent(bucket)}`;
+
     default:
       throw new Error(`Unknown image type: ${(image as any).type}`);
   }
@@ -341,11 +312,7 @@ export async function getImageRenderUrl(image: ExtractedImage): Promise<string> 
  * Get a display name for an image based on its metadata or value
  */
 export function getImageDisplayName(image: ExtractedImage): string {
-  if (image.type === 'gcp') {
-    // Extract filename from GCP path
-    const parts = image.value.split('/');
-    return parts[parts.length - 1] || 'GCP Image';
-  } else if (image.type === 'url') {
+  if (image.type === 'url') {
     // Extract filename from URL
     try {
       const url = new URL(image.value);
@@ -358,7 +325,7 @@ export function getImageDisplayName(image: ExtractedImage): string {
   } else if (image.type === 'base64') {
     return 'Base64 Image';
   }
-  
+
   return 'Image';
 }
 

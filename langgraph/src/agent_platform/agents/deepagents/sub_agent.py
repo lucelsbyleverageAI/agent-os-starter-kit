@@ -241,12 +241,12 @@ async def _get_agents(
         # IMPORTANT: Trim FIRST (when images are storage paths), THEN convert images
         gp_combined_hook = None
         if gp_trimming_hook and image_preprocessor:
-            async def gp_hook(state):
+            async def gp_hook(state, cfg):
                 # 1. Trim first (when images are just storage paths ~50 tokens each)
                 trimming_result = gp_trimming_hook(state)  # Trimming hook is sync, no await
                 state = {**state, **trimming_result}
                 # 2. Then convert images to signed URLs (or base64 in local dev)
-                state = await image_preprocessor(state, config)
+                state = await image_preprocessor(state, cfg)
                 return state
             gp_combined_hook = gp_hook
         elif image_preprocessor:
@@ -374,12 +374,12 @@ async def _get_agents(
         # IMPORTANT: Trim FIRST (when images are storage paths), THEN convert images
         sub_combined_hook = None
         if sub_trimming_hook and image_preprocessor:
-            async def sub_hook(state):
+            async def sub_hook(state, cfg):
                 # 1. Trim first (when images are just storage paths ~50 tokens each)
                 trimming_result = sub_trimming_hook(state)  # Trimming hook is sync, no await
                 state = {**state, **trimming_result}
                 # 2. Then convert images to signed URLs (or base64 in local dev)
-                state = await image_preprocessor(state, config)
+                state = await image_preprocessor(state, cfg)
                 return state
             sub_combined_hook = sub_hook
         elif image_preprocessor:

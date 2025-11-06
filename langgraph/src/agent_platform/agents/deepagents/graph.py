@@ -132,12 +132,12 @@ def _agent_builder(
     # IMPORTANT: Trim FIRST (when images are storage paths), THEN convert images
     combined_pre_hook = None
     if pre_model_hook and image_hook:
-        async def combined_hook(state):
+        async def combined_hook(state, config):
             # 1. Trim first (when images are just storage paths ~50 tokens each)
             trimming_result = pre_model_hook(state)  # Trimming hook is sync, no await
             state = {**state, **trimming_result}
             # 2. Then convert images to signed URLs (or base64 in local dev)
-            state = await image_hook(state, runnable_config)
+            state = await image_hook(state, config)
             return state
         combined_pre_hook = combined_hook
     elif image_hook:

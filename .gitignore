@@ -23,7 +23,6 @@ build/
 !*.example
 .venv/
 venv/
-poetry.lock
 # VSCode
 .vscode/
 # macOS
@@ -37,7 +36,6 @@ langgraph/.coverage
 langgraph/.env
 langgraph/.venv/
 langgraph/venv/
-langgraph/poetry.lock
 langgraph/.langgraph_api
 
 # Node/Yarn/Frontend (apps/web)
@@ -99,12 +97,4 @@ node_modules/
 .mcp.json
 
 youtube_scripts/
-
-pipelines/outcomes_data/.cache/
-
-DeepAgent/
-
-test_data/
 git_strategy/
-# Large data files
-pipelines/outcomes_data/outcomes_data/public_aggregated_spreadsheets/**/*.csv

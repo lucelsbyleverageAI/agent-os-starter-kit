@@ -112,8 +112,8 @@ const getSelectedAgentValue = (
       </span>
     );
   }
-  // Return empty span to maintain consistent DOM structure and avoid hydration mismatch
-  return <span className="flex w-full items-center gap-2"></span>;
+  // Return null to avoid hydration mismatch when agent data isn't available during SSR
+  return null;
 };
 
 /**
@@ -127,8 +127,8 @@ const getMultipleSelectedAgentValues = (
   agents: AgentForDisplay[],
 ): React.ReactNode => {
   if (values.length === 0) {
-    // Return empty span to maintain consistent DOM structure and avoid hydration mismatch
-    return <span className="flex w-full items-center gap-2"></span>;
+    // Return null to avoid hydration mismatch when no agents are selected
+    return null;
   }
   if (values.length === 1) return getSelectedAgentValue(values[0], agents);
   return <span className="flex w-full items-center gap-2 text-foreground font-normal truncate">{`${values.length} agents selected`}</span>;

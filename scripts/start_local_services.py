@@ -71,32 +71,33 @@ def run_background_command(cmd: List[str], cwd: Optional[str] = None, env: Optio
     background_processes.append(process)
     return process
 
-def start_langgraph():
-    """Start LangGraph development server."""
-    print("🤖 Starting LangGraph development server...")
+def start_langgraph(production_mode: bool = False):
+    """Start LangGraph development or production server."""
+    mode_name = "production" if production_mode else "development"
+    print(f"🤖 Starting LangGraph {mode_name} server...")
 
     # Print relevant environment variables for debugging
     print("\n🔎 LangGraph environment variables:")
     print("  SUPABASE_URL:", os.environ.get("SUPABASE_URL"))
     print("  SUPABASE_ANON_KEY:", os.environ.get("SUPABASE_ANON_KEY"))
     print("")
-    
+
     script_dir = Path(__file__).parent
     project_root = script_dir.parent
     langgraph_dir = project_root / "langgraph"
-    
+
     # First install dependencies
     print("📦 Installing LangGraph dependencies...")
     subprocess.run(["poetry", "install"], cwd=str(langgraph_dir), check=True)
-    
-    # Start LangGraph dev server
+
+    # Development mode with hot reloading
     cmd = ["poetry", "run", "langgraph", "dev", "--allow-blocking"]
-    
+
     print(f"🚀 Starting: {' '.join(cmd)} (in {langgraph_dir})")
-    
+
     # Use host environment (preserves localhost URLs)
     env = os.environ.copy()
-    
+
     process = subprocess.Popen(
         cmd,
         cwd=str(langgraph_dir),
@@ -106,11 +107,11 @@ def start_langgraph():
         stderr=None
     )
     background_processes.append(process)
-    
+
     # Give it time to start up
     print("⏳ Waiting for LangGraph to start...")
     time.sleep(5)
-    
+
     # Check if it's responding
     try:
         response = requests.get("http://localhost:2024", timeout=5)
@@ -120,14 +121,10 @@ def start_langgraph():
         print("⚠️  LangGraph not yet responding (may still be starting)")
         return process
 
-def start_web_frontend(production_mode=False):
-    """Start web frontend server.
-
-    Args:
-        production_mode: If True, builds and runs in production mode. If False, runs in dev mode.
-    """
-    mode_label = "production" if production_mode else "development"
-    print(f"🌐 Starting web frontend {mode_label} server...")
+def start_web_frontend(production_mode: bool = False):
+    """Start web frontend development or production server."""
+    mode_name = "production" if production_mode else "development"
+    print(f"🌐 Starting web frontend {mode_name} server...")
 
     script_dir = Path(__file__).parent
     project_root = script_dir.parent
@@ -145,47 +142,39 @@ def start_web_frontend(production_mode=False):
         print(f"❌ Failed to install web frontend dependencies: {e}")
         return None
 
-    # Use host environment (preserves localhost URLs)
-    env = os.environ.copy()
-
+    # Build command based on mode
     if production_mode:
-        # Build the production version first
-        print(f"🏗️  Building production version (in {web_dir})...")
+        # In production mode, build first
+        print("🔨 Building web frontend for production...")
         try:
-            subprocess.run(["yarn", "build"], cwd=str(web_dir), check=True, env=env)
-            print("✅ Production build completed")
+            subprocess.run(["yarn", "build"], cwd=str(web_dir), check=True)
         except subprocess.CalledProcessError as e:
             print(f"❌ Failed to build web frontend: {e}")
             return None
 
-        # Start the production server
-        print(f"🚀 Starting: yarn run start (in {web_dir})")
-        process = subprocess.Popen(
-            ["yarn", "run", "start"],
-            cwd=str(web_dir),
-            env=env,
-            stdin=None,
-            stdout=None,
-            stderr=None
-        )
+        cmd = ["yarn", "start"]
     else:
-        # Start the development server
-        print(f"🚀 Starting: yarn run dev (in {web_dir})")
-        process = subprocess.Popen(
-            ["yarn", "run", "dev"],
-            cwd=str(web_dir),
-            env=env,
-            stdin=None,
-            stdout=None,
-            stderr=None
-        )
+        # Development mode with hot reloading
+        cmd = ["yarn", "run", "dev"]
 
+    print(f"🚀 Starting: {' '.join(cmd)} (in {web_dir})")
+
+    # Use host environment (preserves localhost URLs)
+    env = os.environ.copy()
+
+    process = subprocess.Popen(
+        cmd,
+        cwd=str(web_dir),
+        env=env,
+        stdin=None,
+        stdout=None,
+        stderr=None
+    )
     background_processes.append(process)
 
     # Give it time to start up
-    wait_time = 5 if production_mode else 8
-    print(f"⏳ Waiting for web frontend to start...")
-    time.sleep(wait_time)
+    print("⏳ Waiting for web frontend to start...")
+    time.sleep(8)
 
     # Check if it's responding
     try:
@@ -297,10 +286,11 @@ def main():
     parser = argparse.ArgumentParser(description="Start Agent Platform in local development mode")
     parser.add_argument('--skip-frontend', action='store_true', help='Skip starting web frontend')
     parser.add_argument('--skip-langgraph', action='store_true', help='Skip starting LangGraph')
-    parser.add_argument('--production-frontend', action='store_true', help='Run web frontend in production mode (build + start)')
+    parser.add_argument('--production', action='store_true', help='Run in production mode (build and start instead of dev)')
     args = parser.parse_args()
 
-    print("🚀 Starting Agent Platform in LOCAL DEVELOPMENT mode...")
+    mode_name = "PRODUCTION/DEMO" if args.production else "DEVELOPMENT"
+    print(f"🚀 Starting Agent Platform in LOCAL {mode_name} mode...")
     print("🐋 Docker: All infrastructure services")
     print("💻 Local: LangGraph + Web Frontend (optional)")
     print("📋 Using streamlined .env.local with domain-first approach")
@@ -338,14 +328,14 @@ def main():
         # Start LangGraph (optional)
         langgraph_process = None
         if not args.skip_langgraph:
-            langgraph_process = start_langgraph()
+            langgraph_process = start_langgraph(production_mode=args.production)
         else:
             print("⚠️  Skipping LangGraph (--skip-langgraph flag)")
-        
+
         # Start Web Frontend (optional)
         web_frontend_process = None
         if not args.skip_frontend:
-            web_frontend_process = start_web_frontend(production_mode=args.production_frontend)
+            web_frontend_process = start_web_frontend(production_mode=args.production)
         else:
             print("⚠️  Skipping Web Frontend (--skip-frontend flag)")
         

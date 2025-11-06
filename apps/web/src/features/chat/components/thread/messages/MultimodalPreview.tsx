@@ -92,7 +92,6 @@ export const MultimodalPreview: React.FC<MultimodalPreviewProps> = ({
     const bucket = String(block.metadata?.bucket || 'chat-uploads');
     const displayUrl = `/api/langconnect/storage/image?path=${encodeURIComponent(storagePath)}&bucket=${encodeURIComponent(bucket)}`;
     const imageTitle = String(block.metadata?.name || "uploaded image");
-
     let imgClass: string = "rounded-xl object-cover h-16 w-16 text-lg";
     if (size === "sm") imgClass = "rounded-xl object-cover h-10 w-10 text-base";
     if (size === "lg") imgClass = "rounded-xl object-cover h-24 w-24 text-xl";

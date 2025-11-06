@@ -1008,6 +1008,24 @@ async def touch_thread_in_mirror(
                 last_message_at,
             )
 
+            # Increment message count and trigger naming at intervals (1, 5, 10, 15, 20...)
+            # Only if user hasn't manually renamed the thread
+            await conn.execute(
+                """
+                UPDATE langconnect.threads_mirror
+                SET
+                    message_count = message_count + 1,
+                    needs_naming = CASE
+                        WHEN user_renamed = true THEN false
+                        WHEN message_count + 1 IN (1, 5) THEN true
+                        WHEN (message_count + 1) % 5 = 0 AND message_count + 1 > 5 THEN true
+                        ELSE needs_naming
+                    END
+                WHERE thread_id = $1
+                """,
+                thread_id
+            )
+
             # Return current threads_version for client cache invalidation
             cache_state = await conn.fetchrow(
                 "SELECT threads_version FROM langconnect.cache_state WHERE id = 1"
@@ -1167,6 +1185,67 @@ async def rename_thread_in_mirror(
     except Exception as e:
         log.error(f"Failed to rename thread {thread_id}: {e}")
         raise HTTPException(status_code=500, detail=f"Failed to rename thread: {str(e)}")
+
+
+@router.post("/threads/{thread_id}/regenerate-name")
+async def regenerate_thread_name(
+    thread_id: str,
+    actor: Annotated[AuthenticatedActor, Depends(resolve_user_or_service)],
+    db_pool: Annotated[asyncpg.Pool, Depends(get_db_pool)]
+) -> Dict[str, Any]:
+    """
+    Queue a thread for AI name/summary regeneration.
+
+    This endpoint allows users to request AI-generated naming for their threads.
+    The naming will be performed by the background naming service.
+
+    Only the thread owner can regenerate their thread names.
+    """
+    try:
+        log.info(f"[threads:regenerate] actor={actor.identity} thread_id={thread_id}")
+
+        async with db_pool.acquire() as conn:
+            # Check if thread exists and user owns it
+            existing = await conn.fetchrow(
+                "SELECT thread_id, user_id FROM langconnect.threads_mirror WHERE thread_id = $1",
+                thread_id
+            )
+
+            if not existing:
+                raise HTTPException(status_code=404, detail="Thread not found")
+
+            # Permission check - only thread owner can regenerate
+            if str(existing["user_id"]) != actor.identity:
+                raise HTTPException(status_code=403, detail="You can only regenerate names for your own threads")
+
+            # Set flags to queue for AI naming
+            # Reset user_renamed flag to allow AI naming again
+            await conn.execute(
+                """
+                UPDATE langconnect.threads_mirror
+                SET
+                    needs_naming = true,
+                    user_renamed = false,
+                    last_naming_at = NULL,
+                    updated_at = NOW()
+                WHERE thread_id = $1
+                """,
+                thread_id
+            )
+
+            log.info(f"[threads:regenerate] Queued thread {thread_id} for AI naming")
+
+        return {
+            "success": True,
+            "thread_id": thread_id,
+            "message": "Thread queued for AI naming. This may take a few moments."
+        }
+
+    except HTTPException:
+        raise
+    except Exception as e:
+        log.error(f"Failed to queue thread {thread_id} for regeneration: {e}")
+        raise HTTPException(status_code=500, detail=f"Failed to queue thread for regeneration: {str(e)}")
 
 
 @router.post("/sync/assistant/{assistant_id}")

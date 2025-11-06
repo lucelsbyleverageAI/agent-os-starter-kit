@@ -9,7 +9,12 @@ export const runtime = "nodejs";
  * Supports: headings, bold, italic, lists, code blocks, tables, horizontal rules, and paragraphs
  */
 function markdownToHtml(markdown: string): string {
-  let html = markdown;
+  // Sanitize input
+  if (!markdown || typeof markdown !== 'string') {
+    return '<p>No content available</p>';
+  }
+
+  let html = markdown.trim();
 
   // Horizontal rules (--- or ***)
   html = html.replace(/^[\s]*[-*]{3,}[\s]*$/gm, "<hr/>");
@@ -82,26 +87,26 @@ function markdownToHtml(markdown: string): string {
   const paragraphs = html.split(/\n\n+/).filter((p) => p.trim());
   html = paragraphs
     .map((para) => {
+      const trimmed = para.trim();
+      if (!trimmed) return '';
+
       // Skip if already a block element
       if (
-        para.trim().startsWith("<") &&
-        (para.includes("<h") ||
-          para.includes("<ul>") ||
-          para.includes("<ol>") ||
-          para.includes("<pre>") ||
-          para.includes("<li>") ||
-          para.includes("<table>") ||
-          para.includes("<hr"))
+        trimmed.startsWith("<") &&
+        (trimmed.match(/<(h[1-6]|ul|ol|pre|table|hr|li)[\s>]/i))
       ) {
-        return para;
+        return trimmed;
       }
-      // Wrap in paragraph if it's plain text
-      if (para.trim() && !para.trim().startsWith("<")) {
-        return `<p>${para}</p>`;
+      // Wrap in paragraph if it's plain text or inline elements only
+      if (trimmed && !trimmed.startsWith("<p")) {
+        // Clean up any stray newlines within the paragraph
+        const cleanPara = trimmed.replace(/\n/g, ' ');
+        return `<p>${cleanPara}</p>`;
       }
-      return para;
+      return trimmed;
     })
-    .join("");
+    .filter(p => p)
+    .join("\n");
 
   return html;
 }
@@ -130,6 +135,9 @@ export async function POST(request: NextRequest) {
   try {
     const { content, filename = "document" } = await request.json();
 
+    console.log(`📄 Converting markdown to DOCX: "${filename}"`);
+    console.log(`📏 Content length: ${content?.length || 0} characters`);
+
     if (!content || typeof content !== "string") {
       return NextResponse.json(
         { error: "Content is required and must be a string" },
@@ -139,6 +147,14 @@ export async function POST(request: NextRequest) {
 
     // Convert markdown to HTML
     const htmlContent = markdownToHtml(content);
+    console.log(`✅ Markdown converted to HTML: ${htmlContent.length} characters`);
+
+    if (!htmlContent) {
+      return NextResponse.json(
+        { error: "Failed to convert markdown to HTML" },
+        { status: 500 }
+      );
+    }
 
     // Create complete HTML document with simplified, compatible styling
     const html = `
@@ -257,21 +273,62 @@ export async function POST(request: NextRequest) {
     `;
 
     // Generate DOCX buffer using html-to-docx with simplified options
-    const docxBuffer = await HTMLtoDOCX(html, null, {
-      table: {
-        row: { cantSplit: true },
-      },
-      footer: false,
-      pageNumber: false,
-    });
+    console.log(`🔄 Generating DOCX from HTML...`);
+    let docxBuffer;
+    try {
+      docxBuffer = await HTMLtoDOCX(html, null, {
+        table: {
+          row: { cantSplit: true },
+        },
+        footer: false,
+        pageNumber: false,
+      });
+
+      if (!docxBuffer) {
+        throw new Error("HTMLtoDOCX returned empty buffer");
+      }
+      console.log(`✅ DOCX buffer generated successfully`);
+    } catch (docxError) {
+      console.error("❌ HTMLtoDOCX conversion error:", docxError);
+      return NextResponse.json(
+        {
+          error: "Failed to generate DOCX file",
+          details: docxError instanceof Error ? docxError.message : String(docxError)
+        },
+        { status: 500 }
+      );
+    }
+
+    // Ensure buffer is properly formatted
+    let buffer: Buffer;
+    try {
+      buffer = Buffer.isBuffer(docxBuffer) ? docxBuffer : Buffer.from(docxBuffer);
+
+      // Validate buffer size
+      if (buffer.length === 0) {
+        throw new Error("Generated DOCX buffer is empty");
+      }
+      console.log(`✅ Buffer created: ${buffer.length} bytes`);
+    } catch (bufferError) {
+      console.error("❌ Buffer conversion error:", bufferError);
+      return NextResponse.json(
+        {
+          error: "Failed to create document buffer",
+          details: bufferError instanceof Error ? bufferError.message : String(bufferError)
+        },
+        { status: 500 }
+      );
+    }
 
     // Return the DOCX file
-    return new NextResponse(docxBuffer, {
+    console.log(`📦 Returning DOCX file: ${filename}.docx (${buffer.length} bytes)`);
+    return new NextResponse(buffer, {
       status: 200,
       headers: {
         "Content-Type":
           "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
-        "Content-Disposition": `attachment; filename="${filename}.docx"`,
+        "Content-Disposition": `attachment; filename="${encodeURIComponent(filename)}.docx"`,
+        "Content-Length": buffer.length.toString(),
       },
     });
   } catch (error) {

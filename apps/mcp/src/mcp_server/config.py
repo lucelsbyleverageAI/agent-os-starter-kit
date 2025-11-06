@@ -3,7 +3,7 @@
 import os
 from typing import List, Optional
 
-from pydantic import Field, AliasChoices
+from pydantic import Field
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 
@@ -34,20 +34,6 @@ class Settings(BaseSettings):
         default=None, description="E2B API key for code sandbox execution"
     )
 
-    # Sandbox Configuration
-    sandbox_mode: str = Field(
-        default="auto",
-        description="Sandbox mode: 'auto' (detect), 'local' (Docker), 'e2b' (cloud)"
-    )
-    docker_network_name: str = Field(
-        default="e18-agent-os_default",
-        description="Docker network name for local sandboxes"
-    )
-    environment: str = Field(
-        default="development",
-        description="Environment: development, staging, production"
-    )
-
     # MCP Server Configuration
     mcp_server_port: int = Field(default=8000, description="MCP server port")
     mcp_server_host: str = Field(default="0.0.0.0", description="MCP server host")
@@ -59,13 +45,15 @@ class Settings(BaseSettings):
     # Authentication Configuration
     auth_provider: str = Field(default="supabase", description="Authentication provider")
     supabase_url: Optional[str] = Field(default=None, description="Supabase URL")
+    supabase_public_url: Optional[str] = Field(
+        default=None,
+        description="Public Supabase URL for browser-accessible signed URLs (falls back to supabase_url if not set)"
+    )
     supabase_anon_key: Optional[str] = Field(
         default=None, description="Supabase anonymous key"
     )
-    supabase_service_role_key: Optional[str] = Field(
-        default=None,
-        description="Supabase service role key",
-        validation_alias=AliasChoices('supabase_service_role_key', 'supabase_service_key')
+    supabase_service_key: Optional[str] = Field(
+        default=None, description="Supabase service role key"
     )
     
     # OAuth 2.1 and MCP Authentication Configuration
@@ -96,37 +84,6 @@ class Settings(BaseSettings):
     # MCP Token Configuration
     mcp_token_signing_secret: Optional[str] = Field(
         default=None, description="Secret for signing/validating MCP access tokens"
-    )
-
-    # GCP Storage Configuration
-    gcp_project_id: Optional[str] = Field(
-        default=None, description="GCP Project ID for cloud storage"
-    )
-    gcp_storage_bucket: str = Field(
-        default="agent-platform-images", description="GCP Storage bucket for images"
-    )
-    gcp_service_account_key: Optional[str] = Field(
-        default=None, description="Base64 encoded GCP service account key"
-    )
-    gcp_credentials_path: Optional[str] = Field(
-        default=None, description="Path to GCP service account credentials JSON"
-    )
-    gcp_credentials_json: Optional[str] = Field(
-        default=None, description="GCP service account credentials JSON string"
-    )
-    
-    # Image Storage Configuration
-    image_storage_enabled: bool = Field(
-        default=True, description="Enable cloud image storage"
-    )
-    image_base_url: Optional[str] = Field(
-        default=None, description="Base URL for serving images (if using CDN)"
-    )
-    image_url_expiry_hours: int = Field(
-        default=24, description="Signed URL expiry time in hours (0 for public URLs)"
-    )
-    image_public_access: bool = Field(
-        default=False, description="Enable public access URLs (no expiry, no signatures)"
     )
 
     # Custom Tools Configuration

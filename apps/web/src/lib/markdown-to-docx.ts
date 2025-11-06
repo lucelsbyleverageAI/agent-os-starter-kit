@@ -14,8 +14,8 @@ export async function downloadMarkdownAsDocx(
   filename: string
 ): Promise<void> {
   try {
-    // Call server-side API to convert markdown to DOCX
-    const response = await fetch("/api/convert/markdown-to-docx", {
+    // Call server-side API to convert markdown to DOCX (using v2 endpoint with docx library)
+    const response = await fetch("/api/convert/markdown-to-docx-v2", {
       method: "POST",
       headers: {
         "Content-Type": "application/json",

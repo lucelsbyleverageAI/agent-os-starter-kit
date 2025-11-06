@@ -584,9 +584,10 @@ services:
       - MCP_SERVER_LOG_NAME=custom-mcp-server
       - MCP_SERVICE_ACCOUNT_KEY=${MCP_SERVICE_ACCOUNT_KEY}
       - MCP_TOKEN_SIGNING_SECRET=${MCP_TOKEN_SIGNING_SECRET}
-      # Authentication (internal Supabase URLs - container network)
+      # Authentication and Storage
       - AUTH_PROVIDER=supabase
-      - SUPABASE_URL=http://kong:8000
+      - SUPABASE_URL=http://kong:8000  # Internal Docker network URL for auth/operations
+      - SUPABASE_PUBLIC_URL=${SUPABASE_PUBLIC_URL}  # Public URL for storage signed URLs (http://localhost:8000)
       - SUPABASE_ANON_KEY=${SUPABASE_ANON_KEY}
       - SUPABASE_SERVICE_KEY=${SUPABASE_SERVICE_KEY}
       # External API keys

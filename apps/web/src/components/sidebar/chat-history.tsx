@@ -15,6 +15,7 @@ import { useAgentsContext } from "@/providers/Agents";
 import { fetchWithAuth } from "@/lib/auth/fetch-with-auth";
 // import { createClient } from "@/lib/client"; // Removed unused import
 import { toast } from "sonner";
+import { useCachePolling } from "@/hooks/use-cache-polling";
 
 import { cn } from "@/lib/utils";
 import { getScrollbarClasses } from "@/lib/scrollbar-styles";
@@ -210,6 +211,9 @@ export function ChatHistory() {
   const [renamingThreadId, setRenamingThreadId] = useState<string | null>(null);
   const [renameValue, setRenameValue] = useState<string>("");
   const [isRenaming, setIsRenaming] = useState(false);
+
+  // Poll cache state for auto-refresh on thread naming updates
+  const { threadsVersion } = useCachePolling();
 
   // Keep sessionRef in sync with latest session
   useEffect(() => {
@@ -456,7 +460,24 @@ export function ChatHistory() {
     window.addEventListener('refreshThreads', handleRefreshThreads);
     return () => window.removeEventListener('refreshThreads', handleRefreshThreads);
   }, []); // No dependencies - stable event listener
-  
+
+  /**
+   * Auto-refresh when threads version changes (multi-tab sync & background naming)
+   *
+   * This enables:
+   * - Tab A: Thread gets AI-generated name → backend increments threads_version
+   * - Tab B: Polling detects new version → refreshes thread list → sees updated name
+   *
+   * Pattern matches Agents Provider for consistent multi-tab synchronization.
+   */
+  useEffect(() => {
+    if (threadsVersion !== null && sessionRef.current?.accessToken) {
+      const agentFilter = selectedAgentValue === "all" ? undefined : selectedAgentValue;
+      // Background refresh to avoid loading skeleton flash
+      fetchThreads(agentFilter, false, threadsVersion, true);
+    }
+  }, [threadsVersion, fetchThreads]);
+
   // Keep the ref in sync with the current selected agent value to avoid stale closures
   useEffect(() => {
     selectedAgentRef.current = selectedAgentValue;
