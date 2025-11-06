@@ -1,0 +1,92 @@
+# Git Attributes for E18 Agent OS
+# Defines merge strategies for client-specific customizations
+
+# =============================================================================
+# CLIENT-SPECIFIC FILES - Always keep E18 version (ours) during template merge
+# =============================================================================
+
+# Multi-repo management documentation (never sync to template)
+CLIENT_CUSTOMIZATIONS.md merge=ours
+TEMPLATE_VERSION.txt merge=ours
+
+# NHS Outcomes Data Pipeline (E18-specific)
+.github/workflows/outcomes-data-pipeline.yml merge=ours
+
+# Client branding assets (E18-specific logos, favicons, etc.)
+apps/web/public/favicon.ico merge=ours
+apps/web/public/logo.* merge=ours
+apps/web/public/*-icon*.png merge=ours
+apps/web/public/manifest.json merge=ours
+
+# =============================================================================
+# CONFIGURATION FILES - Review required (may need manual merge)
+# =============================================================================
+
+# Note: These files use default merge. Conflicts require manual resolution
+# to preserve both template improvements AND E18-specific settings.
+
+# Environment configuration (merge template vars + E18-specific vars)
+# .env.local.example merge=union
+
+# Production deployment (merge template structure + E18 domains/routing)
+# docker-compose.production.yml merge=union
+
+# =============================================================================
+# CORE PLATFORM FILES - Accept template changes (theirs) by default
+# =============================================================================
+
+# LangGraph core agent code (template wins)
+langgraph/src/agent_platform/core/** merge=theirs
+langgraph/src/agent_platform/utils/** merge=theirs
+
+# LangConnect RAG engine (template wins)
+apps/langconnect/langconnect/core/** merge=theirs
+apps/langconnect/langconnect/rag/** merge=theirs
+
+# MCP server core (template wins)
+apps/mcp/src/mcp_server/core/** merge=theirs
+apps/mcp/src/mcp_server/server.py merge=theirs
+
+# =============================================================================
+# GIT LFS CONFIGURATION (if large files added in future)
+# =============================================================================
+
+# Large assets
+*.psd filter=lfs diff=lfs merge=lfs -text
+*.ai filter=lfs diff=lfs merge=lfs -text
+*.zip filter=lfs diff=lfs merge=lfs -text
+
+# =============================================================================
+# LINE ENDING NORMALIZATION
+# =============================================================================
+
+# Auto detect text files and normalize line endings to LF
+* text=auto
+
+# Force LF for specific file types
+*.sh text eol=lf
+*.py text eol=lf
+*.js text eol=lf
+*.jsx text eol=lf
+*.ts text eol=lf
+*.tsx text eol=lf
+*.json text eol=lf
+*.md text eol=lf
+*.yml text eol=lf
+*.yaml text eol=lf
+
+# Force CRLF for Windows batch files
+*.bat text eol=crlf
+*.cmd text eol=crlf
+
+# Binary files
+*.png binary
+*.jpg binary
+*.jpeg binary
+*.gif binary
+*.ico binary
+*.pdf binary
+*.woff binary
+*.woff2 binary
+*.ttf binary
+*.eot binary

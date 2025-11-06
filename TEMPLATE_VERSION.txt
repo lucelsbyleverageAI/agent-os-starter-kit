@@ -1,0 +1,30 @@
+# Template Version Tracking
+
+This file tracks which version of the agent-os-starter-kit template this client repository is synchronized with.
+
+**Template Repository**: https://github.com/lucelsbyleverageAI/agent-os-starter-kit
+
+## Current Sync Status
+
+**Template Version**: pre-v1.0.0
+**Sync Date**: 2025-11-06
+**Synced By**: Luc
+**Branch**: development
+
+## Sync History
+
+- **2025-11-06**: Initial TEMPLATE_VERSION.txt created before first structured sync
+  - Client repo was based on early template version (pre-v1.0.0)
+  - Client is 21 commits behind template/main
+  - About to sync to v1.0.1 (latest release)
+
+## Next Sync Target
+
+Target: v1.0.1 (includes 21 commits with production fixes and features)
+
+## Notes
+
+After successful merge, this file should be updated to reflect:
+- New template version (v1.0.1)
+- Any conflicts that required manual resolution
+- Any client-specific customizations that were preserved
