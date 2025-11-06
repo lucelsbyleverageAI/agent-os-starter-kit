@@ -368,7 +368,7 @@ services:
     networks:
       - coolify
     labels:
-      - caddy=supabase.yourdomain.com
+      - caddy=supabase.e18-apps.com
       - caddy.reverse_proxy={{upstreams 8000}}
     environment:
       KONG_DATABASE: "off"
@@ -542,7 +542,7 @@ services:
         aliases:
           - langconnect-prod
     labels:
-      - caddy=langconnect.yourdomain.com
+      - caddy=langconnect.e18-apps.com
       - caddy.reverse_proxy={{upstreams 8080}}
     environment:
       # Database connection
@@ -604,7 +604,7 @@ services:
     networks:
       - coolify
     labels:
-      - caddy=mcp.yourdomain.com
+      - caddy=mcp.e18-apps.com
       - caddy.reverse_proxy={{upstreams 8001}}
     environment:
       # Server configuration
@@ -694,7 +694,7 @@ services:
     networks:
       - coolify
     labels:
-      - caddy=app.yourdomain.com
+      - caddy=app.e18-apps.com
       - caddy.reverse_proxy={{upstreams 3000}}
     environment:
       - NODE_ENV=production
@@ -787,7 +787,7 @@ services:
     networks:
       - coolify
     labels:
-      - caddy=n8n.yourdomain.com
+      - caddy=n8n.e18-apps.com
       - caddy.reverse_proxy={{upstreams 5678}}
     environment:
       # Database configuration (use shared Supabase PostgreSQL)
@@ -847,7 +847,7 @@ services:
     networks:
       - coolify
     labels:
-      - caddy=windmill.yourdomain.com
+      - caddy=windmill.e18-apps.com
       - caddy.reverse_proxy={{upstreams 8000}}
     environment:
       - DATABASE_URL=postgres://${SERVICE_USER_POSTGRES}:${SERVICE_PASSWORD_POSTGRES}@windmill-db-prod:5432/windmill-db
