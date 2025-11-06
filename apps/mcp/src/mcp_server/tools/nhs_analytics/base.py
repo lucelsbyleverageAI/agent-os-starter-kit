@@ -183,7 +183,7 @@ class NHSStorageClient:
     def __init__(self):
         """Initialize storage client."""
         self.supabase_url = settings.supabase_url
-        self.supabase_service_key = settings.supabase_service_role_key
+        self.supabase_service_key = settings.supabase_service_key
 
         if not self.supabase_url or not self.supabase_service_key:
             logger.warning("Supabase storage not configured - file uploads will fail")
