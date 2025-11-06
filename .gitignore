@@ -98,3 +98,7 @@ node_modules/
 
 youtube_scripts/
 git_strategy/
+
+# E18 NHS Data - Large spreadsheet files (keep locally, exclude from git)
+pipelines/outcomes_data/outcomes_data/public_aggregated_spreadsheets/
+pipelines/outcomes_data/.cache/
