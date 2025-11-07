@@ -360,6 +360,38 @@ MIGRATION_RESET_SCHEMA=true make start-dev
 - Review agent logs in LangGraph terminal output
 - Check tool execution logs in MCP server output
 
+### Migrating Collections Between Environments
+The platform includes a robust collection transfer system for moving knowledge bases between environments (local ↔ staging ↔ production).
+
+**Quick migration workflow:**
+```bash
+# 1. Configure environments and user mappings (one-time setup)
+vim database/transfer_configs/environments.yml
+vim database/transfer_configs/user_mappings.yml
+
+# 2. For production: Set up SSH tunnel (one-time configuration)
+vim database/collection_transfer/tunnel_to_production.sh  # Configure SSH host and DB IP
+./database/collection_transfer/tunnel_to_production.sh &
+
+# 3. Export collections
+make export-collection ENV=local  # Export all collections
+
+# 4. Validate import with dry-run
+make import-collection FILE=database/exports/all_collections_*.json ENV=production DRY_RUN=true
+
+# 5. Import to production
+make import-collection FILE=database/exports/all_collections_*.json ENV=production
+```
+
+**Key features:**
+- Automatic user ID mapping via email matching
+- Permission preservation with fallback to default owner
+- Transaction-safe imports with rollback on failure
+- SSH tunneling support for secure production access
+- Dry-run validation before actual import
+
+For detailed documentation, see `database/collection_transfer/README.md`
+
 ## Important Notes
 
 - **Do not commit `.env.local`** - contains secrets

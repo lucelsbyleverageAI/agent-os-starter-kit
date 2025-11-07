@@ -5,8 +5,10 @@
 #   make stop          - Stop all services
 #   make clean         - Stop all services and remove volumes (WARNING: Deletes all data!)
 #   make export-n8n    - Export n8n workflows and credentials to repo folders
+#   make export-collection NAME="Collection Name" - Export a collection from local
+#   make import-collection FILE=export.json ENV=production - Import a collection
 
-.PHONY: start-dev start-demo stop clean-reset export-n8n help
+.PHONY: start-dev start-demo stop clean-reset export-n8n export-collection import-collection help
 
 # Default target
 help:
@@ -27,11 +29,19 @@ help:
 	@echo "  make export-n8n    - Export n8n workflows and credentials to repo folders"
 	@echo "                      📁 Saves current n8n data for version control"
 	@echo ""
+	@echo "Collection Migration:"
+	@echo "  make export-collection NAME=\"Collection Name\" [ENV=local]"
+	@echo "                      📤 Export a collection to JSON file"
+	@echo ""
+	@echo "  make import-collection FILE=export.json ENV=production"
+	@echo "                      📥 Import a collection from JSON file"
+	@echo "                      Add DRY_RUN=true to validate without importing"
+	@echo ""
 	@echo "Prerequisites:"
 	@echo "  - .env.local file in project root"
 	@echo "  - Docker, Poetry, Yarn installed"
 	@echo ""
-	@echo "For detailed usage, see scripts/README.md"
+	@echo "For detailed usage, see scripts/README.md and database/collection_transfer/README.md"
 
 # Start complete development stack
 start-dev:
@@ -63,3 +73,41 @@ export-n8n:
 	@echo "📁 Exporting n8n workflows and credentials..."
 	@poetry install
 	@./scripts/export-n8n.sh
+
+# Collection migration commands
+export-collection:
+	@if [ -z "$(NAME)" ]; then \
+		echo "❌ Error: NAME parameter required"; \
+		echo "Usage: make export-collection NAME=\"Collection Name\" [ENV=local]"; \
+		exit 1; \
+	fi
+	@echo "📤 Exporting collection: $(NAME)"
+	@python database/collection_transfer/export_collections.py \
+		--collection-name "$(NAME)" \
+		--source-env $(or $(ENV),local) \
+		--output database/exports/$(shell echo "$(NAME)" | tr ' ' '_' | tr '[:upper:]' '[:lower:]')_$(shell date +%Y%m%d_%H%M%S).json \
+		--pretty
+
+import-collection:
+	@if [ -z "$(FILE)" ]; then \
+		echo "❌ Error: FILE parameter required"; \
+		echo "Usage: make import-collection FILE=export.json ENV=production [DRY_RUN=true]"; \
+		exit 1; \
+	fi
+	@if [ -z "$(ENV)" ]; then \
+		echo "❌ Error: ENV parameter required"; \
+		echo "Usage: make import-collection FILE=export.json ENV=production [DRY_RUN=true]"; \
+		exit 1; \
+	fi
+	@if [ "$(DRY_RUN)" = "true" ]; then \
+		echo "🔍 Validating import (dry-run): $(FILE) → $(ENV)"; \
+		python database/collection_transfer/import_collections.py \
+			--file $(FILE) \
+			--target-env $(ENV) \
+			--dry-run; \
+	else \
+		echo "📥 Importing collection: $(FILE) → $(ENV)"; \
+		python database/collection_transfer/import_collections.py \
+			--file $(FILE) \
+			--target-env $(ENV); \
+	fi
