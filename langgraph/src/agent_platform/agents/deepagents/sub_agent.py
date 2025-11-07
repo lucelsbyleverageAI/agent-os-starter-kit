@@ -191,6 +191,40 @@ async def _get_tools_for_sub_agent(
     return tools
 
 
+def _create_combined_hook(trimming_hook: Optional[Callable], img_preprocessor: Optional[Callable]) -> Optional[Callable]:
+    """
+    Factory function to properly capture hook instances in closure.
+
+    This prevents Python closure bugs where loop variables are captured by reference
+    instead of by value, ensuring each agent gets its own independent hook with
+    properly captured variables.
+
+    Args:
+        trimming_hook: Optional message trimming hook (sync function)
+        img_preprocessor: Optional image preprocessing hook (async function)
+
+    Returns:
+        Combined async hook function or None if neither hook is provided
+    """
+    if trimming_hook and img_preprocessor:
+        async def combined_hook(state, config):
+            # 1. Trim first (when images are just storage paths ~50 tokens each)
+            trimming_result = trimming_hook(state)  # Trimming hook is sync, no await
+            state = {**state, **trimming_result}
+            # 2. Then convert images to signed URLs (or base64 in local dev)
+            state = await img_preprocessor(state, config)
+            return state
+        return combined_hook
+    elif img_preprocessor:
+        return img_preprocessor
+    elif trimming_hook:
+        # Wrap trimming_hook to accept (state, config) signature expected by LangGraph
+        def wrapped_trimming_hook(state, config):
+            return trimming_hook(state)
+        return wrapped_trimming_hook
+    return None
+
+
 async def _get_agents(
     tools,
     instructions,
@@ -239,20 +273,7 @@ async def _get_agents(
 
         # Combine image preprocessor with trimming hook
         # IMPORTANT: Trim FIRST (when images are storage paths), THEN convert images
-        gp_combined_hook = None
-        if gp_trimming_hook and image_preprocessor:
-            async def gp_hook(state, cfg):
-                # 1. Trim first (when images are just storage paths ~50 tokens each)
-                trimming_result = gp_trimming_hook(state)  # Trimming hook is sync, no await
-                state = {**state, **trimming_result}
-                # 2. Then convert images to signed URLs (or base64 in local dev)
-                state = await image_preprocessor(state, cfg)
-                return state
-            gp_combined_hook = gp_hook
-        elif image_preprocessor:
-            gp_combined_hook = image_preprocessor
-        elif gp_trimming_hook:
-            gp_combined_hook = gp_trimming_hook
+        gp_combined_hook = _create_combined_hook(gp_trimming_hook, image_preprocessor)
 
         agents["general-purpose"] = custom_create_react_agent(
             model,
@@ -372,20 +393,7 @@ async def _get_agents(
 
         # Combine image preprocessor with trimming hook
         # IMPORTANT: Trim FIRST (when images are storage paths), THEN convert images
-        sub_combined_hook = None
-        if sub_trimming_hook and image_preprocessor:
-            async def sub_hook(state, cfg):
-                # 1. Trim first (when images are just storage paths ~50 tokens each)
-                trimming_result = sub_trimming_hook(state)  # Trimming hook is sync, no await
-                state = {**state, **trimming_result}
-                # 2. Then convert images to signed URLs (or base64 in local dev)
-                state = await image_preprocessor(state, cfg)
-                return state
-            sub_combined_hook = sub_hook
-        elif image_preprocessor:
-            sub_combined_hook = image_preprocessor
-        elif sub_trimming_hook:
-            sub_combined_hook = sub_trimming_hook
+        sub_combined_hook = _create_combined_hook(sub_trimming_hook, image_preprocessor)
 
         logger.info("[SUB_AGENT] tools_assigned agent=%s total=%s", agent_name, len(_tools))
         agents[agent_name] = custom_create_react_agent(
