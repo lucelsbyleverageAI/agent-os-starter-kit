@@ -1,0 +1,5 @@
+# Ignore all export files (they contain actual data)
+*
+
+# But keep this directory
+!.gitignore
