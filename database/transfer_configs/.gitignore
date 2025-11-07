@@ -1,0 +1,7 @@
+# Ignore local overrides (may contain sensitive connection details)
+local_overrides.yml
+*.local.yml
+
+# Keep the example/template files
+!environments.yml
+!user_mappings.yml
