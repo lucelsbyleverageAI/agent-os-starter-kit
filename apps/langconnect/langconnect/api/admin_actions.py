@@ -5,6 +5,7 @@ This module contains admin-only endpoints that are separate from regular user wo
 These operations are typically performed by dev_admins to set up and maintain the platform.
 """
 
+import json
 import logging
 import time
 from typing import Annotated, Dict, List, Any
@@ -635,4 +636,267 @@ async def get_mirror_status(
         raise HTTPException(
             status_code=500,
             detail=f"Failed to get mirror status: {str(e)}"
+        )
+
+
+@router.post("/reverse-sync-assistants")
+async def reverse_sync_assistants(
+    actor: Annotated[AuthenticatedActor, Depends(resolve_user_or_service)],
+    langgraph_service: Annotated[LangGraphService, Depends(get_langgraph_service)],
+) -> Dict[str, Any]:
+    """
+    Admin endpoint to reverse sync assistants from UI database to LangGraph.
+
+    This recreates all assistants in the local LangGraph deployment while preserving
+    thread references and permissions. Useful for local development when LangGraph
+    state is lost but database state remains.
+
+    **Authorization:**
+    - **Dev Admins**: Can reverse sync assistants
+    - **Service Accounts**: Can reverse sync assistants
+    - **Regular Users**: 403 Forbidden
+
+    **Process:**
+    - Fetches all assistants from assistants_mirror table
+    - Creates each assistant in LangGraph with same config
+    - Updates database references (threads, permissions) to new assistant IDs
+    - Preserves all thread history and permission relationships
+    """
+    start_time = time.time()
+
+    try:
+        log.info(f"Reverse sync assistants requested by {actor.actor_type}:{actor.identity}")
+
+        # Permission check - only dev_admins or service accounts
+        if actor.actor_type == "user":
+            user_role = await GraphPermissionsManager.get_user_role(actor.identity)
+            if user_role != "dev_admin":
+                raise HTTPException(
+                    status_code=403,
+                    detail="Only dev_admin users can reverse sync assistants"
+                )
+
+        # Fetch only user-created assistants from database (exclude system template assistants)
+        # Template assistants have metadata->>'created_by' = 'system'
+        async with get_db_connection() as conn:
+            assistants = await conn.fetch(
+                """
+                SELECT assistant_id, graph_id, name, description, config, metadata
+                FROM langconnect.assistants_mirror
+                WHERE (metadata->>'created_by' IS NULL OR metadata->>'created_by' != 'system')
+                  AND metadata ? 'owner'
+                ORDER BY created_at
+                """
+            )
+
+        total_assistants = len(assistants)
+        recreated_count = 0
+        failed_count = 0
+        failed_assistants = []
+
+        log.info(f"Found {total_assistants} assistants to recreate in LangGraph")
+
+        # Recreate each assistant
+        for assistant in assistants:
+            old_id = str(assistant["assistant_id"])
+            assistant_name = assistant["name"]
+            payload = None
+
+            try:
+                # Create assistant in LangGraph
+                log.info(f"Creating assistant '{assistant_name}' (old ID: {old_id}) in LangGraph")
+
+                # Prepare payload with proper None handling
+                payload = {
+                    "graph_id": assistant["graph_id"],
+                    "name": assistant["name"],
+                }
+
+                # Only add optional fields if they have values
+                if assistant["description"]:
+                    payload["description"] = assistant["description"]
+
+                # Parse config - handle both dict and JSON string
+                if assistant["config"]:
+                    config_value = assistant["config"]
+                    if isinstance(config_value, str):
+                        try:
+                            payload["config"] = json.loads(config_value)
+                        except json.JSONDecodeError:
+                            log.error(f"Invalid JSON in config for '{assistant_name}': {config_value[:100]}")
+                            raise ValueError(f"Invalid config JSON for assistant '{assistant_name}'")
+                    else:
+                        payload["config"] = config_value
+
+                # Parse metadata - use robust defensive parsing
+                if assistant["metadata"]:
+                    from langconnect.utils.metadata_validation import parse_metadata_safe
+
+                    metadata_value = assistant["metadata"]
+                    # Use robust parsing to handle all corruption cases
+                    parsed_metadata = parse_metadata_safe(metadata_value, "metadata")
+
+                    # Add owner if not present (fallback safety)
+                    if "owner" not in parsed_metadata:
+                        parsed_metadata["owner"] = str(assistant.get("owner", "unknown"))
+
+                    payload["metadata"] = parsed_metadata
+                else:
+                    # No metadata in DB - create minimal metadata
+                    payload["metadata"] = {"owner": str(assistant.get("owner", "unknown"))}
+
+                # Sanitize payload to prevent corruption propagation
+                from langconnect.utils.metadata_validation import sanitize_langgraph_payload
+                payload = sanitize_langgraph_payload(payload)
+
+                log.info(f"Payload for '{assistant_name}': graph_id={payload['graph_id']}, name={payload['name']}, has_config={bool(payload.get('config'))}, has_metadata={bool(payload.get('metadata'))}")
+
+                create_response = await langgraph_service._make_request(
+                    "POST",
+                    "assistants",
+                    data=payload
+                )
+
+                new_id = create_response["assistant_id"]
+                log.info(f"Created assistant '{assistant_name}' with new ID: {new_id}")
+
+                # Update database references in transaction
+                async with get_db_connection() as conn:
+                    async with conn.transaction():
+                        # CRITICAL: Insert new assistant into mirror FIRST to satisfy FK constraints
+                        # This must happen before any updates to threads_mirror, assistant_permissions, etc.
+                        await conn.execute(
+                            """
+                            INSERT INTO langconnect.assistants_mirror
+                            (assistant_id, graph_id, name, description, config, metadata, context,
+                             version, langgraph_created_at, langgraph_updated_at, langgraph_hash, last_seen_at)
+                            VALUES ($1, $2, $3, $4, $5::jsonb, $6::jsonb, $7::jsonb, $8, NOW(), NOW(), $9, NOW())
+                            """,
+                            UUID(new_id),
+                            create_response["graph_id"],
+                            create_response["name"],
+                            create_response.get("description"),
+                            json.dumps(create_response.get("config", {})),
+                            json.dumps(create_response.get("metadata", {})),
+                            json.dumps(create_response.get("context", {})),
+                            create_response.get("version", 1),
+                            f"reverse-sync-{new_id}"  # langgraph_hash
+                        )
+                        log.info(f"Inserted new assistant {new_id} into assistants_mirror")
+
+                        # Now update threads to point to new assistant ID (FK constraint satisfied)
+                        thread_result = await conn.execute(
+                            """
+                            UPDATE langconnect.threads_mirror
+                            SET assistant_id = $1
+                            WHERE assistant_id = $2
+                            """,
+                            UUID(new_id),
+                            UUID(old_id)
+                        )
+                        # Parse "UPDATE n" to get count
+                        thread_updates = int(thread_result.split()[-1]) if thread_result else 0
+
+                        # Update user default assistants
+                        default_result = await conn.execute(
+                            """
+                            UPDATE langconnect.user_default_assistants
+                            SET assistant_id = $1
+                            WHERE assistant_id = $2
+                            """,
+                            UUID(new_id),
+                            UUID(old_id)
+                        )
+                        # Parse "UPDATE n" to get count
+                        default_updates = int(default_result.split()[-1]) if default_result else 0
+
+                        # Copy permissions with new ID (FK constraint now satisfied)
+                        permissions = await conn.fetch(
+                            """
+                            SELECT user_id, permission_level, granted_by
+                            FROM langconnect.assistant_permissions
+                            WHERE assistant_id = $1
+                            """,
+                            UUID(old_id)
+                        )
+
+                        # Insert new permissions
+                        for perm in permissions:
+                            await conn.execute(
+                                """
+                                INSERT INTO langconnect.assistant_permissions
+                                (assistant_id, user_id, permission_level, granted_by)
+                                VALUES ($1, $2, $3, $4)
+                                ON CONFLICT (assistant_id, user_id) DO UPDATE SET
+                                    permission_level = EXCLUDED.permission_level,
+                                    updated_at = NOW()
+                                """,
+                                UUID(new_id),
+                                perm["user_id"],
+                                perm["permission_level"],
+                                perm["granted_by"]
+                            )
+
+                        # Delete old assistant record (this cascades to old permissions and schemas)
+                        await conn.execute(
+                            "DELETE FROM langconnect.assistants_mirror WHERE assistant_id = $1",
+                            UUID(old_id)
+                        )
+
+                        log.info(
+                            f"Updated {thread_updates} threads, {default_updates} defaults, "
+                            f"{len(permissions)} permissions for '{assistant_name}'"
+                        )
+
+                recreated_count += 1
+
+            except Exception as e:
+                failed_count += 1
+                error_msg = f"Failed to recreate '{assistant_name}': {str(e)}"
+                log.error(error_msg)
+                if payload:
+                    log.error(f"Payload that caused error: {payload}")
+                failed_assistants.append({
+                    "name": assistant_name,
+                    "old_id": old_id,
+                    "graph_id": assistant.get("graph_id", "unknown"),
+                    "error": str(e)
+                })
+
+        # Increment cache version to invalidate frontend caches
+        async with get_db_connection() as conn:
+            await conn.fetchval("SELECT langconnect.increment_cache_version('assistants')")
+            await conn.fetchval("SELECT langconnect.increment_cache_version('threads')")
+
+        duration_ms = int((time.time() - start_time) * 1000)
+
+        summary = (
+            f"Reverse sync completed: {recreated_count}/{total_assistants} assistants "
+            f"successfully recreated in LangGraph"
+        )
+
+        if failed_count > 0:
+            summary += f", {failed_count} failed"
+
+        log.info(
+            f"Reverse sync completed: {recreated_count} successful, {failed_count} failed "
+            f"in {duration_ms}ms"
+        )
+
+        return {
+            "total": total_assistants,
+            "recreated": recreated_count,
+            "failed": failed_count,
+            "failed_assistants": failed_assistants,
+            "duration_ms": duration_ms,
+            "summary": summary
+        }
+
+    except HTTPException:
+        raise
+    except Exception as e:
+        log.error(f"Failed to reverse sync assistants: {str(e)}")
+        raise HTTPException(
+            status_code=500,
+            detail=f"Failed to reverse sync assistants: {str(e)}"
         ) 

@@ -45,6 +45,19 @@ interface AdminInitializePlatformResponse {
   summary: string;
 }
 
+interface ReverseSyncAssistantsResponse {
+  total: number;
+  recreated: number;
+  failed: number;
+  failed_assistants: Array<{
+    name: string;
+    old_id: string;
+    error: string;
+  }>;
+  duration_ms: number;
+  summary: string;
+}
+
 /**
  * Hook for admin platform initialization operations (dev admin only)
  */
@@ -146,10 +159,86 @@ export function useAdminPlatform() {
     return initializePlatform(true);
   };
 
+  /**
+   * Reverse sync assistants from UI database to LangGraph
+   *
+   * Recreates all assistants in LangGraph while preserving thread references
+   * and permissions. Useful for local development when LangGraph state is lost.
+   */
+  const reverseSyncAssistants = async (): Promise<Result<ReverseSyncAssistantsResponse>> => {
+    if (!isDevAdmin) {
+      return {
+        ok: false,
+        errorCode: "PERMISSION_DENIED",
+        errorMessage: "Only dev admins can reverse sync assistants",
+      };
+    }
+
+    if (!session?.accessToken) {
+      return {
+        ok: false,
+        errorCode: "NO_ACCESS_TOKEN",
+        errorMessage: "No access token found",
+      };
+    }
+
+    setLoading(true);
+    try {
+      const response = await fetch(`/api/langconnect/agents/admin/reverse-sync-assistants`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'Authorization': `Bearer ${session.accessToken}`,
+        },
+      });
+
+      if (!response.ok) {
+        const errorText = await response.text();
+        return {
+          ok: false,
+          errorCode: "REVERSE_SYNC_FAILED",
+          errorMessage: `Failed to reverse sync assistants: ${response.status} ${errorText}`,
+        };
+      }
+
+      const result: ReverseSyncAssistantsResponse = await response.json();
+
+      // Invalidate all relevant caches and refresh UI immediately
+      try {
+        invalidateAssistantListCache();
+        invalidateAllAssistantCaches();
+
+        // Give the backend a brief moment to bump versions and finish sync, then refresh
+        setTimeout(() => {
+          refreshAgents(true);
+        }, 200);
+      } catch (_) {
+        // No-op: cache invalidation is best-effort
+      }
+
+      return {
+        ok: true,
+        data: result,
+      };
+
+    } catch (error) {
+      console.error("Error reverse syncing assistants:", error);
+
+      return {
+        ok: false,
+        errorCode: "REVERSE_SYNC_ERROR",
+        errorMessage: error instanceof Error ? error.message : "Unknown error occurred",
+      };
+    } finally {
+      setLoading(false);
+    }
+  };
+
   return {
     loading,
     initializePlatform,
     previewInitialization,
+    reverseSyncAssistants,
     isDevAdmin,
   };
 } 
