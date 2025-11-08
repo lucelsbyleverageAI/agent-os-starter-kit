@@ -2,7 +2,7 @@
 name = "mcp-server"
 version = "0.1.0"
 description = "Custom MCP server with Arcade integration and custom tools"
-authors = ["Your Name <your.email@example.com>"]
+authors = ["Leverage-AI-UK"]
 readme = "README.md"
 packages = [{include = "mcp_server", from = "src"}]
 

@@ -4,7 +4,6 @@ import type { Base64ContentBlock } from "@langchain/core/messages";
 import { fileToContentBlock } from "@/lib/multimodal-utils";
 import { useAuthContext } from "@/providers/Auth";
 import { useQueryState } from "nuqs";
-import { v4 as uuidv4 } from "uuid";
 
 // Maximum file size in bytes (10MB)
 export const MAX_FILE_SIZE = 10 * 1024 * 1024;
@@ -49,7 +48,7 @@ export function useFileUpload({
   initialBlocks = [],
 }: UseFileUploadOptions = {}) {
   const { session } = useAuthContext();
-  const [threadId] = useQueryState("threadId");
+  const [_threadId] = useQueryState("threadId");
   const [contentBlocks, setContentBlocks] = useState<Base64ContentBlock[]>(initialBlocks);
   const [processingAttachments, setProcessingAttachments] = useState<ProcessingAttachment[]>([]);
   const dropRef = useRef<HTMLDivElement>(null);

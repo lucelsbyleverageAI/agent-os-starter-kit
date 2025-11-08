@@ -109,7 +109,7 @@ interface ThreadProps {
 export function Thread({ historyOpen = false, configOpen = false }: ThreadProps) {
   const [agentId] = useQueryState("agentId");
   const [agentMismatch] = useQueryState("agentMismatch", parseAsString);
-  const [threadId, setThreadId] = useQueryState("threadId");
+  const [threadId] = useQueryState("threadId");
   const [hideToolCalls, setHideToolCalls] = useQueryState(
     "hideToolCalls",
     parseAsBoolean.withDefault(false),

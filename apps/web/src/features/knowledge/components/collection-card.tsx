@@ -2,7 +2,6 @@
 
 import React from "react";
 import { Card } from "@/components/ui/card";
-import { Button } from "@/components/ui/button";
 import { MinimalistBadge, MinimalistBadgeWithText } from "@/components/ui/minimalist-badge";
 import type { Collection } from "@/types/collection";
 import {
@@ -83,10 +82,6 @@ export function CollectionCard({ collection }: CollectionCardProps) {
     router.push(`/knowledge/${collection.uuid}`);
   };
 
-  const handleManageDocumentsClick = () => {
-    router.push(`/knowledge/${collection.uuid}`);
-  };
-  
   return (
     <>
       <Card
