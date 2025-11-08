@@ -305,13 +305,11 @@ class LangGraphSyncService:
                     # LangGraph SDK doesn't support native tags, so frontend stores them
                     # in metadata._x_oap_tags. We extract here and populate the database
                     # tags column for fast queries without hitting LangGraph API.
-                    metadata = assistant_data.get("metadata", {})
-                    # Handle both dict and string metadata formats (defensive parsing)
-                    if isinstance(metadata, str):
-                        try:
-                            metadata = json.loads(metadata)
-                        except (json.JSONDecodeError, TypeError):
-                            metadata = {}
+                    from langconnect.utils.metadata_validation import parse_metadata_safe
+
+                    metadata_raw = assistant_data.get("metadata", {})
+                    # Use robust defensive parsing to handle corrupted metadata
+                    metadata = parse_metadata_safe(metadata_raw, "metadata")
                     tags = metadata.get("_x_oap_tags", [])
 
                     # Upsert assistant
@@ -321,7 +319,7 @@ class LangGraphSyncService:
                             assistant_id, graph_id, name, description, tags, config, metadata, context, version,
                             langgraph_created_at, langgraph_updated_at, langgraph_hash, last_seen_at
                         ) VALUES (
-                            $1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, NOW()
+                            $1, $2, $3, $4, $5, $6::jsonb, $7::jsonb, $8::jsonb, $9, $10, $11, $12, NOW()
                         )
                         ON CONFLICT (assistant_id) DO UPDATE SET
                             graph_id = EXCLUDED.graph_id,
@@ -344,9 +342,9 @@ class LangGraphSyncService:
                         assistant_data.get("name"),
                         assistant_data.get("description", metadata.get("description")),
                         tags,  # Add tags
-                        json.dumps(assistant_data.get("config", {})),
-                        json.dumps(metadata),  # Use parsed metadata dict, not raw assistant_data
-                        json.dumps(assistant_data.get("context", {})),
+                        json.dumps(assistant_data.get("config", {})),  # Convert to JSON string, cast to JSONB in SQL
+                        json.dumps(metadata),  # Convert to JSON string, cast to JSONB in SQL
+                        json.dumps(assistant_data.get("context", {})),  # Convert to JSON string, cast to JSONB in SQL
                         assistant_data.get("version", 1),
                         created_at,
                         updated_at,
@@ -499,13 +497,11 @@ class LangGraphSyncService:
                             # LangGraph SDK doesn't support native tags, so frontend stores them
                             # in metadata._x_oap_tags. We extract here and populate the database
                             # tags column for fast queries without hitting LangGraph API.
-                            metadata = assistant.get("metadata", {})
-                            # Handle both dict and string metadata formats (defensive parsing)
-                            if isinstance(metadata, str):
-                                try:
-                                    metadata = json.loads(metadata)
-                                except (json.JSONDecodeError, TypeError):
-                                    metadata = {}
+                            from langconnect.utils.metadata_validation import parse_metadata_safe
+
+                            metadata_raw = assistant.get("metadata", {})
+                            # Use robust defensive parsing to handle corrupted metadata
+                            metadata = parse_metadata_safe(metadata_raw, "metadata")
                             tags = metadata.get("_x_oap_tags", [])
 
                             # Upsert assistant (include description; prefer top-level, fallback to metadata.description)
@@ -515,7 +511,7 @@ class LangGraphSyncService:
                                     assistant_id, graph_id, name, description, tags, config, metadata, context, version,
                                     langgraph_created_at, langgraph_updated_at, langgraph_hash, last_seen_at
                                 ) VALUES (
-                                    $1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, NOW()
+                                    $1, $2, $3, $4, $5, $6::jsonb, $7::jsonb, $8::jsonb, $9, $10, $11, $12, NOW()
                                 )
                                 ON CONFLICT (assistant_id) DO UPDATE SET
                                     graph_id = EXCLUDED.graph_id,
@@ -538,9 +534,9 @@ class LangGraphSyncService:
                                 assistant.get("name"),
                                 assistant.get("description", metadata.get("description")),
                                 tags,  # Add tags
-                                json.dumps(assistant.get("config", {})),
-                                json.dumps(metadata),  # Use parsed metadata dict, not raw assistant data
-                                json.dumps(assistant.get("context", {})),
+                                json.dumps(assistant.get("config", {})),  # Convert to JSON string, cast to JSONB in SQL
+                                json.dumps(metadata),  # Convert to JSON string, cast to JSONB in SQL
+                                json.dumps(assistant.get("context", {})),  # Convert to JSON string, cast to JSONB in SQL
                                 assistant.get("version", 1),
                                 created_at,
                                 updated_at,
@@ -814,13 +810,11 @@ class LangGraphSyncService:
                         # LangGraph SDK doesn't support native tags, so frontend stores them
                         # in metadata._x_oap_tags. We extract here and populate the database
                         # tags column for fast queries without hitting LangGraph API.
-                        metadata = assistant.get("metadata", {})
-                        # Handle both dict and string metadata formats (defensive parsing)
-                        if isinstance(metadata, str):
-                            try:
-                                metadata = json.loads(metadata)
-                            except (json.JSONDecodeError, TypeError):
-                                metadata = {}
+                        from langconnect.utils.metadata_validation import parse_metadata_safe
+
+                        metadata_raw = assistant.get("metadata", {})
+                        # Use robust defensive parsing to handle corrupted metadata
+                        metadata = parse_metadata_safe(metadata_raw, "metadata")
                         tags = metadata.get("_x_oap_tags", [])
 
                         # Upsert assistant
@@ -853,9 +847,9 @@ class LangGraphSyncService:
                             assistant.get("name"),
                             assistant.get("description", metadata.get("description")),
                             tags,  # Add tags
-                            json.dumps(assistant.get("config", {})),
-                            json.dumps(metadata),  # Use parsed metadata dict, not raw assistant data
-                            json.dumps(assistant.get("context", {})),
+                            assistant.get("config", {}),  # asyncpg handles dict -> JSONB conversion
+                            metadata,  # asyncpg handles dict -> JSONB conversion (already parsed as dict above)
+                            assistant.get("context", {}),  # asyncpg handles dict -> JSONB conversion
                             assistant.get("version", 1),
                             created_at,
                             updated_at,

@@ -595,16 +595,24 @@ async def update_assistant(
         if langgraph_updates:
             try:
                 # Build complete update payload with top-level description (no metadata.description)
+                # CRITICAL: Use defensive parsing to prevent double-encoding corruption
+                from langconnect.utils.metadata_validation import sanitize_langgraph_payload
+
                 current_metadata = current_assistant.get("metadata", {})
+                current_config = current_assistant.get("config", {})
                 current_top_level_description = current_assistant.get("description", "")
+
                 update_payload = {
                     "graph_id": current_assistant.get("graph_id"),
-                    "config": request.config if request.config is not None else current_assistant.get("config", {}),
+                    "config": request.config if request.config is not None else current_config,
                     "metadata": current_metadata,
                     "name": request.name if request.name is not None else current_assistant.get("name", ""),
                     "description": request.description if request.description is not None else current_top_level_description
                 }
-                
+
+                # Sanitize payload to prevent double-encoding and character array corruption
+                update_payload = sanitize_langgraph_payload(update_payload)
+
                 await langgraph_service._make_request(
                     "PATCH",  # Use PATCH instead of PUT
                     f"assistants/{assistant_id}",
