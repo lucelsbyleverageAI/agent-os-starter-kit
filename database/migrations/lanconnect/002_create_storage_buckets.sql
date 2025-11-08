@@ -2,7 +2,7 @@
 -- Idempotent and safe to re-run
 
 -- Create the collections storage bucket
-INSERT INTO storage.buckets (id, name, public, file_size_limit, allowed_mime_types)
+INSERT INTO storage.buckets (id, name, "public", file_size_limit, allowed_mime_types)
 VALUES (
   'collections',
   'collections',
@@ -26,7 +26,7 @@ VALUES (
   ]::text[]
 )
 ON CONFLICT (id) DO UPDATE SET
-  public = EXCLUDED.public,
+  "public" = EXCLUDED."public",
   file_size_limit = EXCLUDED.file_size_limit,
   allowed_mime_types = EXCLUDED.allowed_mime_types;
 
