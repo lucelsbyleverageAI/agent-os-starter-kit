@@ -102,6 +102,8 @@ jobs:
 
       - name: MCP Server - Check imports
         working-directory: apps/mcp
+        env:
+          CI: "true"
         run: |
           poetry run python -c "from mcp_server import main"
           echo "✅ MCP Server imports successful"
