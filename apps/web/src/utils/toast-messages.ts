@@ -299,6 +299,23 @@ export const adminMessages = {
       key: "admin:initialize:error",
     }),
   },
+  reverseSync: {
+    success: (total: number, recreated: number, duration: number) => ({
+      title: "Assistants recreated successfully!",
+      description: `Recreated ${recreated} of ${total} assistants in LangGraph in ${duration}ms.`,
+      key: "admin:reverse-sync:success",
+    }),
+    partial: (total: number, recreated: number, failed: number) => ({
+      title: "Assistants partially recreated",
+      description: `Recreated ${recreated} of ${total} assistants (${failed} failed). Check logs for details.`,
+      key: "admin:reverse-sync:partial",
+    }),
+    error: (error: string) => ({
+      title: "Failed to reverse sync assistants",
+      description: error,
+      key: "admin:reverse-sync:error",
+    }),
+  },
   permissionDenied: () => ({
     title: "Permission denied",
     description: "Only dev admins can perform this action.",
