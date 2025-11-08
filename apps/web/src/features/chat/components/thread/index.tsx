@@ -163,7 +163,8 @@ export function Thread({ historyOpen = false, configOpen = false }: ThreadProps)
   } | null>(null);
 
   // Use preserved messages only when stream messages are empty and we have preserved ones
-  const messages = streamMessages?.length === 0 && preservedMessages.length > 0 ? preservedMessages : streamMessages;
+  // IMPORTANT: Force empty messages when threadId is null to prevent showing stale messages during new chat transition
+  const messages = !threadId ? [] : (streamMessages?.length === 0 && preservedMessages.length > 0 ? preservedMessages : streamMessages);
 
   // Hydrate lightweight agents when thread is loaded
   useEffect(() => {
