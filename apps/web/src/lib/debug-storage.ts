@@ -276,6 +276,7 @@ export function inspectKey(key: string): void {
   const sizeBytes = new Blob([value]).size;
   const sizeKB = Math.round(sizeBytes / 1024);
 
+  // eslint-disable-next-line no-console
   console.group(`🔍 Inspecting: ${key}`);
   console.log(`Size: ${sizeKB} KB (${sizeBytes} bytes)`);
 
@@ -296,6 +297,7 @@ export function inspectKey(key: string): void {
     console.log('Value preview:', value.substring(0, 500));
   }
 
+  // eslint-disable-next-line no-console
   console.groupEnd();
 }
 
