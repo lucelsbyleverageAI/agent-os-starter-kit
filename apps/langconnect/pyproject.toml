@@ -12,6 +12,7 @@ name = "langconnect"
 version = "0.0.1"
 description = "LangConnect: A RAG service"
 readme = "README.md"
+authors = ["Leverage AI UK <luc@leverage-ai.co.uk>"]
 packages = [{include = "langconnect"}]
 
 [tool.poetry.dependencies]
