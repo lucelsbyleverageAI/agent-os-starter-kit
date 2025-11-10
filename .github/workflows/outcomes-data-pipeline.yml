@@ -44,6 +44,8 @@ jobs:
   run-pipeline:
     runs-on: ubuntu-latest
     timeout-minutes: 180  # 3 hour max for full backfill
+    # Only run on schedule or manual dispatch, never on push
+    if: github.event_name == 'schedule' || github.event_name == 'workflow_dispatch'
 
     steps:
       - name: Checkout repository
