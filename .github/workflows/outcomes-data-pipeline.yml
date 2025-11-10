@@ -312,6 +312,7 @@ jobs:
           script: |
             const runUrl = `${context.payload.repository.html_url}/actions/runs/${context.runId}`;
             const command = '${{ steps.determine_command.outputs.description }}';
+            const trigger = '${{ github.event_name }}';
 
             await github.rest.issues.create({
               owner: context.repo.owner,
@@ -321,7 +322,7 @@ jobs:
               body: `## Pipeline Failure Report
 
 **Command**: ${command}
-**Trigger**: ${{ github.event_name }}
+**Trigger**: ${trigger}
 **Failed at**: ${new Date().toISOString()}
 **Workflow run**: ${runUrl}
 
