@@ -4,6 +4,7 @@ version = "0.0.1"
 description = "LangConnect: A RAG service"
 readme = "README.md"
 requires-python = ">=3.11,<4.0"
+authors = [{name = "Leverage AI UK", email = "luc@leverage-ai.co.uk"}]
 dynamic = []
 
 [tool.poetry]
@@ -11,6 +12,7 @@ name = "langconnect"
 version = "0.0.1"
 description = "LangConnect: A RAG service"
 readme = "README.md"
+authors = ["Leverage AI UK <luc@leverage-ai.co.uk>"]
 packages = [{include = "langconnect"}]
 
 [tool.poetry.dependencies]

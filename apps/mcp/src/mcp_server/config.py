@@ -161,9 +161,9 @@ class Settings(BaseSettings):
 # Global settings instance
 settings = Settings()
 
-# Validate settings on import (skip in test environment)
+# Validate settings on import (skip in test/CI environments)
 import os
-if not os.environ.get("PYTEST_CURRENT_TEST"):
+if not os.environ.get("PYTEST_CURRENT_TEST") and not os.environ.get("CI"):
     try:
         settings.validate_required_settings()
     except ValueError as e:

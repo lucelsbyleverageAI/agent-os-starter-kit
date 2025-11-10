@@ -41,7 +41,7 @@ function getCacheIndex(): CacheIndex {
       return { threadIds: [], lastUpdated: Date.now() };
     }
     return JSON.parse(cached);
-  } catch (error) {
+  } catch (_error) {
     return { threadIds: [], lastUpdated: Date.now() };
   }
 }
@@ -70,7 +70,7 @@ function updateCacheIndex(threadId: string): void {
 
     index.lastUpdated = Date.now();
     localStorage.setItem(CACHE_INDEX_KEY, JSON.stringify(index));
-  } catch (error) {
+  } catch (_error) {
     // Silently fail - caching is non-critical
   }
 }
@@ -99,7 +99,7 @@ export function getThreadMessageCache(threadId: string): ThreadMessageCache | nu
     }
 
     return parsedCache;
-  } catch (error) {
+  } catch (_error) {
     return null;
   }
 }
@@ -186,7 +186,7 @@ export function invalidateThreadCache(threadId: string): void {
     const index = getCacheIndex();
     index.threadIds = index.threadIds.filter(id => id !== threadId);
     localStorage.setItem(CACHE_INDEX_KEY, JSON.stringify(index));
-  } catch (error) {
+  } catch (_error) {
     // Silently fail - caching is non-critical
   }
 }
@@ -203,7 +203,7 @@ export function clearAllThreadCaches(): void {
     });
 
     localStorage.removeItem(CACHE_INDEX_KEY);
-  } catch (error) {
+  } catch (_error) {
     // Silently fail - caching is non-critical
   }
 }
@@ -238,7 +238,7 @@ export function getThreadCacheStats(): {
       totalSizeKB: Math.round(totalSize / 1024),
       oldestCacheAge: Math.round(oldestAge / 1000) // seconds
     };
-  } catch (error) {
+  } catch (_error) {
     return { cachedThreads: 0, totalSizeKB: 0, oldestCacheAge: 0 };
   }
 }

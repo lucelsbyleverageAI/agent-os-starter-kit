@@ -15,6 +15,14 @@ jobs:
       - name: Checkout code
         uses: actions/checkout@v4
 
+      - name: Free disk space
+        run: |
+          sudo rm -rf /usr/share/dotnet
+          sudo rm -rf /usr/local/lib/android
+          sudo rm -rf /opt/ghc
+          sudo docker image prune --all --force
+          df -h
+
       - name: Set up Python 3.11
         uses: actions/setup-python@v5
         with:
@@ -23,7 +31,7 @@ jobs:
       - name: Install Poetry
         uses: snok/install-poetry@v1
         with:
-          version: 1.8.3
+          version: 2.1.2
           virtualenvs-create: true
           virtualenvs-in-project: true
 
@@ -37,6 +45,10 @@ jobs:
       - name: Install LangGraph dependencies
         working-directory: langgraph
         run: poetry install --no-interaction
+
+      - name: Clean LangGraph Poetry cache
+        working-directory: langgraph
+        run: poetry cache clear pypi --all -n || true
 
       - name: LangGraph - Check imports and syntax
         working-directory: langgraph
@@ -54,6 +66,10 @@ jobs:
       - name: Install LangConnect dependencies
         working-directory: apps/langconnect
         run: poetry install --no-interaction
+
+      - name: Clean LangConnect Poetry cache
+        working-directory: apps/langconnect
+        run: poetry cache clear pypi --all -n || true
 
       - name: LangConnect - Run tests
         working-directory: apps/langconnect
@@ -80,8 +96,14 @@ jobs:
         working-directory: apps/mcp
         run: poetry install --no-interaction
 
+      - name: Clean MCP Poetry cache
+        working-directory: apps/mcp
+        run: poetry cache clear pypi --all -n || true
+
       - name: MCP Server - Check imports
         working-directory: apps/mcp
+        env:
+          CI: "true"
         run: |
           poetry run python -c "from mcp_server import main"
           echo "✅ MCP Server imports successful"
@@ -89,6 +111,7 @@ jobs:
   frontend-checks:
     name: Frontend Build & Lint
     runs-on: ubuntu-latest
+    needs: backend-checks
 
     steps:
       - name: Checkout code
@@ -114,6 +137,9 @@ jobs:
         working-directory: apps/web
         run: yarn install --immutable
 
+      - name: Disable Sentry in CI
+        run: echo "SENTRY_DISABLE=true" >> $GITHUB_ENV
+
       - name: Run linting
         working-directory: apps/web
         run: yarn lint
@@ -131,6 +157,13 @@ jobs:
           NEXT_PUBLIC_SUPABASE_ANON_KEY: dummy-key-for-build
           LANGGRAPH_API_URL: http://localhost:2024
           LANGCONNECT_URL: http://localhost:8080
+
+      - name: Clean Next.js build artifacts
+        working-directory: apps/web
+        run: |
+          rm -rf .next/cache
+          rm -rf .next/standalone
+          df -h
 
   docker-validation:
     name: Docker Compose Validation

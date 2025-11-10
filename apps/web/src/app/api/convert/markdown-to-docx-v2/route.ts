@@ -5,8 +5,6 @@ import {
   Paragraph,
   TextRun,
   HeadingLevel,
-  AlignmentType,
-  UnderlineType,
 } from "docx";
 
 // Force Node.js runtime (not Edge)
@@ -176,7 +174,7 @@ function markdownToDocx(markdown: string): Document {
       // Add as plain text paragraph on error
       try {
         paragraphs.push(new Paragraph({ text: lines[i] || "" }));
-      } catch (e) {
+      } catch (_e) {
         // Skip this line entirely if even plain text fails
         console.error(`Failed to add line ${i} even as plain text`);
       }
