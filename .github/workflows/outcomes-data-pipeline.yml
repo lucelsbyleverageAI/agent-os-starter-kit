@@ -316,34 +316,37 @@ jobs:
             const command = '${{ steps.determine_command.outputs.description }}';
             const trigger = '${{ github.event_name }}';
 
+            const issueBody = [
+              '## Pipeline Failure Report',
+              '',
+              `Command: ${command}`,
+              `Trigger: ${trigger}`,
+              `Failed at: ${new Date().toISOString()}`,
+              `Workflow run: ${runUrl}`,
+              '',
+              '### Possible Causes',
+              '- Database connection issues',
+              '- NHS England website structure changed',
+              '- CSV format changes',
+              '- Network timeout',
+              '',
+              '### Next Steps',
+              `1. Check the [workflow logs](${runUrl}) for error details`,
+              '2. Verify production database credentials are correct',
+              '3. Check if NHS England has updated their data structure',
+              '4. Review pipeline.log artifact for detailed errors',
+              '',
+              '### Manual Recovery',
+              'If needed, trigger a manual run with:',
+              '1. Go to Actions → NHS Outcomes Data Pipeline',
+              '2. Click "Run workflow"',
+              '3. Select appropriate command and parameters'
+            ].join('\n');
+
             await github.rest.issues.create({
               owner: context.repo.owner,
               repo: context.repo.repo,
               title: '🚨 NHS Outcomes Data Pipeline Failed',
               labels: ['pipeline-failure', 'automated'],
-              body: `## Pipeline Failure Report
-
-**Command**: ${command}
-**Trigger**: ${trigger}
-**Failed at**: ${new Date().toISOString()}
-**Workflow run**: ${runUrl}
-
-### Possible Causes
-- Database connection issues
-- NHS England website structure changed
-- CSV format changes
-- Network timeout
-
-### Next Steps
-1. Check the [workflow logs](${runUrl}) for error details
-2. Verify production database credentials are correct
-3. Check if NHS England has updated their data structure
-4. Review pipeline.log artifact for detailed errors
-
-### Manual Recovery
-If needed, trigger a manual run with:
-1. Go to Actions → NHS Outcomes Data Pipeline
-2. Click "Run workflow"
-3. Select appropriate command and parameters
-              `
+              body: issueBody
             });
