@@ -639,6 +639,13 @@ services:
       - IMAGE_STORAGE_ENABLED=${IMAGE_STORAGE_ENABLED}
       - IMAGE_PUBLIC_ACCESS=${IMAGE_PUBLIC_ACCESS}
       - GCP_SERVICE_ACCOUNT_KEY=${GCP_SERVICE_ACCOUNT_KEY}
+      # NHS Analytics - Database credentials
+      - POSTGRES_PASSWORD=${POSTGRES_PASSWORD}
+      - POSTGRES_USER=${POSTGRES_USER:-postgres}
+      - POSTGRES_DB=${POSTGRES_DB:-postgres}
+      - POSTGRES_PORT=${POSTGRES_PORT:-5432}
+      # Sandbox configuration
+      - SANDBOX_MODE=auto
       # MCP configuration
       - ENABLE_OAUTH_DISCOVERY=true
       - FRONTEND_BASE_URL=${FRONTEND_BASE_URL}
