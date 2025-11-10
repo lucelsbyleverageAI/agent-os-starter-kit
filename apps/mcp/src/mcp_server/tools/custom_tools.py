@@ -39,14 +39,33 @@ from .fireflies import (
     GetMeetingTranscriptTool,
 )
 
+from .outlook import (
+    ListEmailsTool,
+    ListMailFoldersTool,
+    ReadEmailTool,
+    DownloadOutlookAttachmentTool,
+    CreateEmailTool,
+    EditEmailDraftTool,
+    SendEmailDraftTool,
+    ListMyCalendarEventsTool,
+    ListUserCalendarEventsTool,
+    GetCalendarEventTool,
+    GetUserAvailabilityTool,
+    CreateCalendarEventTool,
+    UpdateCalendarEventTool,
+    DeleteCalendarEventTool,
+    SearchUsersTool,
+)
+
 from .e18_utility_toolkit import (
     GenerateProcessOnePagerTool,
 )
 
 from .nhs_analytics import (
     GetNHSOrganisationsTool,
-    GetNHSMetricsCatalogueTool,
     RunNHSAnalysisCodeTool,
+    ListAvailableMetricsTool,
+    GetRankingByMetricTool,
     GetComprehensiveTrustPerformance,
 )
 
@@ -86,13 +105,33 @@ CUSTOM_TOOLS = [
     GetMeetingSummaryTool(),
     GetMeetingTranscriptTool(),
 
+    # Outlook Email Tools
+    ListEmailsTool(),
+    ListMailFoldersTool(),
+    ReadEmailTool(),
+    DownloadOutlookAttachmentTool(),
+    CreateEmailTool(),
+    EditEmailDraftTool(),
+    SendEmailDraftTool(),
+
+    # Outlook Calendar Tools
+    ListMyCalendarEventsTool(),
+    ListUserCalendarEventsTool(),
+    GetCalendarEventTool(),
+    GetUserAvailabilityTool(),
+    CreateCalendarEventTool(),
+    UpdateCalendarEventTool(),
+    DeleteCalendarEventTool(),
+    SearchUsersTool(),
+
     # E18 Utility Tools
     GenerateProcessOnePagerTool(),
 
     # NHS Analytics Tools
     GetNHSOrganisationsTool(),
-    GetNHSMetricsCatalogueTool(),
     RunNHSAnalysisCodeTool(),
+    ListAvailableMetricsTool(),
+    GetRankingByMetricTool(),
     GetComprehensiveTrustPerformance(),
 
 ] 

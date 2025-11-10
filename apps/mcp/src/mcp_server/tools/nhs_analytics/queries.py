@@ -933,19 +933,22 @@ def get_domain_rankings(
     metric_id: Optional[str] = None,
     period: Optional[str] = None,
     cohort_filter: Optional[Dict[str, str]] = None,
+    disaggregation_filter: Optional[Dict[str, str]] = None,
     top_n: int = 10,
     bottom_n: int = 10,
     highlight_org_code: Optional[str] = None
 ) -> Dict[str, Any]:
     """
-    Get rankings for a specific domain/metric.
+    Get rankings for a specific domain/metric with optional disaggregation filtering.
 
     Args:
         engine: SQLAlchemy engine
         domain: 'rtt', 'cancer', or 'oversight'
         metric_id: Specific metric (defaults to primary for domain)
         period: Reporting period (defaults to latest)
-        cohort_filter: Optional filter dict (e.g., {'trust_type': 'Acute trust'})
+        cohort_filter: Optional filter dict (e.g., {'trust_type': 'Acute trust', 'region': 'London'})
+        disaggregation_filter: Optional disaggregation filter (e.g., {'cancer_type': 'Lung', 'referral_route': 'URGENT SUSPECTED CANCER'})
+                              For cancer trust-level aggregates, use: {'cancer_type': None, 'referral_route': 'ALL ROUTES'}
         top_n: Number of top performers to return
         bottom_n: Number of bottom performers to return
         highlight_org_code: Optional org code to highlight
@@ -977,6 +980,33 @@ def get_domain_rankings(
         if clauses:
             cohort_where = "AND " + " AND ".join(clauses)
 
+    # Build disaggregation filter clause
+    disagg_where = ""
+    disagg_params = {}
+    if disaggregation_filter:
+        clauses = []
+        for key, value in disaggregation_filter.items():
+            param_name = f"disagg_{key}"
+            if value is None:
+                # NULL check for trust-level aggregates
+                clauses.append(f"i.{key} IS NULL")
+            else:
+                clauses.append(f"i.{key} = :{param_name}")
+                disagg_params[param_name] = value
+        if clauses:
+            disagg_where = "AND " + " AND ".join(clauses)
+    else:
+        # Default disaggregation handling by domain
+        if domain == 'cancer':
+            # Cancer: Use trust-level aggregates (cancer_type IS NULL, referral_route = 'ALL ROUTES')
+            disagg_where = "AND i.cancer_type IS NULL AND (i.referral_route = 'ALL ROUTES' OR i.referral_route IS NULL)"
+        elif domain == 'rtt':
+            # RTT: Use 'Overall' pathway and provider-level only
+            disagg_where = "AND (i.rtt_part_type = 'Overall' OR i.rtt_part_type IS NULL) AND (i.entity_level = 'provider' OR i.entity_level IS NULL)"
+        else:
+            # Oversight: Just filter out rollups
+            disagg_where = "AND i.is_rollup = false"
+
     query = f"""
         WITH ranked_trusts AS (
             SELECT
@@ -989,6 +1019,9 @@ def get_domain_rankings(
                 i.unit,
                 i.higher_is_better,
                 i.percentile_overall,
+                i.cancer_type,
+                i.referral_route,
+                i.rtt_part_type,
                 ROW_NUMBER() OVER (
                     ORDER BY CASE WHEN i.higher_is_better THEN i.value ELSE -i.value END DESC
                 ) as rank,
@@ -998,7 +1031,7 @@ def get_domain_rankings(
             WHERE i.metric_id = :metric_id
                 AND i.period = :period
                 AND i.valid_sample = true
-                AND i.is_rollup = false
+                {disagg_where}
                 {cohort_where}
         ),
         cohort_stats AS (
@@ -1031,7 +1064,8 @@ def get_domain_rankings(
         "top_n": top_n,
         "bottom_n": bottom_n,
         "highlight_org_code": highlight_org_code,
-        **cohort_params
+        **cohort_params,
+        **disagg_params
     }
 
     with engine.connect() as conn:
@@ -1062,6 +1096,7 @@ def get_domain_rankings(
         "metric_info": metric_info,
         "period": period,
         "cohort_filter": cohort_filter,
+        "disaggregation_filter": disaggregation_filter,
         "rankings": rankings
     }
 
@@ -1655,3 +1690,44 @@ def get_cancer_pathway_analysis(
         result_data["equity_gaps"] = equity_gaps
 
     return result_data
+
+
+def get_metric_disaggregation_values(
+    engine: Engine,
+    metric_id: str,
+    disagg_dims: List[str]
+) -> Dict[str, List[str]]:
+    """
+    Get distinct values for each disaggregation dimension for a specific metric.
+
+    Args:
+        engine: SQLAlchemy engine
+        metric_id: Metric identifier
+        disagg_dims: List of disaggregation dimension names (e.g., ['rtt_part_type', 'cancer_type'])
+
+    Returns:
+        Dictionary mapping dimension name to list of distinct values
+        Example: {'rtt_part_type': ['Overall', 'Part_1A', 'Part_1B'], 'entity_level': ['provider']}
+    """
+    if not disagg_dims:
+        return {}
+
+    result_dict = {}
+
+    for dim in disagg_dims:
+        # Build query to get distinct values for this dimension
+        query = f"""
+            SELECT DISTINCT {dim}
+            FROM performance_data.insight_metrics_long
+            WHERE metric_id = :metric_id
+                AND {dim} IS NOT NULL
+            ORDER BY {dim}
+        """
+
+        with engine.connect() as conn:
+            result = conn.execute(text(query), {"metric_id": metric_id})
+            values = [row[0] for row in result]
+            result_dict[dim] = values
+
+    logger.info(f"Retrieved disaggregation values for metric {metric_id}: {result_dict}")
+    return result_dict

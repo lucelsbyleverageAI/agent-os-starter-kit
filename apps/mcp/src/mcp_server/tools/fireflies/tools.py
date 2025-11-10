@@ -56,7 +56,9 @@ class ListMeetingsTool(CustomTool):
             "FILTERS:\n"
             "- Date range: Use from_date/to_date (ISO 8601 format) to narrow timeframe\n"
             "- Keyword: Searches meeting TITLES ONLY (note: meeting titles are often poorly named)\n"
-            "- Participants: Filter by email addresses to find meetings with specific people\n"
+            "- Participants: Filter by email addresses to find meetings with specific people. "
+            "Uses AND logic - ALL specified participants must have attended the meeting. "
+            "Your email is automatically included for security.\n"
             "- Organizers: Filter by meeting organizer emails\n"
             "\n"
             "Use transcript IDs with get_meeting_summary or get_meeting_transcript tools for details."
@@ -92,7 +94,7 @@ class ListMeetingsTool(CustomTool):
             ToolParameter(
                 name="participant_emails",
                 type="array",
-                description="Filter meetings by specific participant email addresses. Your email is automatically included.",
+                description="Filter meetings by specific participant email addresses. Uses AND logic - only returns meetings where ALL specified participants attended (including your email, which is automatically added for security).",
                 required=False,
                 items={"type": "string"},
             ),
@@ -188,6 +190,28 @@ class ListMeetingsTool(CustomTool):
             )
 
             transcripts = response.get("data", {}).get("transcripts", [])
+
+            # IMPORTANT: Fireflies API uses OR logic for participants filter (returns meetings
+            # where ANY participant attended). We need AND logic (ALL participants must have attended).
+            # Post-filter to ensure ALL specified participants are present in each meeting.
+            if participant_emails and len(participant_emails) > 1:
+                filtered_transcripts = []
+                participant_set = set(email.lower() for email in participant_emails)
+
+                for transcript in transcripts:
+                    meeting_participants = transcript.get("participants", [])
+                    # Normalize to lowercase for case-insensitive comparison
+                    meeting_participants_lower = set(p.lower() for p in meeting_participants)
+
+                    # Check if ALL specified participants are in this meeting
+                    if participant_set.issubset(meeting_participants_lower):
+                        filtered_transcripts.append(transcript)
+
+                transcripts = filtered_transcripts
+                logger.info(
+                    f"Filtered meetings to require all participants: "
+                    f"{len(response.get('data', {}).get('transcripts', []))} → {len(transcripts)} meetings"
+                )
 
             if not transcripts:
                 return "*No meetings found matching your criteria.*"

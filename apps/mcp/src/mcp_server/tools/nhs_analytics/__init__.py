@@ -6,25 +6,28 @@ with direct database connectivity, plus predefined analytical tools.
 
 Discovery Tools:
 - GetNHSOrganisationsTool: Retrieve NHS organizations with filtering and search
-- GetNHSMetricsCatalogueTool: List all available performance metrics
+- ListAvailableMetricsTool: List all available metrics with breakdown dimensions and values
 
 Flexible Analysis:
 - RunNHSAnalysisCodeTool: Execute Python/SQL code with database access
 
 Predefined Analytics:
 - GetComprehensiveTrustPerformance: Complete performance overview for a single trust
+- GetRankingByMetricTool: Get ranked performance leaderboard for any metric
 """
 
 from .tools import (
     GetNHSOrganisationsTool,
-    GetNHSMetricsCatalogueTool,
     RunNHSAnalysisCodeTool,
+    ListAvailableMetricsTool,
+    GetRankingByMetricTool,
     GetComprehensiveTrustPerformance,
 )
 
 __all__ = [
     "GetNHSOrganisationsTool",
-    "GetNHSMetricsCatalogueTool",
     "RunNHSAnalysisCodeTool",
+    "ListAvailableMetricsTool",
+    "GetRankingByMetricTool",
     "GetComprehensiveTrustPerformance",
 ]
