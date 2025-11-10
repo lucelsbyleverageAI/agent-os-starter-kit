@@ -64,7 +64,7 @@ export function GenerateProcessOnePagerTool({
           errorMessage = parsed.error || parsed.message || "Failed to generate process one-pager";
         }
       }
-    } catch (e) {
+    } catch (_e) {
       // Silently handle any unexpected errors in parsing logic
       errorMessage = "An unexpected error occurred while processing the result";
     }
