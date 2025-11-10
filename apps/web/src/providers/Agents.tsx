@@ -327,6 +327,7 @@ interface GraphDiscoveryCache {
  * @deprecated Assistant list caching disabled to avoid localStorage quota issues.
  * Kept for backward compatibility with getAssistantListCache signature.
  */
+// eslint-disable-next-line @typescript-eslint/no-unused-vars
 interface AssistantListCache {
   assistants: AssistantInfo[];
   assistant_counts: any;

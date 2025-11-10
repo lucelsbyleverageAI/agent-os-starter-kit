@@ -2,7 +2,7 @@
 name = "mcp-server"
 version = "0.1.0"
 description = "Custom MCP server with Arcade integration and custom tools"
-authors = ["Your Name <your.email@example.com>"]
+authors = ["Leverage-AI-UK"]
 readme = "README.md"
 packages = [{include = "mcp_server", from = "src"}]
 
@@ -33,11 +33,6 @@ mem0ai = "^0.1.117"
 aiohttp = "^3.10.0"
 pyjwt = "^2.8.0"
 openpyxl = "^3.1.0"
-python-pptx = "^1.0.2"
-sqlalchemy = "^2.0.0"
-psycopg2-binary = "^2.9.0"
-pandas = "^2.0.0"
-docker = "^7.0.0"
 
 [tool.poetry.group.dev.dependencies]
 pytest = "^7.4.0"
@@ -69,5 +64,4 @@ line_length = 88
 python_version = "3.11"
 warn_return_any = true
 warn_unused_configs = true
-disallow_untyped_defs = true
- 
+disallow_untyped_defs = true 

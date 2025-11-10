@@ -44,6 +44,8 @@ jobs:
   run-pipeline:
     runs-on: ubuntu-latest
     timeout-minutes: 180  # 3 hour max for full backfill
+    # Only run on schedule or manual dispatch, never on push
+    if: github.event_name == 'schedule' || github.event_name == 'workflow_dispatch'
 
     steps:
       - name: Checkout repository
@@ -312,6 +314,7 @@ jobs:
           script: |
             const runUrl = `${context.payload.repository.html_url}/actions/runs/${context.runId}`;
             const command = '${{ steps.determine_command.outputs.description }}';
+            const trigger = '${{ github.event_name }}';
 
             await github.rest.issues.create({
               owner: context.repo.owner,
@@ -321,7 +324,7 @@ jobs:
               body: `## Pipeline Failure Report
 
 **Command**: ${command}
-**Trigger**: ${{ github.event_name }}
+**Trigger**: ${trigger}
 **Failed at**: ${new Date().toISOString()}
 **Workflow run**: ${runUrl}
 
