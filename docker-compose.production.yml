@@ -52,6 +52,8 @@ services:
     restart: unless-stopped
     networks:
       - coolify
+    ports:
+      - "5432:5432"  # Expose PostgreSQL for external connections (GitHub Actions pipeline)
     volumes:
       - supabase-db-data:/var/lib/postgresql/data:Z
       - db-config:/etc/postgresql-custom
