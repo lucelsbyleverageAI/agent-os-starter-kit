@@ -129,12 +129,14 @@ export function analyzeStorage(): StorageAnalysis {
   };
 
   // Print nice console output
+  // eslint-disable-next-line no-console
   console.group('📦 LocalStorage Analysis');
   console.log(`Total Size: ${analysis.totalSizeMB} MB (${totalSizeKB} KB)`);
   console.log(`Total Items: ${analysis.itemCount}`);
   console.log('');
 
   console.log('📊 By Category:');
+  // eslint-disable-next-line no-console
   console.table(byCategory.map(c => ({
     Category: c.category,
     Items: c.count,
@@ -144,6 +146,7 @@ export function analyzeStorage(): StorageAnalysis {
 
   console.log('');
   console.log('🔝 Top 10 Largest Items:');
+  // eslint-disable-next-line no-console
   console.table(items.slice(0, 10).map(item => ({
     Key: item.key.length > 50 ? item.key.substring(0, 47) + '...' : item.key,
     'Size (KB)': item.sizeKB,
@@ -158,6 +161,7 @@ export function analyzeStorage(): StorageAnalysis {
   console.log('  clearOldData()            - Clear everything except auth/config');
   console.log('  clearByPattern("prefix")  - Clear keys matching pattern');
 
+  // eslint-disable-next-line no-console
   console.groupEnd();
 
   return analysis;
@@ -272,6 +276,7 @@ export function inspectKey(key: string): void {
   const sizeBytes = new Blob([value]).size;
   const sizeKB = Math.round(sizeBytes / 1024);
 
+  // eslint-disable-next-line no-console
   console.group(`🔍 Inspecting: ${key}`);
   console.log(`Size: ${sizeKB} KB (${sizeBytes} bytes)`);
 
@@ -292,6 +297,7 @@ export function inspectKey(key: string): void {
     console.log('Value preview:', value.substring(0, 500));
   }
 
+  // eslint-disable-next-line no-console
   console.groupEnd();
 }
 

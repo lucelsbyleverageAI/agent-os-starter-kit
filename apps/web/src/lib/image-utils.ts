@@ -297,11 +297,12 @@ export async function getImageRenderUrl(image: ExtractedImage): Promise<string> 
     case 'url':
       return image.value;
 
-    case 'storage_path':
+    case 'storage_path': {
       // Convert storage path to proxy URL that generates fresh signed URLs
       // This ensures images work even after the original signed URL would have expired
       const bucket = image.metadata?.bucket || 'agent-outputs';
       return `/api/langconnect/storage/image?path=${encodeURIComponent(image.value)}&bucket=${encodeURIComponent(bucket)}`;
+    }
 
     default:
       throw new Error(`Unknown image type: ${(image as any).type}`);
