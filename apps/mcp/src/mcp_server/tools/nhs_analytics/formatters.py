@@ -336,3 +336,161 @@ def build_markdown_document(sections: List[Dict[str, Any]]) -> str:
             lines.append('---\n')
 
     return '\n'.join(lines)
+
+
+def format_metric_rankings(rankings_data: Dict[str, Any]) -> str:
+    """
+    Format metric rankings data as a markdown document.
+
+    Args:
+        rankings_data: Dictionary returned from get_domain_rankings() with keys:
+                      - domain: Domain name
+                      - metric_info: Metric metadata dict
+                      - period: Reporting period
+                      - cohort_filter: Filter applied (optional)
+                      - disaggregation_filter: Disaggregation filter applied (optional)
+                      - rankings: List of ranking dicts
+
+    Returns:
+        Formatted markdown document
+    """
+    sections = []
+
+    # Extract data
+    domain = rankings_data.get("domain", "")
+    metric_info = rankings_data.get("metric_info", {})
+    period = rankings_data.get("period", "")
+    cohort_filter = rankings_data.get("cohort_filter")
+    disagg_filter = rankings_data.get("disaggregation_filter")
+    rankings = rankings_data.get("rankings", [])
+
+    # Header
+    metric_label = metric_info.get("metric_label", "Metric Rankings")
+    sections.append({
+        "type": "header",
+        "content": f"Performance Rankings: {metric_label}",
+        "level": 1
+    })
+
+    # Metadata
+    metadata = {
+        "Metric ID": metric_info.get("metric_id", "-"),
+        "Domain": domain.upper(),
+        "Period": period,
+    }
+
+    # Add unit and target if available
+    unit = metric_info.get("unit")
+    if unit:
+        metadata["Unit"] = unit
+
+    target = metric_info.get("target_threshold")
+    if target is not None:
+        metadata["NHS Target"] = format_value_with_unit(target, unit or "")
+
+    sections.append({
+        "type": "metadata",
+        "content": metadata
+    })
+
+    # Add filter info if present
+    filter_lines = []
+    if cohort_filter:
+        filter_strs = [f"{k.replace('_', ' ').title()}: {v}" for k, v in cohort_filter.items()]
+        filter_lines.append("**Cohort Filter**: " + ", ".join(filter_strs))
+
+    if disagg_filter:
+        disagg_strs = []
+        for k, v in disagg_filter.items():
+            if v is None:
+                disagg_strs.append(f"{k.replace('_', ' ').title()}: Trust-level aggregate")
+            else:
+                disagg_strs.append(f"{k.replace('_', ' ').title()}: {v}")
+        filter_lines.append("**Breakdown**: " + ", ".join(disagg_strs))
+
+    if filter_lines:
+        sections.append({
+            "type": "text",
+            "content": "\n".join(filter_lines)
+        })
+
+    sections.append({"type": "separator"})
+
+    if not rankings:
+        sections.append({
+            "type": "text",
+            "content": "_No ranking data available for the specified filters._"
+        })
+        return build_markdown_document(sections)
+
+    # Rankings table
+    sections.append({
+        "type": "header",
+        "content": "Trust Rankings",
+        "level": 2
+    })
+
+    higher_is_better = metric_info.get("higher_is_better", True)
+    direction_note = "Higher values indicate better performance." if higher_is_better else "Lower values indicate better performance."
+    sections.append({
+        "type": "text",
+        "content": f"_{direction_note}_"
+    })
+
+    # Build rankings table
+    headers = ["Rank", "Trust", "Region", "Value", "National %"]
+    alignments = ["right", "left", "left", "right", "right"]
+
+    rows = []
+    for r in rankings:
+        rows.append([
+            str(r.get("rank", "-")),
+            f"{r.get('trust_name', 'Unknown')} ({r.get('org_code', '-')})",
+            r.get("region", "-"),
+            format_value_with_unit(r.get("value"), metric_info.get("unit", "")),
+            format_percentile_rank(r.get("percentile_overall"))
+        ])
+
+    sections.append({
+        "type": "table",
+        "content": {
+            "headers": headers,
+            "rows": rows,
+            "alignments": alignments
+        }
+    })
+
+    # Cohort statistics
+    if rankings:
+        sections.append({
+            "type": "header",
+            "content": "Cohort Statistics",
+            "level": 2
+        })
+
+        first_ranking = rankings[0]
+        total_trusts = first_ranking.get("total_trusts", len(rankings))
+
+        sections.append({
+            "type": "metadata",
+            "content": {
+                "Total Trusts in Cohort": str(total_trusts)
+            }
+        })
+
+        # Distribution stats
+        stat_table = format_cohort_statistics(
+            first_ranking.get("min_val"),
+            first_ranking.get("q1"),
+            first_ranking.get("median"),
+            first_ranking.get("q3"),
+            first_ranking.get("max_val"),
+            metric_info.get("unit", "percentage")
+        )
+
+        sections.append({
+            "type": "text",
+            "content": stat_table
+        })
+
+    return build_markdown_document(sections)

@@ -157,81 +157,6 @@ class GetNHSOrganisationsTool(CustomTool):
             )
 
 
-class GetNHSMetricsCatalogueTool(CustomTool):
-    """Retrieve NHS performance metrics catalogue."""
-
-    toolkit_name = "nhs_analytics"
-    toolkit_display_name = "NHS Analytics"
-
-    @property
-    def name(self) -> str:
-        return "get_nhs_metrics_catalogue"
-
-    @property
-    def description(self) -> str:
-        return (
-            "Retrieve the complete catalogue of available NHS performance metrics. "
-            "Returns metric IDs, descriptions, domains (RTT, Cancer, Oversight), units, "
-            "target thresholds, and performance direction (higher/lower is better). "
-            "Use this tool to discover available metrics before querying performance data."
-        )
-
-    def get_parameters(self) -> List[ToolParameter]:
-        return []  # No parameters - returns full catalogue
-
-    async def _execute_impl(self, user_id: str, **kwargs: Any) -> Any:
-        """Execute the get NHS metrics catalogue tool."""
-        logger.info("Fetching NHS metrics catalogue")
-
-        try:
-            from sqlalchemy import create_engine
-            import pandas as pd
-
-            db_url = get_nhs_database_url(for_external_sandbox=False)  # MCP server runs in Docker
-            engine = create_engine(db_url)
-
-            # Fetch metrics catalogue
-            sql = """
-            SELECT
-                metric_id,
-                metric_label,
-                domain,
-                unit,
-                higher_is_better,
-                target_threshold,
-                min_denominator,
-                disaggregation_dims,
-                source_table,
-                notes
-            FROM performance_data.metric_catalogue
-            ORDER BY domain, metric_id
-            """
-
-            df = pd.read_sql(sql, engine)
-
-            logger.info(f"Retrieved {len(df)} metrics from catalogue")
-
-            # Convert to JSON-serializable format
-            result = {
-                "count": len(df),
-                "metrics": df.to_dict(orient="records"),
-                "domains": {
-                    "rtt": "Referral to Treatment waiting times",
-                    "cancer": "Cancer waiting times (28-day, 31-day, 62-day standards)",
-                    "oversight": "NHS Oversight Framework metrics"
-                }
-            }
-
-            return json.dumps(result, indent=2)
-
-        except Exception as e:
-            logger.error(f"Failed to fetch metrics catalogue: {e}", exc_info=True)
-            raise ToolExecutionError(
-                "get_nhs_metrics_catalogue",
-                f"Failed to retrieve metrics catalogue: {str(e)}"
-            )
-
-
 class RunNHSAnalysisCodeTool(CustomTool):
     """Execute Python code in E2B sandbox with NHS database access."""
 
@@ -583,6 +508,320 @@ except Exception as e:
             raise ToolExecutionError(
                 "run_nhs_analysis_code",
                 f"Unexpected error installing packages: {str(e)}"
+            )
+
+
+class ListAvailableMetricsTool(CustomTool):
+    """List all available NHS performance metrics with their metadata and breakdown dimensions."""
+
+    toolkit_name = "nhs_analytics"
+    toolkit_display_name = "NHS Analytics"
+
+    @property
+    def name(self) -> str:
+        return "list_available_metrics"
+
+    @property
+    def description(self) -> str:
+        return (
+            "List all available NHS performance metrics with codes, names, categories, and breakdown dimensions. "
+            "Returns metric IDs, labels, domains (RTT/Cancer/Oversight), units, performance direction "
+            "(higher/lower is better), NHS target thresholds, and available disaggregation breakdowns with their values. "
+            "Use this tool to discover available metrics before using get_ranking_by_metric. "
+            "Example: Returns 'cancer_62d_pct_within_target' with breakdowns by cancer_type (Lung, Breast, etc.) and referral_route."
+        )
+
+    def get_parameters(self) -> List[ToolParameter]:
+        return [
+            ToolParameter(
+                name="domain",
+                type="string",
+                description="Filter by domain: 'rtt', 'cancer', or 'oversight' (optional - returns all if not specified)",
+                required=False,
+            ),
+        ]
+
+    async def _execute_impl(self, user_id: str, **kwargs: Any) -> Any:
+        """Execute the list available metrics tool."""
+        domain = kwargs.get("domain")
+
+        logger.info("Fetching available NHS metrics", domain=domain)
+
+        try:
+            from sqlalchemy import create_engine, text
+
+            db_url = get_nhs_database_url(for_external_sandbox=False)
+            engine = create_engine(db_url)
+
+            # Query metrics catalogue
+            query = """
+                SELECT
+                    metric_id,
+                    metric_label,
+                    domain,
+                    unit,
+                    higher_is_better,
+                    target_threshold,
+                    min_denominator,
+                    disaggregation_dims,
+                    notes
+                FROM performance_data.metric_catalogue
+                WHERE 1=1
+            """
+
+            params = {}
+            if domain:
+                query += " AND domain = :domain"
+                params["domain"] = domain
+
+            query += " ORDER BY domain, metric_id"
+
+            with engine.connect() as conn:
+                result = conn.execute(text(query), params)
+                metrics = []
+
+                for row in result:
+                    metric_dict = dict(row._mapping)
+
+                    # Get disaggregation values for this metric
+                    disagg_dims = metric_dict.get("disaggregation_dims")
+                    if disagg_dims:
+                        # Get actual values for each dimension
+                        disagg_values = queries.get_metric_disaggregation_values(
+                            engine,
+                            metric_dict["metric_id"],
+                            disagg_dims
+                        )
+                        metric_dict["disaggregation_values"] = disagg_values
+                    else:
+                        metric_dict["disaggregation_values"] = {}
+
+                    metrics.append(metric_dict)
+
+            logger.info(f"Retrieved {len(metrics)} metrics")
+
+            # Format as JSON
+            result = {
+                "count": len(metrics),
+                "metrics": metrics,
+                "domains": {
+                    "rtt": "Referral to Treatment waiting times",
+                    "cancer": "Cancer waiting times (28-day, 31-day, 62-day standards)",
+                    "oversight": "NHS Oversight Framework metrics"
+                }
+            }
+
+            return json.dumps(result, indent=2, default=str)
+
+        except Exception as e:
+            logger.error(f"Failed to fetch available metrics: {e}", exc_info=True)
+            raise ToolExecutionError(
+                "list_available_metrics",
+                f"Failed to retrieve metrics: {str(e)}"
+            )
+
+
+class GetRankingByMetricTool(CustomTool):
+    """Get ranked performance leaderboard for a specific NHS metric with optional filters."""
+
+    toolkit_name = "nhs_analytics"
+    toolkit_display_name = "NHS Analytics"
+
+    @property
+    def name(self) -> str:
+        return "get_ranking_by_metric"
+
+    @property
+    def description(self) -> str:
+        return (
+            "Get a ranked performance leaderboard for any NHS metric showing how all trusts perform. "
+            "Returns markdown-formatted rankings with trust names, values, national percentiles, regions, and "
+            "cohort statistics (min, Q1, median, Q3, max). Supports filtering by region, trust type, and "
+            "disaggregated metrics (e.g., rank trusts specifically on lung cancer performance or specific RTT pathways). "
+            "Use list_available_metrics first to discover valid metric IDs and breakdown options. "
+            "Example: metric_id='cancer_62d_pct_within_target' with cancer_type='Lung' ranks all trusts on lung cancer 62-day performance."
+        )
+
+    def get_parameters(self) -> List[ToolParameter]:
+        return [
+            ToolParameter(
+                name="metric_id",
+                type="string",
+                description="Metric ID from metrics catalogue (e.g., 'rtt_pct_within_18', 'cancer_62d_pct_within_target', 'OF0014'). Use list_available_metrics to discover IDs.",
+                required=True,
+            ),
+            ToolParameter(
+                name="period",
+                type="string",
+                description="Reporting period (e.g., '2025-08', 'Q1 2025/26'). Defaults to latest available period if not specified.",
+                required=False,
+            ),
+            ToolParameter(
+                name="region",
+                type="string",
+                description="Filter to specific NHS England region (e.g., 'London', 'South East')",
+                required=False,
+            ),
+            ToolParameter(
+                name="trust_type",
+                type="string",
+                description="Filter to specific trust type (e.g., 'Acute trust', 'Mental Health trust')",
+                required=False,
+            ),
+            ToolParameter(
+                name="trust_subtype",
+                type="string",
+                description="Filter to specific trust subtype",
+                required=False,
+            ),
+            ToolParameter(
+                name="cancer_type",
+                type="string",
+                description="For cancer metrics: specific cancer type (e.g., 'Lung', 'Breast', 'Colorectal'). Use null for trust-level aggregates.",
+                required=False,
+            ),
+            ToolParameter(
+                name="referral_route",
+                type="string",
+                description="For cancer metrics: referral route (e.g., 'URGENT SUSPECTED CANCER', 'ALL ROUTES'). Defaults to 'ALL ROUTES' for trust aggregates.",
+                required=False,
+            ),
+            ToolParameter(
+                name="rtt_part_type",
+                type="string",
+                description="For RTT metrics: pathway type (e.g., 'Overall', 'Part_1A', 'Part_1B', 'Part_2'). Defaults to 'Overall'.",
+                required=False,
+            ),
+            ToolParameter(
+                name="top_n",
+                type="integer",
+                description="Number of top performers to return (default: 10)",
+                required=False,
+                default=10,
+            ),
+            ToolParameter(
+                name="bottom_n",
+                type="integer",
+                description="Number of bottom performers to return (default: 10)",
+                required=False,
+                default=10,
+            ),
+            ToolParameter(
+                name="highlight_org_code",
+                type="string",
+                description="Always include this organization in results even if mid-table (e.g., 'RJ1')",
+                required=False,
+            ),
+        ]
+
+    async def _execute_impl(self, user_id: str, **kwargs: Any) -> Any:
+        """Execute the get ranking by metric tool."""
+        metric_id = kwargs.get("metric_id")
+        period = kwargs.get("period")
+        region = kwargs.get("region")
+        trust_type = kwargs.get("trust_type")
+        trust_subtype = kwargs.get("trust_subtype")
+        cancer_type = kwargs.get("cancer_type")
+        referral_route = kwargs.get("referral_route")
+        rtt_part_type = kwargs.get("rtt_part_type")
+        top_n = kwargs.get("top_n", 10)
+        bottom_n = kwargs.get("bottom_n", 10)
+        highlight_org_code = kwargs.get("highlight_org_code")
+
+        if not metric_id:
+            raise ToolExecutionError(
+                "get_ranking_by_metric",
+                "metric_id parameter is required"
+            )
+
+        logger.info(
+            "Fetching metric rankings",
+            metric_id=metric_id,
+            period=period,
+            region=region,
+            cancer_type=cancer_type,
+            rtt_part_type=rtt_part_type,
+        )
+
+        try:
+            from sqlalchemy import create_engine
+
+            db_url = get_nhs_database_url(for_external_sandbox=False)
+            engine = create_engine(db_url)
+
+            # Infer domain from metric_id prefix
+            if metric_id.startswith("rtt_"):
+                domain = "rtt"
+            elif metric_id.startswith("cancer_"):
+                domain = "cancer"
+            elif metric_id.startswith("OF") or metric_id == "oversight_average_score" or "segment" in metric_id.lower():
+                domain = "oversight"
+            else:
+                raise ToolExecutionError(
+                    "get_ranking_by_metric",
+                    f"Cannot infer domain from metric_id: {metric_id}. Expected prefix: 'rtt_', 'cancer_', or 'OF'"
+                )
+
+            # Build cohort filter
+            cohort_filter = {}
+            if region:
+                cohort_filter["region"] = region
+            if trust_type:
+                cohort_filter["trust_type"] = trust_type
+            if trust_subtype:
+                cohort_filter["trust_subtype"] = trust_subtype
+
+            # Build disaggregation filter
+            disagg_filter = {}
+            if cancer_type is not None:
+                disagg_filter["cancer_type"] = cancer_type
+            if referral_route:
+                disagg_filter["referral_route"] = referral_route
+            if rtt_part_type:
+                disagg_filter["rtt_part_type"] = rtt_part_type
+
+            # For oversight, auto-detect latest period per metric if not provided
+            if period is None and domain == "oversight":
+                metric_periods = queries.get_latest_periods_per_metric(engine, "oversight")
+                period = metric_periods.get(metric_id)
+                if not period:
+                    raise ToolExecutionError(
+                        "get_ranking_by_metric",
+                        f"No data found for oversight metric: {metric_id}"
+                    )
+                logger.info(f"Auto-detected period for {metric_id}: {period}")
+
+            # Call rankings query
+            rankings_data = queries.get_domain_rankings(
+                engine=engine,
+                domain=domain,
+                metric_id=metric_id,
+                period=period,
+                cohort_filter=cohort_filter or None,
+                disaggregation_filter=disagg_filter or None,
+                top_n=top_n,
+                bottom_n=bottom_n,
+                highlight_org_code=highlight_org_code
+            )
+
+            # Format as markdown
+            markdown_output = formatters.format_metric_rankings(rankings_data)
+
+            logger.info(
+                "Metric rankings retrieved successfully",
+                metric_id=metric_id,
+                rankings_count=len(rankings_data.get("rankings", []))
+            )
+
+            return markdown_output
+
+        except ToolExecutionError:
+            raise
+        except Exception as e:
+            logger.error(f"Failed to fetch metric rankings: {e}", exc_info=True)
+            raise ToolExecutionError(
+                "get_ranking_by_metric",
+                f"Failed to retrieve rankings: {str(e)}"
             )
 
 

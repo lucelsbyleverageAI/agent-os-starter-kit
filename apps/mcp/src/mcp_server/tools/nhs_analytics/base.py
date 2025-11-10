@@ -52,7 +52,8 @@ def get_nhs_database_url(for_external_sandbox: bool = False) -> str:
         logger.info("Constructed NHS database URL for external sandbox", host=db_host)
     else:
         # MCP server runs inside Docker, use Docker service name
-        db_host = "db"
+        # Check POSTGRES_HOST env var first (allows prod to use db_prod, local to use db)
+        db_host = os.getenv("POSTGRES_HOST", "db")
         logger.info("Constructed NHS database URL for internal Docker network", host=db_host)
 
     db_url = f"postgresql://{db_user}:{db_password}@{db_host}:{db_port}/{db_name}"
