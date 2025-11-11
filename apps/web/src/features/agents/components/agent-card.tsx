@@ -414,13 +414,24 @@ export function AgentCard({ agent, showDeployment }: AgentCardProps) {
         {/* Footer action bar */}
         <div className="flex w-full items-center justify-between gap-3">
           {/* Left side: Tags */}
-          <div className="flex items-center gap-2 flex-1 min-w-0">
+          <div className="flex items-center gap-2 flex-1 min-w-0 max-w-[60%]">
             {agent.tags && agent.tags.length > 0 ? (
               <>
                 {agent.tags.slice(0, 1).map((tag) => (
-                  <Badge key={tag} variant="outline" className="text-xs">
-                    {getTagLabel(tag)}
-                  </Badge>
+                  <TooltipProvider key={tag}>
+                    <Tooltip>
+                      <TooltipTrigger asChild>
+                        <div className="max-w-[150px]">
+                          <Badge variant="outline" className="text-xs truncate block">
+                            <span className="truncate block">{getTagLabel(tag)}</span>
+                          </Badge>
+                        </div>
+                      </TooltipTrigger>
+                      <TooltipContent>
+                        <span>{getTagLabel(tag)}</span>
+                      </TooltipContent>
+                    </Tooltip>
+                  </TooltipProvider>
                 ))}
                 {agent.tags.length > 1 && (
                   <TooltipProvider>
@@ -447,7 +458,7 @@ export function AgentCard({ agent, showDeployment }: AgentCardProps) {
           </div>
 
           {/* Right side: Action buttons */}
-          <div className="flex items-center gap-2">
+          <div className="flex items-center gap-2 shrink-0">
             {canEdit && (
               <Button
                 variant="outline"
