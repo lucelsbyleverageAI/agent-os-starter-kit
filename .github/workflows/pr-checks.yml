@@ -215,10 +215,29 @@ jobs:
         working-directory: langgraph
         run: poetry install --no-interaction
 
+      - name: Create minimal .env file for build
+        working-directory: langgraph
+        run: |
+          # Create minimal .env file with dummy values for build validation
+          cat > .env << 'EOF'
+          LANGCHAIN_PROJECT="ci-test"
+          LANGSMITH_API_KEY="${{ secrets.LANGSMITH_API_KEY }}"
+          LANGSMITH_TRACING="false"
+          LANGSMITH_ENDPOINT="https://api.smith.langchain.com"
+          OPENAI_API_KEY="dummy-key"
+          ANTHROPIC_API_KEY="dummy-key"
+          SUPABASE_URL=http://localhost:8000
+          SUPABASE_ANON_KEY=dummy-key
+          SUPABASE_SERVICE_KEY=dummy-key
+          LANGCONNECT_API_URL=http://localhost:8080
+          MCP_SERVER_URL=http://localhost:8001
+          MCP_SERVICE_ACCOUNT_KEY=dummy-key
+          DEBUG=false
+          ENVIRONMENT=ci
+          EOF
+
       - name: Run LangGraph build and validate expected error
         working-directory: langgraph
-        env:
-          LANGSMITH_API_KEY: ${{ secrets.LANGSMITH_API_KEY }}
         run: |
           echo "Running LangGraph build process..."
           set +e  # Don't exit on error
