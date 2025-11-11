@@ -12,6 +12,7 @@ from agent_platform.utils.model_utils import (
     ModelConfig,
     RetryConfig,
 )
+from agent_platform.utils.prompt_utils import append_datetime_to_prompt
 
 from langgraph_supervisor import create_supervisor
 
@@ -171,15 +172,16 @@ def make_model(cfg: GraphConfigPydantic):
 def make_prompt(cfg: GraphConfigPydantic):
     """
     Build the system prompt, combining user prompt with delegation instructions.
-    
+
     Args:
         cfg: The supervisor configuration containing user system prompt
-        
+
     Returns:
-        Complete system prompt with delegation instructions
+        Complete system prompt with delegation instructions and current datetime
     """
     from agent_platform.agents.supervisor_agent.config import UNEDITABLE_SYSTEM_PROMPT
-    return cfg.system_prompt + UNEDITABLE_SYSTEM_PROMPT
+    base_prompt = cfg.system_prompt + UNEDITABLE_SYSTEM_PROMPT
+    return append_datetime_to_prompt(base_prompt)
 
 
 async def graph(config: RunnableConfig):

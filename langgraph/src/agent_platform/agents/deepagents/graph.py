@@ -6,6 +6,7 @@ try:
     from .interrupt import create_interrupt_hook, ToolInterruptConfig
     from .image_processing import dispatch_image_processing, process_single_image, continue_after_image_processing
     from agent_platform.utils.message_utils import create_image_preprocessor
+    from agent_platform.utils.prompt_utils import append_datetime_to_prompt
 except ImportError:
     from agent_platform.agents.deepagents.sub_agent import _create_task_tool, _create_sync_task_tool
     from agent_platform.agents.deepagents.model import get_default_model
@@ -14,6 +15,7 @@ except ImportError:
     from agent_platform.agents.deepagents.interrupt import create_interrupt_hook, ToolInterruptConfig
     from agent_platform.agents.deepagents.image_processing import dispatch_image_processing, process_single_image, continue_after_image_processing
     from agent_platform.utils.message_utils import create_image_preprocessor
+    from agent_platform.utils.prompt_utils import append_datetime_to_prompt
 from typing import Sequence, Union, Callable, Any, TypeVar, Type, Optional
 from langchain_core.tools import BaseTool, tool
 from langchain_core.language_models import LanguageModelLike
@@ -85,6 +87,7 @@ def _agent_builder(
     # Use appropriate base prompt depending on whether task tool will be available
     base_prompt = base_prompt_with_task if has_subagents else base_prompt_without_task
     prompt = instructions + "\n\n" + base_prompt
+    prompt = append_datetime_to_prompt(prompt)
 
     all_builtin_tools = [write_todos, write_file, read_file, ls, edit_file]
 
