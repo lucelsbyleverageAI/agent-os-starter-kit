@@ -79,6 +79,8 @@ export function AgentCard({ agent, showDeployment }: AgentCardProps) {
   const [showDeleteConfirmation, setShowDeleteConfirmation] = useState(false);
   const [showRevokeConfirmation, setShowRevokeConfirmation] = useState(false);
   const [isHydrating, setIsHydrating] = useState(false);
+  const [isDuplicating, setIsDuplicating] = useState(false);
+  const [isSettingDefault, setIsSettingDefault] = useState(false);
   const { session } = useAuthContext();
   const { getAgent, createAgent, deleteAgent, revokeMyAccess } = useAgents();
   const { refreshAgents, invalidateAssistantListCache, invalidateAssistantCaches, invalidateAllAssistantCaches, addAgentToList, defaultAssistant, setDefaultAssistant, refreshDefaultAssistant, hydrateAgent } = useAgentsContext();
@@ -151,18 +153,23 @@ export function AgentCard({ agent, showDeployment }: AgentCardProps) {
   };
 
   const handleSetDefault = async () => {
-    const result = await setDefaultAssistant(agent.assistant_id);
-    if (result.ok) {
-      // Refresh default assistant state to ensure UI updates
-      await refreshDefaultAssistant();
+    setIsSettingDefault(true);
+    try {
+      const result = await setDefaultAssistant(agent.assistant_id);
+      if (result.ok) {
+        // Refresh default assistant state to ensure UI updates
+        await refreshDefaultAssistant();
 
-      notify.success("Default Assistant Set", {
-        description: `${agent.name} is now your default assistant`,
-      });
-    } else {
-      notify.error("Failed to Set Default", {
-        description: result.errorMessage || "Could not set default assistant",
-      });
+        notify.success("Default Assistant Set", {
+          description: `${agent.name} is now your default assistant`,
+        });
+      } else {
+        notify.error("Failed to Set Default", {
+          description: result.errorMessage || "Could not set default assistant",
+        });
+      }
+    } finally {
+      setIsSettingDefault(false);
     }
   };
 
@@ -189,6 +196,7 @@ export function AgentCard({ agent, showDeployment }: AgentCardProps) {
   };
 
   const handleDuplicateAgent = async () => {
+    setIsDuplicating(true);
     // Show loading toast
     const toastId = rawToast.loading("Duplicating Agent", {
       description: `Creating a copy of "${agent.name}"...`,
@@ -270,6 +278,8 @@ export function AgentCard({ agent, showDeployment }: AgentCardProps) {
       });
 
       logger.error("Failed to duplicate agent:", error);
+    } finally {
+      setIsDuplicating(false);
     }
   };
 
@@ -325,13 +335,21 @@ export function AgentCard({ agent, showDeployment }: AgentCardProps) {
                     Manage Access
                   </DropdownMenuItem>
                 )}
-                <DropdownMenuItem onClick={handleDuplicateAgent}>
-                  <Copy className="h-4 w-4 mr-2" />
+                <DropdownMenuItem onClick={handleDuplicateAgent} disabled={isDuplicating}>
+                  {isDuplicating ? (
+                    <LoaderCircle className="h-4 w-4 mr-2 animate-spin" />
+                  ) : (
+                    <Copy className="h-4 w-4 mr-2" />
+                  )}
                   Duplicate Agent
                 </DropdownMenuItem>
                 {!isDefaultAgent && !isUserDefault && (
-                  <DropdownMenuItem onClick={handleSetDefault}>
-                    <Star className="h-4 w-4 mr-2" />
+                  <DropdownMenuItem onClick={handleSetDefault} disabled={isSettingDefault}>
+                    {isSettingDefault ? (
+                      <LoaderCircle className="h-4 w-4 mr-2 animate-spin" />
+                    ) : (
+                      <Star className="h-4 w-4 mr-2" />
+                    )}
                     Set as Default
                   </DropdownMenuItem>
                 )}
