@@ -186,11 +186,11 @@ export function useMemories() {
   }, [session?.accessToken]);
 
   // Delete a memory
-  const deleteMemory = useCallback(async (memoryId: string): Promise<boolean> => {
+  const deleteMemory = useCallback(async (memoryId: string, silent: boolean = false): Promise<boolean> => {
     if (!session?.accessToken) {
       throw new Error('No authentication token available');
     }
-    
+
     try {
       const response = await fetch(`/api/langconnect/memory/${memoryId}`, {
         method: 'DELETE',
@@ -205,25 +205,29 @@ export function useMemories() {
       }
 
       const result: MemoryResponse = await response.json();
-      
+
       if (!result.success) {
         throw new Error(result.message || 'Failed to delete memory');
       }
 
       // Remove from local state
       setMemories(prev => prev.filter(memory => memory.id !== memoryId));
-      
-      toast.success('Memory deleted successfully', {
-        richColors: true,
-      });
+
+      if (!silent) {
+        toast.success('Memory deleted successfully', {
+          richColors: true,
+        });
+      }
 
       return true;
     } catch (error) {
       console.error('Error deleting memory:', error);
-      toast.error('Failed to delete memory', {
-        description: error instanceof Error ? error.message : 'Unknown error occurred',
-        richColors: true,
-      });
+      if (!silent) {
+        toast.error('Failed to delete memory', {
+          description: error instanceof Error ? error.message : 'Unknown error occurred',
+          richColors: true,
+        });
+      }
       return false;
     }
   }, [session?.accessToken]);
