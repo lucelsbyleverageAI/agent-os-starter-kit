@@ -1,4 +1,4 @@
-from typing import Optional, List
+from typing import Optional, List, Dict
 from pydantic import BaseModel, Field
 from agent_platform.utils.model_utils import get_model_options_for_ui
 
@@ -129,23 +129,36 @@ class RagConfig(BaseModel):
     )
     """List of tool names to enable for the agent"""
 
+    tool_approvals: Optional[Dict[str, bool]] = Field(
+        default={},
+        metadata={
+            "x_oap_ui_config": {
+                "type": "tool_approvals",
+                "description": "Configure which document tools require human approval before execution",
+            }
+        },
+    )
+    """Dictionary mapping tool names to approval requirements (True = requires approval)"""
+
 
 class MCPConfig(BaseModel):
     """
     Configuration for MCP (Model Context Protocol) integration.
-    
+
     This configuration enables the agent to connect to MCP servers and use
     their tools. The agent can selectively enable specific tools from the server.
-    
+
     Attributes:
         url: Base URL of the MCP server
         tools: List of tool names to make available (if None, all tools are enabled)
-        
+        tool_approvals: Dictionary mapping tool names to approval requirements
+
     Example:
         ```python
         mcp_config = MCPConfig(
             url="https://mcp-server.example.com",
-            tools=["search_documents", "create_file"]
+            tools=["search_documents", "create_file"],
+            tool_approvals={"create_file": True}  # Require approval for create_file
         )
         ```
     """
@@ -154,12 +167,23 @@ class MCPConfig(BaseModel):
         optional=True,
     )
     """The base URL of the MCP server"""
-    
+
     tools: Optional[List[str]] = Field(
         default=None,
         optional=True,
     )
     """List of specific tools to enable (None = all tools available)"""
+
+    tool_approvals: Optional[Dict[str, bool]] = Field(
+        default={},
+        metadata={
+            "x_oap_ui_config": {
+                "type": "tool_approvals",
+                "description": "Configure which MCP tools require human approval before execution",
+            }
+        },
+    )
+    """Dictionary mapping tool names to approval requirements (True = requires approval)"""
 
 
 class GraphConfigPydantic(BaseModel):
