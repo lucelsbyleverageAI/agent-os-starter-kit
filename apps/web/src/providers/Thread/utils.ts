@@ -2,6 +2,35 @@ import { Thread, ThreadState } from "@langchain/langgraph-sdk";
 import { HumanInterrupt, ThreadData } from "@/components/agent-inbox/types";
 import { IMPROPER_SCHEMA } from "@/constants";
 
+/**
+ * Sanitizes a JSON string by removing or escaping control characters
+ * that can cause JSON.parse() to fail with "Bad control character in string literal"
+ *
+ * This is particularly important for streaming contexts where large amounts of data
+ * may contain unescaped control characters.
+ */
+function sanitizeJsonString(str: string): string {
+  // Replace control characters (ASCII 0-31 except whitespace) with escaped versions
+  // Keep: \t (tab, 9), \n (newline, 10), \r (carriage return, 13)
+  // Remove or escape others that aren't valid in JSON strings
+  // eslint-disable-next-line no-control-regex
+  return str.replace(/[\x00-\x08\x0B\x0C\x0E-\x1F]/g, '');
+}
+
+/**
+ * Safely parses JSON with control character sanitization
+ * Falls back to returning null if parsing fails after sanitization
+ */
+function safeJsonParse<T = any>(value: string): T | null {
+  try {
+    const sanitized = sanitizeJsonString(value);
+    return JSON.parse(sanitized);
+  } catch (error) {
+    console.warn('Failed to parse JSON even after sanitization:', error);
+    return null;
+  }
+}
+
 // TODO: Delete this once interrupt issue fixed.
 export const tmpCleanInterrupts = (interrupts: Record<string, any[]>) => {
   return Object.fromEntries(
@@ -49,7 +78,7 @@ export function getInterruptFromThread(
                 (value.startsWith("[") || value.startsWith("{"))
               ) {
                 try {
-                  const parsed = JSON.parse(value);
+                  const parsed = safeJsonParse(value);
 
                   // Parsed is an array of interrupts
                   if (Array.isArray(parsed)) {
