@@ -80,6 +80,7 @@ def _agent_builder(
     enable_image_processing: bool = False,
     runnable_config: Optional[RunnableConfig] = None,
     include_general_purpose_agent: bool = True,
+    tool_approvals: Optional[dict[str, bool]] = None,
 ):
     # Determine if any sub-agents are available
     has_subagents = (subagents and len(subagents) > 0) or include_general_purpose_agent
@@ -160,6 +161,7 @@ def _agent_builder(
                 selected_post_model_hook,
                 runnable_config,
                 include_general_purpose_agent,
+                tool_approvals,
             )
         else:
             task_tool = _create_task_tool(
@@ -171,6 +173,7 @@ def _agent_builder(
                 selected_post_model_hook,
                 runnable_config,
                 include_general_purpose_agent,
+                tool_approvals,
             )
 
         all_tools = built_in_tools + list(tools) + [task_tool]
@@ -249,6 +252,7 @@ def create_deep_agent(
         enable_image_processing=enable_image_processing,
         runnable_config=kwargs.get("runnable_config"),
         include_general_purpose_agent=include_general_purpose_agent,
+        tool_approvals=tool_approvals,
     )
 
 
@@ -266,6 +270,7 @@ def async_create_deep_agent(
     pre_model_hook: Optional[Callable] = None,
     enable_image_processing: bool = False,
     include_general_purpose_agent: bool = True,
+    tool_approvals: Optional[dict[str, bool]] = None,
     **kwargs,
 ):
     """Create a deep agent.
@@ -310,4 +315,5 @@ def async_create_deep_agent(
         enable_image_processing=enable_image_processing,
         runnable_config=kwargs.get("runnable_config"),
         include_general_purpose_agent=include_general_purpose_agent,
+        tool_approvals=tool_approvals,
     )
