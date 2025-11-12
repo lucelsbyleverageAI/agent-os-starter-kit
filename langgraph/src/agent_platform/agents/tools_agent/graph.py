@@ -26,6 +26,7 @@ from agent_platform.utils.model_utils import (
     create_trimming_hook,
 )
 from agent_platform.utils.message_utils import create_image_preprocessor
+from agent_platform.utils.prompt_utils import append_datetime_to_prompt
 
 # Import agent-specific configuration
 from agent_platform.agents.tools_agent.config import GraphConfigPydantic, UNEDITABLE_SYSTEM_PROMPT, DEFAULT_RECURSION_LIMIT
@@ -267,7 +268,7 @@ async def graph(config: RunnableConfig):
     logger.info("[TOOLS_AGENT] agent_created tools_count=%s recursion_limit=%s", len(tools), recursion_limit)
 
     return create_react_agent(
-        prompt=cfg.system_prompt + UNEDITABLE_SYSTEM_PROMPT,
+        prompt=append_datetime_to_prompt(cfg.system_prompt + UNEDITABLE_SYSTEM_PROMPT),
         model=model,
         tools=tools,
         config_schema=GraphConfigPydantic,
