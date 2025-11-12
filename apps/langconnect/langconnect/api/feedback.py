@@ -7,7 +7,7 @@ import logging
 import os
 from datetime import datetime, timezone
 from typing import Annotated, Optional
-from uuid import UUID
+from uuid import UUID as UUID_TYPE
 
 import httpx
 from fastapi import APIRouter, Depends, HTTPException
@@ -83,7 +83,7 @@ def extract_run_id_from_message_id(message_id: str) -> Optional[str]:
     Extract LangSmith run_id from LangGraph message_id.
 
     LangGraph message IDs often follow the pattern: "run--<uuid>" or "run-<uuid>"
-    This function attempts to extract the UUID portion.
+    This function attempts to extract the UUID portion and validates it.
 
     Examples:
         "run--9f1f8cac-7b36-4e1b-880b-d46dab8b3ffc" -> "9f1f8cac-7b36-4e1b-880b-d46dab8b3ffc"
@@ -93,20 +93,28 @@ def extract_run_id_from_message_id(message_id: str) -> Optional[str]:
     if not message_id:
         return None
 
+    extracted_id = None
+
     # Try to extract UUID from message_id
     # Pattern 1: "run--<uuid>" or "run-<uuid>"
     if message_id.startswith("run--"):
-        return message_id[5:]  # Strip "run--" prefix
+        extracted_id = message_id[5:]  # Strip "run--" prefix
     elif message_id.startswith("run-"):
-        return message_id[4:]  # Strip "run-" prefix
-
+        extracted_id = message_id[4:]  # Strip "run-" prefix
     # Pattern 2: Already a UUID (no prefix)
-    # Just return as-is if it looks like a UUID format
-    if len(message_id) == 36 and message_id.count("-") == 4:
-        return message_id
+    elif len(message_id) == 36 and message_id.count("-") == 4:
+        extracted_id = message_id
+    else:
+        log.warning(f"Could not extract run_id from message_id: {message_id}")
+        return None
 
-    log.warning(f"Could not extract run_id from message_id: {message_id}")
-    return None
+    # Validate that extracted_id is a valid UUID
+    try:
+        UUID_TYPE(extracted_id)
+        return extracted_id
+    except ValueError:
+        log.warning(f"Invalid UUID format extracted from message_id {message_id}: {extracted_id}")
+        return None
 
 
 async def find_langsmith_run_id(thread_id: str, message_timestamp: datetime) -> Optional[str]:
@@ -118,6 +126,10 @@ async def find_langsmith_run_id(thread_id: str, message_timestamp: datetime) -> 
     2. Have a start_time close to the message timestamp (within 30 seconds)
 
     Returns the most recent matching run_id or None if not found.
+
+    NOTE: This timestamp-based approach is a fallback and has limitations:
+    - 30-second window may match wrong runs in high-traffic scenarios
+    - Recommended to pass run_id directly or extract from message_id when possible
     """
     api_key = os.getenv("LANGSMITH_API_KEY")
     endpoint = os.getenv("LANGSMITH_ENDPOINT", "https://api.smith.langchain.com")
@@ -134,7 +146,11 @@ async def find_langsmith_run_id(thread_id: str, message_timestamp: datetime) -> 
         start_time = message_ts - 30  # 30s before
         end_time = message_ts + 30  # 30s after
 
-        filter_query = f'{{"thread_id": "{thread_id}", "start_time": {{"$gte": {start_time}, "$lte": {end_time}}}}}'
+        # Use json.dumps for safe JSON serialization (prevents injection)
+        filter_query = json.dumps({
+            "thread_id": thread_id,
+            "start_time": {"$gte": start_time, "$lte": end_time}
+        })
         log.debug(f"LangSmith filter query: {filter_query}")
 
         async with httpx.AsyncClient() as client:
@@ -232,6 +248,10 @@ async def submit_feedback_to_langsmith(
 # Message Feedback Endpoints
 # ============================================================================
 
+# TODO: Add rate limiting to prevent abuse
+# Consider using slowapi or similar middleware to limit feedback submissions per user
+# Suggested limits: 10 requests per minute per user
+
 
 @router.post("/feedback/messages", response_model=MessageFeedbackResponse)
 async def create_message_feedback(
@@ -249,6 +269,8 @@ async def create_message_feedback(
 
     **Authorization:**
     - **All Users**: Can create feedback for their own messages
+
+    **Note:** Rate limiting should be implemented to prevent abuse.
     """
     try:
         # Service accounts cannot create feedback
