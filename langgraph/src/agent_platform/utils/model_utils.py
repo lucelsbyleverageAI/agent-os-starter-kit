@@ -13,7 +13,7 @@ Key Features:
 - Consistent configuration across all agents
 """
 
-from typing import Optional, List, Literal, Dict, Any, Union
+from typing import Optional, List, Literal, Dict, Any
 from enum import Enum
 from pydantic import BaseModel, Field
 from langchain.chat_models import init_chat_model
@@ -65,21 +65,8 @@ class ModelInfo(BaseModel):
 # Models are organized by tier: Fast (cheap/quick), Standard (balanced), Advanced (high-reasoning)
 MODEL_REGISTRY: Dict[str, ModelInfo] = {
     # ========== FAST TIER: Quick and economical models ==========
-    
+
     # Anthropic Fast
-    "anthropic:claude-3-5-haiku-latest": ModelInfo(
-        name="anthropic:claude-3-5-haiku-latest",
-        display_name="Claude 3.5 Haiku",
-        provider=ModelProvider.ANTHROPIC,
-        tier=ModelTier.FAST,
-        context_window=200000,
-        max_output_tokens=8192,
-        supports_caching=True,
-        description="Fast and economical with prompt caching",
-        enable_trimming=True,
-        trimming_max_tokens=150000,  # Conservative for 200k context window
-    ),
-    
     "anthropic:claude-haiku-4-5-20251001": ModelInfo(
         name="anthropic:claude-haiku-4-5-20251001",
         display_name="Claude Haiku 4.5",
