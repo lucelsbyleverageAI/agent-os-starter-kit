@@ -3,7 +3,7 @@
 import React, { useState, useEffect, useMemo, useCallback, useRef } from "react";
 import { Thread } from "@langchain/langgraph-sdk";
 import { format, isToday as _isToday, isThisWeek as _isThisWeek, isThisMonth as _isThisMonth, startOfDay, subDays } from "date-fns";
-import { Clock, ChevronDown, ChevronRight, Plus, FileClock, Check, Star } from "lucide-react";
+import { Clock, ChevronDown, ChevronRight, Plus, FileClock, Check, Star, Archive } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import {
   Tooltip,
@@ -288,6 +288,9 @@ export function ChatHistory() {
             name: t.name,
             metadata: {
               assistant_id: t.assistant_id,
+              is_deprecated: t.is_deprecated,
+              deprecated_at: t.deprecated_at,
+              deprecated_reason: t.deprecated_reason,
             },
           }));
         }
@@ -326,6 +329,9 @@ export function ChatHistory() {
             name: t.name,
             metadata: {
               assistant_id: t.assistant_id,
+              is_deprecated: t.is_deprecated,
+              deprecated_at: t.deprecated_at,
+              deprecated_reason: t.deprecated_reason,
             },
           }));
         }
@@ -472,7 +478,7 @@ export function ChatHistory() {
    */
   useEffect(() => {
     if (threadsVersion !== null && sessionRef.current?.accessToken) {
-      const agentFilter = selectedAgentValue === "all" ? undefined : selectedAgentValue;
+      const agentFilter = (selectedAgentValue === "all" || selectedAgentValue === "archived") ? undefined : selectedAgentValue;
       // Background refresh to avoid loading skeleton flash
       fetchThreads(agentFilter, false, threadsVersion, true);
     }
@@ -487,7 +493,7 @@ export function ChatHistory() {
   // Only refetch when selectedAgentValue changes, not when session token refreshes
   useEffect(() => {
     if (sessionRef.current?.accessToken) {
-      const agentFilter = selectedAgentValue === "all" ? undefined : selectedAgentValue;
+      const agentFilter = (selectedAgentValue === "all" || selectedAgentValue === "archived") ? undefined : selectedAgentValue;
       // When toggling filters, carry forward the latest threads version to avoid stale results across filters
       fetchThreads(agentFilter, false, latestThreadsVersionRef.current);
     }
@@ -503,7 +509,9 @@ export function ChatHistory() {
       // Immediately show cached full list to avoid stale UI, then confirm with network
       setThreads(allThreadsCacheRef.current);
     }
-    fetchThreads(value === "all" ? undefined : value, false, latestThreadsVersionRef.current);
+    // For "archived" filter, fetch all threads (we'll filter client-side)
+    const fetchValue = (value === "all" || value === "archived") ? undefined : value;
+    fetchThreads(fetchValue, false, latestThreadsVersionRef.current);
     setFilterOpen(false);
   };
 
@@ -512,7 +520,11 @@ export function ChatHistory() {
     if (selectedAgentValue === "all") {
       return "All Agents";
     }
-    
+
+    if (selectedAgentValue === "archived") {
+      return "Archived Agents";
+    }
+
     const [selectedAssistantId, selectedDeploymentId] = selectedAgentValue.split(":");
     const selectedAgent = agents.find(
       (item) =>
@@ -526,6 +538,7 @@ export function ChatHistory() {
   // Get name from agent value for search filtering
   const getNameFromValue = (value: string) => {
     if (value === "all") return "All Agents";
+    if (value === "archived") return "Archived Agents";
     
     const [selectedAssistantId, selectedDeploymentId] = value.split(":");
     const selectedAgent = agents.find(
@@ -545,8 +558,30 @@ export function ChatHistory() {
 
   // Handle thread click with layered fallback
   const handleThreadClick = (thread: Thread) => {
+    // Check if thread is deprecated - allow viewing in read-only mode
+    const isDeprecated = thread.metadata?.is_deprecated === true;
+
     // Extract agent info from thread metadata
     const originalAgentId = thread.metadata?.assistant_id;
+
+    // For deprecated threads, use any available agent for viewing (read-only mode)
+    if (isDeprecated) {
+      const anyAgent = agents.find(isUserSpecifiedDefaultAgent) || agents.find(isPrimaryAssistant) || agents[0];
+
+      if (anyAgent) {
+        // Navigate with any agent - the UI will show read-only mode
+        // We pass the original assistant_id in metadata so LangGraph can load the messages
+        router.push(`/?agentId=${anyAgent.assistant_id}&deploymentId=${anyAgent.deploymentId}&threadId=${thread.thread_id}&deprecated=true&originalAssistantId=${originalAgentId || ''}`);
+        return;
+      } else {
+        toast.error("Unable to view thread", {
+          description: "No agents available. Please create an agent first.",
+          duration: 5000,
+        });
+        return;
+      }
+    }
+
     if (!originalAgentId) {
       toast.error("Unable to determine agent for this thread");
       return;
@@ -734,8 +769,19 @@ export function ChatHistory() {
 
   // Group threads by time
   const groupedThreads = useMemo(() => {
-    return groupThreadsByTime(threads);
-  }, [threads]);
+    let filteredThreads = threads;
+
+    // Filter based on selected agent value
+    if (selectedAgentValue === "archived") {
+      // Show only deprecated threads
+      filteredThreads = threads.filter(thread => thread.metadata?.is_deprecated === true);
+    } else if (selectedAgentValue !== "all") {
+      // When filtering by specific agent, exclude deprecated threads
+      filteredThreads = threads.filter(thread => thread.metadata?.is_deprecated !== true);
+    }
+
+    return groupThreadsByTime(filteredThreads);
+  }, [threads, selectedAgentValue]);
 
   return (
     <SidebarGroup className="group-data-[collapsible=icon]:hidden">
@@ -804,7 +850,26 @@ export function ChatHistory() {
                             </span>
                           </div>
                         </CommandItem>
-                        
+
+                        {/* Archived Agents Option */}
+                        <CommandItem
+                          value="archived"
+                          onSelect={handleAgentFilterChange}
+                          className="flex w-full items-center justify-between px-4 py-1.5 text-muted-foreground hover:text-foreground hover:bg-accent cursor-pointer"
+                        >
+                          <div className="flex items-center gap-2 flex-1">
+                            <Check
+                              className={cn(
+                                "h-3 w-3",
+                                selectedAgentValue === "archived" ? "opacity-100" : "opacity-0",
+                              )}
+                            />
+                            <span className="flex-1 truncate text-xs font-medium">
+                              Archived Agents
+                            </span>
+                          </div>
+                        </CommandItem>
+
                         {/* Flat list of all agents sorted by default status and updated date */}
                         {(() => {
                           const sortedAgents = sortAgentGroup(agents);
@@ -902,6 +967,7 @@ export function ChatHistory() {
                       const firstMessage = getFirstHumanMessageContent(thread);
                       const displayText = mirrorName || firstMessage || "New chat";
                       const isSelected = currentThreadId === thread.thread_id;
+                      const isDeprecated = thread.metadata?.is_deprecated === true;
 
                       return (
                         <SidebarMenuItem
@@ -936,7 +1002,12 @@ export function ChatHistory() {
                                 className="flex-1 justify-start pl-2 text-xs pr-1 hover:bg-transparent cursor-pointer"
                                 size="sm"
                               >
-                                <span className="truncate text-xs">{displayText}</span>
+                                <div className="flex items-center gap-1.5 flex-1 min-w-0">
+                                  {isDeprecated && (
+                                    <Archive className="h-3 w-3 flex-shrink-0 text-muted-foreground/60" />
+                                  )}
+                                  <span className="truncate text-xs">{displayText}</span>
+                                </div>
                               </SidebarMenuButton>
                             )}
                             <ThreadActionMenu

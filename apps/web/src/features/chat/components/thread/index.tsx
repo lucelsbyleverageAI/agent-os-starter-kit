@@ -109,6 +109,7 @@ interface ThreadProps {
 export function Thread({ historyOpen = false, configOpen = false }: ThreadProps) {
   const [agentId] = useQueryState("agentId");
   const [agentMismatch] = useQueryState("agentMismatch", parseAsString);
+  const [deprecatedParam] = useQueryState("deprecated", parseAsString);
   const [threadId] = useQueryState("threadId");
   const [hideToolCalls, setHideToolCalls] = useQueryState(
     "hideToolCalls",
@@ -162,9 +163,21 @@ export function Thread({ historyOpen = false, configOpen = false }: ThreadProps)
     timestamp: string;
   } | null>(null);
 
+  // Track thread deprecated status
+  const [threadDeprecatedInfo, setThreadDeprecatedInfo] = useState<{
+    isDeprecated: boolean;
+    deprecatedReason?: string;
+  } | null>(null);
+
+  // Track messages for deprecated threads (fetched separately)
+  const [deprecatedThreadMessages, setDeprecatedThreadMessages] = useState<Message[]>([]);
+
   // Use preserved messages only when stream messages are empty and we have preserved ones
   // IMPORTANT: Force empty messages when threadId is null to prevent showing stale messages during new chat transition
-  const messages = !threadId ? [] : (streamMessages?.length === 0 && preservedMessages.length > 0 ? preservedMessages : streamMessages);
+  // IMPORTANT: For deprecated threads, show deprecatedThreadMessages instead
+  const messages = !threadId ? [] :
+    (threadDeprecatedInfo?.isDeprecated && deprecatedParam === "true") ? deprecatedThreadMessages :
+    (streamMessages?.length === 0 && preservedMessages.length > 0 ? preservedMessages : streamMessages);
 
   // Hydrate lightweight agents when thread is loaded
   useEffect(() => {
@@ -236,6 +249,88 @@ export function Thread({ historyOpen = false, configOpen = false }: ThreadProps)
       }
     }
   }, [stream, threadId, streamMessages]);
+
+  // Fetch thread metadata to check if deprecated
+  useEffect(() => {
+    if (!threadId || !session?.accessToken) {
+      setThreadDeprecatedInfo(null);
+      return;
+    }
+
+    // Set initial state from query param for immediate feedback
+    if (deprecatedParam === "true") {
+      setThreadDeprecatedInfo({
+        isDeprecated: true,
+        deprecatedReason: undefined, // Will be fetched from API
+      });
+    }
+
+    const fetchThreadMetadata = async () => {
+      try {
+        const url = new URL(`/api/langconnect/agents/mirror/threads`, window.location.origin);
+        url.searchParams.set('thread_id', threadId);
+
+        const resp = await fetchWithAuth(url.toString(), {
+          cache: 'no-store',
+        }, session);
+
+        if (resp.ok) {
+          const data = await resp.json();
+          const thread = data.threads?.[0];
+
+          if (thread) {
+            setThreadDeprecatedInfo({
+              isDeprecated: thread.is_deprecated === true,
+              deprecatedReason: thread.deprecated_reason,
+            });
+          } else {
+            setThreadDeprecatedInfo(null);
+          }
+        }
+      } catch (error) {
+        console.error('[Thread] Failed to fetch thread metadata:', error);
+      }
+    };
+
+    fetchThreadMetadata();
+  }, [threadId, session?.accessToken, deprecatedParam, agentId]);
+
+  // Fetch messages for deprecated threads using service account API
+  useEffect(() => {
+    if (!threadId || !threadDeprecatedInfo?.isDeprecated || deprecatedParam !== "true" || !session?.accessToken) {
+      return;
+    }
+
+    const fetchDeprecatedThreadMessages = async () => {
+      try {
+        // Find current agent to get deployment info
+        const currentAgent = agents.find(a => a.assistant_id === agentId);
+        if (!currentAgent) {
+          console.error('[Thread] Could not find current agent for deployment info');
+          return;
+        }
+
+        // Use the server-side API route that handles service account auth
+        const historyUrl = `/api/langgraph/threads/${threadId}/history?deploymentId=${currentAgent.deploymentId}`;
+        const historyResp = await fetchWithAuth(historyUrl, {
+          cache: 'no-store',
+        }, session);
+
+        if (historyResp.ok) {
+          const history = await historyResp.json();
+          const messages = history.values?.[0]?.messages || [];
+          setDeprecatedThreadMessages(messages);
+        } else {
+          const errorText = await historyResp.text();
+          console.error('[Thread] Failed to fetch thread history:', historyResp.status, errorText);
+        }
+      } catch (error) {
+        console.error('[Thread] Error fetching deprecated thread messages:', error);
+      }
+    };
+
+    fetchDeprecatedThreadMessages();
+  }, [threadId, threadDeprecatedInfo, deprecatedParam, session?.accessToken, agentId, agents]);
 
   // Handle pending first message touch when threadId becomes available
   useEffect(() => {
@@ -674,18 +769,6 @@ export function Thread({ historyOpen = false, configOpen = false }: ThreadProps)
                   )}
                   content={
                   <>
-                    {/* Agent Mismatch Warning Banner */}
-                {agentMismatch === "true" && (
-                  <Alert variant="default" className="border-orange-200 bg-orange-50">
-                    <AlertCircle className="h-4 w-4 text-orange-600" />
-                    <AlertTitle className="text-orange-800">Agent Mismatch Warning</AlertTitle>
-                    <AlertDescription className="text-orange-700">
-                      The original agent for this conversation was deleted. You're now using a fallback agent,
-                      so the conversation may not work as expected. Consider starting a new chat for the best experience.
-                    </AlertDescription>
-                  </Alert>
-                )}
-
                 {messages
                   .filter((m: Message) => !m.id?.startsWith(DO_NOT_RENDER_ID_PREFIX))
                   .map((message: Message, index: number) =>
@@ -739,25 +822,33 @@ export function Thread({ historyOpen = false, configOpen = false }: ThreadProps)
                   <div className="relative w-full">
                     <ScrollToBottom className="animate-in fade-in-0 zoom-in-95 absolute bottom-full left-1/2 mb-4 -translate-x-1/2" />
 
-                    <DynamicInputComposer
-                      dropRef={dropRef}
-                      chatWidth={chatWidth}
-                      dragOver={dragOver}
-                      handleSubmit={handleSubmit}
-                      contentBlocks={contentBlocks}
-                      processingAttachments={processingAttachments}
-                      removeBlock={removeBlock}
-                      removeProcessingAttachment={removeProcessingAttachment}
-                      setHasInput={setHasInput}
-                      handlePaste={handlePaste}
-                      hasMessages={hasMessages}
-                      hideToolCalls={hideToolCalls}
-                      setHideToolCalls={setHideToolCalls}
-                      handleFileUpload={handleFileUpload}
-                      isLoading={isLoading}
-                      hasInput={hasInput}
-                      onStop={() => stream.stop()}
-                    />
+                    {threadDeprecatedInfo?.isDeprecated ? (
+                      <div className={cn("rounded-2xl border bg-muted/50 p-6 text-center", chatWidth)}>
+                        <p className="text-sm text-muted-foreground">
+                          This conversation is read-only as the agent has been deleted and cannot accept new messages.
+                        </p>
+                      </div>
+                    ) : (
+                      <DynamicInputComposer
+                        dropRef={dropRef}
+                        chatWidth={chatWidth}
+                        dragOver={dragOver}
+                        handleSubmit={handleSubmit}
+                        contentBlocks={contentBlocks}
+                        processingAttachments={processingAttachments}
+                        removeBlock={removeBlock}
+                        removeProcessingAttachment={removeProcessingAttachment}
+                        setHasInput={setHasInput}
+                        handlePaste={handlePaste}
+                        hasMessages={hasMessages}
+                        hideToolCalls={hideToolCalls}
+                        setHideToolCalls={setHideToolCalls}
+                        handleFileUpload={handleFileUpload}
+                        isLoading={isLoading}
+                        hasInput={hasInput}
+                        onStop={() => stream.stop()}
+                      />
+                    )}
                   </div>
                 </div>
               </>
