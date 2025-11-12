@@ -750,40 +750,42 @@ async def delete_assistant(
         if deleted_from_langgraph:
             try:
                 async with get_db_connection() as conn:
-                    # Step 1: Manually deprecate threads before deletion
-                    # This is required because migration 006 changed FK to ON DELETE NO ACTION,
-                    # which prevents the BEFORE DELETE trigger from running
-                    deprecation_result = await conn.fetchrow(
-                        """
-                        UPDATE langconnect.threads_mirror
-                        SET is_deprecated = TRUE,
-                            deprecated_at = NOW(),
-                            deprecated_reason = 'Assistant was deleted'
-                        WHERE assistant_id = $1 AND is_deprecated = FALSE
-                        RETURNING assistant_id
-                        """,
-                        UUID(assistant_id)
-                    )
-
-                    if deprecation_result:
-                        log.info(f"Manually deprecated threads for assistant {assistant_id} before deletion")
-
-                    # Step 2: Remove from assistants_mirror and assistant_schemas (cascade)
-                    await conn.execute(
-                        "DELETE FROM langconnect.assistants_mirror WHERE assistant_id = $1",
-                        UUID(assistant_id)
-                    )
-
-                    # Step 3: Increment version to invalidate frontend caches
-                    await conn.fetchval("SELECT langconnect.increment_cache_version('assistants')")
-                    await conn.fetchval("SELECT langconnect.increment_cache_version('schemas')")
-
-                    # Step 4: Refresh graph mirror if we had the graph_id
-                    if metadata and metadata.get("graph_id"):
-                        await conn.fetchval(
-                            "SELECT langconnect.refresh_graph_mirror($1)",
-                            metadata["graph_id"]
+                    # Use transaction to ensure atomicity: if any step fails, all changes rollback
+                    async with conn.transaction():
+                        # Step 1: Manually deprecate threads before deletion
+                        # This is required because migration 007 removed the FK constraint,
+                        # so we manually deprecate threads before deletion as a defensive measure
+                        deprecation_result = await conn.fetchrow(
+                            """
+                            UPDATE langconnect.threads_mirror
+                            SET is_deprecated = TRUE,
+                                deprecated_at = NOW(),
+                                deprecated_reason = 'Assistant was deleted'
+                            WHERE assistant_id = $1 AND is_deprecated = FALSE
+                            RETURNING assistant_id
+                            """,
+                            UUID(assistant_id)
                         )
+
+                        if deprecation_result:
+                            log.info(f"Manually deprecated threads for assistant {assistant_id} before deletion")
+
+                        # Step 2: Remove from assistants_mirror and assistant_schemas (cascade)
+                        await conn.execute(
+                            "DELETE FROM langconnect.assistants_mirror WHERE assistant_id = $1",
+                            UUID(assistant_id)
+                        )
+
+                        # Step 3: Increment version to invalidate frontend caches
+                        await conn.fetchval("SELECT langconnect.increment_cache_version('assistants')")
+                        await conn.fetchval("SELECT langconnect.increment_cache_version('schemas')")
+
+                        # Step 4: Refresh graph mirror if we had the graph_id
+                        if metadata and metadata.get("graph_id"):
+                            await conn.fetchval(
+                                "SELECT langconnect.refresh_graph_mirror($1)",
+                                metadata["graph_id"]
+                            )
 
                 log.info(f"Removed assistant {assistant_id} from mirror after deletion")
             except Exception as sync_error:

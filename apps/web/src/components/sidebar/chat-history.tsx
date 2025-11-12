@@ -62,6 +62,12 @@ import { notify } from "@/utils/toast";
 import { threadMessages } from "@/utils/toast-messages";
 import * as Sentry from "@sentry/nextjs";
 
+// Agent filter constants
+const FILTER_VALUES = {
+  ALL: 'all',
+  ARCHIVED: 'archived',
+} as const;
+
 const getMessageStringContent = (
   content: MessageContent | undefined,
 ): string => {
@@ -478,7 +484,7 @@ export function ChatHistory() {
    */
   useEffect(() => {
     if (threadsVersion !== null && sessionRef.current?.accessToken) {
-      const agentFilter = (selectedAgentValue === "all" || selectedAgentValue === "archived") ? undefined : selectedAgentValue;
+      const agentFilter = (selectedAgentValue === FILTER_VALUES.ALL || selectedAgentValue === FILTER_VALUES.ARCHIVED) ? undefined : selectedAgentValue;
       // Background refresh to avoid loading skeleton flash
       fetchThreads(agentFilter, false, threadsVersion, true);
     }
@@ -493,7 +499,7 @@ export function ChatHistory() {
   // Only refetch when selectedAgentValue changes, not when session token refreshes
   useEffect(() => {
     if (sessionRef.current?.accessToken) {
-      const agentFilter = (selectedAgentValue === "all" || selectedAgentValue === "archived") ? undefined : selectedAgentValue;
+      const agentFilter = (selectedAgentValue === FILTER_VALUES.ALL || selectedAgentValue === FILTER_VALUES.ARCHIVED) ? undefined : selectedAgentValue;
       // When toggling filters, carry forward the latest threads version to avoid stale results across filters
       fetchThreads(agentFilter, false, latestThreadsVersionRef.current);
     }
@@ -505,12 +511,12 @@ export function ChatHistory() {
     selectedAgentRef.current = value;
     setOffset(0);
     setHasMore(true);
-    if (value === "all" && allThreadsCacheRef.current) {
+    if (value === FILTER_VALUES.ALL && allThreadsCacheRef.current) {
       // Immediately show cached full list to avoid stale UI, then confirm with network
       setThreads(allThreadsCacheRef.current);
     }
     // For "archived" filter, fetch all threads (we'll filter client-side)
-    const fetchValue = (value === "all" || value === "archived") ? undefined : value;
+    const fetchValue = (value === FILTER_VALUES.ALL || value === FILTER_VALUES.ARCHIVED) ? undefined : value;
     fetchThreads(fetchValue, false, latestThreadsVersionRef.current);
     setFilterOpen(false);
   };
@@ -537,8 +543,8 @@ export function ChatHistory() {
 
   // Get name from agent value for search filtering
   const getNameFromValue = (value: string) => {
-    if (value === "all") return "All Agents";
-    if (value === "archived") return "Archived Agents";
+    if (value === FILTER_VALUES.ALL) return "All Agents";
+    if (value === FILTER_VALUES.ARCHIVED) return "Archived Agents";
     
     const [selectedAssistantId, selectedDeploymentId] = value.split(":");
     const selectedAgent = agents.find(
@@ -772,10 +778,10 @@ export function ChatHistory() {
     let filteredThreads = threads;
 
     // Filter based on selected agent value
-    if (selectedAgentValue === "archived") {
+    if (selectedAgentValue === FILTER_VALUES.ARCHIVED) {
       // Show only deprecated threads
       filteredThreads = threads.filter(thread => thread.metadata?.is_deprecated === true);
-    } else if (selectedAgentValue !== "all") {
+    } else if (selectedAgentValue !== FILTER_VALUES.ALL) {
       // When filtering by specific agent, exclude deprecated threads
       filteredThreads = threads.filter(thread => thread.metadata?.is_deprecated !== true);
     }
@@ -842,7 +848,7 @@ export function ChatHistory() {
                             <Check
                               className={cn(
                                 "h-3 w-3",
-                                selectedAgentValue === "all" ? "opacity-100" : "opacity-0",
+                                selectedAgentValue === FILTER_VALUES.ALL ? "opacity-100" : "opacity-0",
                               )}
                             />
                             <span className="flex-1 truncate text-xs font-medium">
@@ -853,7 +859,7 @@ export function ChatHistory() {
 
                         {/* Archived Agents Option */}
                         <CommandItem
-                          value="archived"
+                          value={FILTER_VALUES.ARCHIVED}
                           onSelect={handleAgentFilterChange}
                           className="flex w-full items-center justify-between px-4 py-1.5 text-muted-foreground hover:text-foreground hover:bg-accent cursor-pointer"
                         >
@@ -861,7 +867,7 @@ export function ChatHistory() {
                             <Check
                               className={cn(
                                 "h-3 w-3",
-                                selectedAgentValue === "archived" ? "opacity-100" : "opacity-0",
+                                selectedAgentValue === FILTER_VALUES.ARCHIVED ? "opacity-100" : "opacity-0",
                               )}
                             />
                             <span className="flex-1 truncate text-xs font-medium">

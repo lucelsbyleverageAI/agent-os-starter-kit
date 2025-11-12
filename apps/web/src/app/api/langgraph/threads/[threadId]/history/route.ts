@@ -1,5 +1,16 @@
 import { NextRequest, NextResponse } from "next/server";
 import { createClient as createSupabaseClient } from "@/lib/supabase/server";
+import { getDeployments } from "@/lib/environment/deployments";
+import { z } from "zod";
+
+// Validation schemas
+const paramsSchema = z.object({
+  threadId: z.string().uuid("Invalid thread ID format"),
+});
+
+const searchParamsSchema = z.object({
+  deploymentId: z.string().min(1, "Deployment ID required"),
+});
 
 /**
  * GET /api/langgraph/threads/[threadId]/history
@@ -17,16 +28,36 @@ export async function GET(
   { params }: { params: Promise<{ threadId: string }> }
 ) {
   try {
-    const { threadId } = await params;
-    const { searchParams } = request.nextUrl;
-    const deploymentId = searchParams.get("deploymentId");
-
-    if (!deploymentId) {
+    // Validate request parameters
+    const paramsResult = paramsSchema.safeParse(await params);
+    if (!paramsResult.success) {
       return NextResponse.json(
-        { error: "Missing deploymentId parameter" },
+        {
+          error: "Invalid request parameters",
+          details: paramsResult.error.errors
+        },
         { status: 400 }
       );
     }
+
+    const { threadId } = paramsResult.data;
+    const { searchParams } = request.nextUrl;
+
+    const searchParamsResult = searchParamsSchema.safeParse({
+      deploymentId: searchParams.get("deploymentId"),
+    });
+
+    if (!searchParamsResult.success) {
+      return NextResponse.json(
+        {
+          error: "Invalid request parameters",
+          details: searchParamsResult.error.errors
+        },
+        { status: 400 }
+      );
+    }
+
+    const { deploymentId } = searchParamsResult.data;
 
     // Verify user is authenticated
     const supabase = await createSupabaseClient();
@@ -93,9 +124,7 @@ export async function GET(
     }
 
     // Get deployment URL for direct API access
-    const deployment = require("@/lib/environment/deployments").getDeployments().find(
-      (d: any) => d.id === deploymentId
-    );
+    const deployment = getDeployments().find(d => d.id === deploymentId);
 
     if (!deployment) {
       return NextResponse.json(
@@ -107,7 +136,11 @@ export async function GET(
     // Use service account key for authorization (bypasses user JWT checks)
     const langsmithApiKey = process.env.LANGSMITH_API_KEY;
     if (!langsmithApiKey) {
-      throw new Error("LANGSMITH_API_KEY not configured");
+      console.error("[ThreadHistory] LANGSMITH_API_KEY not configured");
+      return NextResponse.json(
+        { error: "Server configuration error" },
+        { status: 500 }
+      );
     }
 
     // Call LangGraph search endpoint directly with service account credentials

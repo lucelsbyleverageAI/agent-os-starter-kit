@@ -108,7 +108,7 @@ interface ThreadProps {
 
 export function Thread({ historyOpen = false, configOpen = false }: ThreadProps) {
   const [agentId] = useQueryState("agentId");
-  const [agentMismatch] = useQueryState("agentMismatch", parseAsString);
+  const [_agentMismatch] = useQueryState("agentMismatch", parseAsString);
   const [deprecatedParam] = useQueryState("deprecated", parseAsString);
   const [threadId] = useQueryState("threadId");
   const [hideToolCalls, setHideToolCalls] = useQueryState(
@@ -175,9 +175,21 @@ export function Thread({ historyOpen = false, configOpen = false }: ThreadProps)
   // Use preserved messages only when stream messages are empty and we have preserved ones
   // IMPORTANT: Force empty messages when threadId is null to prevent showing stale messages during new chat transition
   // IMPORTANT: For deprecated threads, show deprecatedThreadMessages instead
-  const messages = !threadId ? [] :
-    (threadDeprecatedInfo?.isDeprecated && deprecatedParam === "true") ? deprecatedThreadMessages :
-    (streamMessages?.length === 0 && preservedMessages.length > 0 ? preservedMessages : streamMessages);
+  const getMessages = (): Message[] => {
+    if (!threadId) return [];
+
+    if (threadDeprecatedInfo?.isDeprecated && deprecatedParam === "true") {
+      return deprecatedThreadMessages ?? [];
+    }
+
+    if (streamMessages?.length === 0 && preservedMessages.length > 0) {
+      return preservedMessages;
+    }
+
+    return streamMessages;
+  };
+
+  const messages = getMessages();
 
   // Hydrate lightweight agents when thread is loaded
   useEffect(() => {
