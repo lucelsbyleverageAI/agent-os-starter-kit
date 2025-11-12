@@ -7,6 +7,7 @@ import {
   User,
   Loader2,
   TriangleAlert,
+  MessageSquarePlus,
 } from "lucide-react";
 
 import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
@@ -30,6 +31,7 @@ import { useAuthContext } from "@/providers/Auth";
 import { useRouter } from "next/navigation";
 import { notify } from "@/utils/toast";
 import { useConfigStore } from "@/features/chat/hooks/use-config-store";
+import { AppFeedbackDialog } from "@/components/feedback/AppFeedbackDialog";
 
 export function NavUser() {
   const { isMobile } = useSidebar();
@@ -37,6 +39,7 @@ export function NavUser() {
   const router = useRouter();
   const [isSigningOut, setIsSigningOut] = useState(false);
   const [hasMounted, setHasMounted] = useState(false);
+  const [feedbackDialogOpen, setFeedbackDialogOpen] = useState(false);
   const { resetStore } = useConfigStore();
 
   useEffect(() => {
@@ -181,6 +184,15 @@ export function NavUser() {
 
             <DropdownMenuSeparator />
 
+            {isAuthenticated && (
+              <DropdownMenuItem onClick={() => setFeedbackDialogOpen(true)}>
+                <MessageSquarePlus className="mr-2 h-4 w-4" />
+                Submit Feedback
+              </DropdownMenuItem>
+            )}
+
+            <DropdownMenuSeparator />
+
             {isAuthenticated ? (
               <DropdownMenuItem
                 onClick={handleSignOut}
@@ -213,6 +225,11 @@ export function NavUser() {
           </DropdownMenuContent>
         </DropdownMenu>
       </SidebarMenuItem>
+
+      <AppFeedbackDialog
+        open={feedbackDialogOpen}
+        onOpenChange={setFeedbackDialogOpen}
+      />
     </SidebarMenu>
   );
 }

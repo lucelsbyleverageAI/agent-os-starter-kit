@@ -513,7 +513,7 @@ async def create_app_feedback(
 
 @router.get("/feedback/app/{feedback_id}", response_model=AppFeedbackResponse)
 async def get_app_feedback(
-    feedback_id: UUID,
+    feedback_id: UUID_TYPE,
     actor: Annotated[AuthenticatedActor, Depends(resolve_user_or_service)],
 ) -> AppFeedbackResponse:
     """
