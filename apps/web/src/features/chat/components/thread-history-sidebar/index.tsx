@@ -129,6 +129,12 @@ export const ThreadHistorySidebar = forwardRef<
         status: (t.status as any) || 'idle',
         // Attach name from mirror so UI can display it immediately
         name: t.name,
+        metadata: {
+          assistant_id: t.assistant_id,
+          is_deprecated: t.is_deprecated,
+          deprecated_at: t.deprecated_at,
+          deprecated_reason: t.deprecated_reason,
+        },
       }));
       setThreads(mapped);
     } catch (e) {

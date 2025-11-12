@@ -379,7 +379,34 @@ class LangGraphSyncService:
                 log.info(f"Successfully synced assistant {assistant_id} (schemas: {'updated' if schemas_updated else 'unchanged'})")
             
             return assistant_updated
-            
+
+        except RuntimeError as e:
+            # Check if this is a 404 error for a deleted assistant
+            error_message = str(e)
+            if "404 Not Found" in error_message:
+                # Check if this assistant has deprecated threads in the mirror
+                async with get_db_connection() as conn:
+                    has_deprecated_threads = await conn.fetchval(
+                        """
+                        SELECT EXISTS(
+                            SELECT 1 FROM langconnect.threads_mirror
+                            WHERE assistant_id = $1 AND is_deprecated = TRUE
+                        )
+                        """,
+                        UUID(assistant_id)
+                    )
+
+                if has_deprecated_threads:
+                    # This is expected - assistant was deleted but threads remain for history
+                    log.info(f"Assistant {assistant_id} not found in LangGraph (deleted, but has deprecated threads in mirror)")
+                else:
+                    # Assistant deleted and no deprecated threads
+                    log.warning(f"Assistant {assistant_id} not found in LangGraph (404)")
+                return False
+            else:
+                # Other runtime error, log as error
+                log.error(f"Failed to sync assistant {assistant_id}: {e}")
+                return False
         except Exception as e:
             log.error(f"Failed to sync assistant {assistant_id}: {e}")
             return False
