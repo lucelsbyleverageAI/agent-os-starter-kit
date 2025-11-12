@@ -13,6 +13,7 @@ function sanitizeJsonString(str: string): string {
   // Replace control characters (ASCII 0-31 except whitespace) with escaped versions
   // Keep: \t (tab, 9), \n (newline, 10), \r (carriage return, 13)
   // Remove or escape others that aren't valid in JSON strings
+  // eslint-disable-next-line no-control-regex
   return str.replace(/[\x00-\x08\x0B\x0C\x0E-\x1F]/g, '');
 }
 
