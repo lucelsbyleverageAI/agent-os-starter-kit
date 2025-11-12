@@ -615,7 +615,7 @@ export const AgentsProvider: React.FC<{ children: ReactNode }> = ({
   const [error, setError] = useState<string | null>(null);
 
   const _firstRequestMade = useRef(false);
-  const [loading, setLoading] = useState(false);
+  const [loading, setLoading] = useState(true); // Start as true to show loading state on initial render
   const [refreshAgentsLoading, setRefreshAgentsLoading] = useState(false);
 
   // Legacy cache configuration (unused but kept for reference)

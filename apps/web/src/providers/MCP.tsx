@@ -38,7 +38,7 @@ export const MCPProvider: React.FC<PropsWithChildren> = ({ children }) => {
     version: "1.0.0",
   });
   const firstRequestMade = useRef(false);
-  const [loading, setLoading] = useState(false);
+  const [loading, setLoading] = useState(true); // Start as true to show loading state on initial render
 
   // Group tools by toolkit with memoization
   const groupToolsByToolkit = useCallback((tools: Tool[]): Toolkit[] => {
