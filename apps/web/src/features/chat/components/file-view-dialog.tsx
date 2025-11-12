@@ -102,7 +102,7 @@ export const FileViewDialog = React.memo<FileViewDialogProps>(
 
     return (
       <Dialog open={true} onOpenChange={onClose}>
-        <DialogContent className="max-w-4xl w-full max-h-[80vh] flex flex-col">
+        <DialogContent className="max-w-7xl w-[90vw] max-h-[90vh] flex flex-col">
           <DialogTitle className="sr-only">{file.path}</DialogTitle>
           <div className="flex justify-between items-center gap-4 pb-4 border-b">
             <div className="flex items-center gap-2 min-w-0">
@@ -140,7 +140,7 @@ export const FileViewDialog = React.memo<FileViewDialogProps>(
             </div>
           </div>
 
-          <ScrollArea className="flex-1 max-h-[60vh]">
+          <ScrollArea className="flex-1 max-h-[75vh]">
             {file.content ? (
               isMarkdown ? (
                 <div className="p-6 bg-background rounded-lg">
