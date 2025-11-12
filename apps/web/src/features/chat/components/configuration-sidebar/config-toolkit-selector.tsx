@@ -4,6 +4,8 @@ import React, { useState, useMemo } from "react";
 import { ChevronDown, ChevronRight } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Checkbox } from "@/components/ui/checkbox";
+import { Switch } from "@/components/ui/switch";
+import { Label } from "@/components/ui/label";
 import { Collapsible, CollapsibleContent, CollapsibleTrigger } from "@/components/ui/collapsible";
 import { cn } from "@/lib/utils";
 import { Toolkit } from "@/types/tool";
@@ -26,8 +28,9 @@ export function ConfigToolkitSelector({
   className,
 }: ConfigToolkitSelectorProps) {
   const [expandedToolkits, setExpandedToolkits] = useState<Set<string>>(new Set());
-  
+
   const selectedTools = new Set(value?.tools || []);
+  const toolApprovals = value?.tool_approvals || {};
 
   // Filter toolkits based on search
   const filteredToolkits = useMemo(() => {
@@ -92,16 +95,37 @@ export function ConfigToolkitSelector({
 
   const handleToolToggle = (toolName: string, checked: boolean) => {
     const currentTools = new Set(value?.tools || []);
-    
+
     if (checked) {
       currentTools.add(toolName);
     } else {
       currentTools.delete(toolName);
+      // Also remove from approvals if tool is unchecked
+      const newApprovals = { ...toolApprovals };
+      delete newApprovals[toolName];
+      onChange({
+        ...value,
+        tools: Array.from(currentTools),
+        tool_approvals: newApprovals,
+      });
+      return;
     }
-    
+
     onChange({
       ...value,
       tools: Array.from(currentTools),
+    });
+  };
+
+  const handleApprovalToggle = (toolName: string, requiresApproval: boolean) => {
+    const newApprovals = {
+      ...toolApprovals,
+      [toolName]: requiresApproval,
+    };
+
+    onChange({
+      ...value,
+      tool_approvals: newApprovals,
     });
   };
 
@@ -174,30 +198,53 @@ export function ConfigToolkitSelector({
               <CollapsibleContent>
                 <div className="border-t bg-muted/20">
                   <div className="p-3 space-y-2">
-                    {toolkit.tools.map((tool) => (
-                      <div
-                        key={tool.name}
-                        className="flex items-start gap-3 p-2 rounded hover:bg-background transition-colors"
-                      >
-                        <Checkbox
-                          checked={selectedTools.has(tool.name)}
-                          onCheckedChange={(checked) => 
-                            handleToolToggle(tool.name, checked === true)
-                          }
-                          className="mt-0.5"
-                        />
-                        <div className="flex-1 min-w-0">
-                          <div className="text-sm font-medium">
-                            {_.startCase(tool.name.replace(/^fs_/, ''))}
+                    {toolkit.tools.map((tool) => {
+                      const isToolSelected = selectedTools.has(tool.name);
+                      const requiresApproval = toolApprovals[tool.name] || false;
+
+                      return (
+                        <div
+                          key={tool.name}
+                          className="flex items-start gap-3 p-2 rounded hover:bg-background transition-colors"
+                        >
+                          <Checkbox
+                            checked={isToolSelected}
+                            onCheckedChange={(checked) =>
+                              handleToolToggle(tool.name, checked === true)
+                            }
+                            className="mt-0.5"
+                          />
+                          <div className="flex-1 min-w-0">
+                            <div className="text-sm font-medium">
+                              {_.startCase(tool.name.replace(/^fs_/, ''))}
+                            </div>
+                            {tool.description && (
+                              <div className="text-xs text-muted-foreground mt-1 line-clamp-2">
+                                {tool.description}
+                              </div>
+                            )}
                           </div>
-                          {tool.description && (
-                            <div className="text-xs text-muted-foreground mt-1 line-clamp-2">
-                              {tool.description}
+                          {isToolSelected && (
+                            <div className="flex items-center gap-2 ml-2">
+                              <Label
+                                htmlFor={`approval-${tool.name}`}
+                                className="text-xs text-muted-foreground whitespace-nowrap cursor-pointer"
+                              >
+                                Require approval?
+                              </Label>
+                              <Switch
+                                id={`approval-${tool.name}`}
+                                checked={requiresApproval}
+                                onCheckedChange={(checked) =>
+                                  handleApprovalToggle(tool.name, checked)
+                                }
+                                className="scale-75"
+                              />
                             </div>
                           )}
                         </div>
-                      </div>
-                    ))}
+                      );
+                    })}
                   </div>
                 </div>
               </CollapsibleContent>
