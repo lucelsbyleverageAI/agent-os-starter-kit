@@ -96,6 +96,7 @@ export function AssistantMessage({
 }) {
   const content = message?.content ?? [];
   const contentString = getContentString(content);
+  const [threadId] = useQueryState("threadId");
   const [_hideToolCalls] = useQueryState(
     "hideToolCalls",
     parseAsBoolean.withDefault(false),
@@ -105,6 +106,30 @@ export function AssistantMessage({
   const meta = message ? thread.getMessagesMetadata(message) : undefined;
   const { agents } = useAgentsContext();
   const [agentId] = useQueryState("agentId");
+
+  // Try to extract run_id from message metadata
+  // LangGraph/LangSmith may include run_id in various metadata locations
+  const runId = useMemo(() => {
+    if (!message) return undefined;
+
+    const msg = message as any;
+
+    // Check message metadata for run_id
+    if (msg.run_id) return msg.run_id;
+    if (msg.metadata?.run_id) return msg.metadata.run_id;
+
+    // Check stream metadata
+    if (meta) {
+      const metaAny = meta as any;
+      if (metaAny.run_id) return metaAny.run_id;
+      if (metaAny.firstSeenState?.metadata?.run_id) {
+        return metaAny.firstSeenState.metadata.run_id;
+      }
+    }
+
+    // If run_id is not found, the backend will extract it from message.id
+    return undefined;
+  }, [message, meta]);
   
   // Extract graph ID from multiple sources with fallback priority:
   // 1. Message/run metadata (most accurate for each message)
@@ -414,6 +439,9 @@ export function AssistantMessage({
                   content={contentString}
                   isLoading={isLoading}
                   isAiMessage={true}
+                  messageId={message?.id}
+                  threadId={threadId ?? undefined}
+                  runId={runId}
                   handleRegenerate={() =>
                     handleRegenerate(parentCheckpoint, (prev) => {
                       const values = meta?.firstSeenState?.values;

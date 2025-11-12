@@ -12,6 +12,7 @@ import { TooltipIconButton } from "@/components/ui/tooltip-icon-button";
 import { AnimatePresence, motion } from "framer-motion";
 import { useState } from "react";
 import { Button } from "@/components/ui/button";
+import { FeedbackButtons } from "./FeedbackButtons";
 
 function ContentCopyable({
   content,
@@ -124,6 +125,9 @@ export function CommandBar({
   handleSubmitEdit,
   handleRegenerate,
   isLoading,
+  messageId,
+  threadId,
+  runId,
 }: {
   content: string;
   isHumanMessage?: boolean;
@@ -133,6 +137,9 @@ export function CommandBar({
   handleSubmitEdit?: () => void;
   handleRegenerate?: () => void;
   isLoading: boolean;
+  messageId?: string;
+  threadId?: string;
+  runId?: string;
 }) {
   if (isHumanMessage && isAiMessage) {
     throw new Error(
@@ -203,6 +210,14 @@ export function CommandBar({
         >
           <RefreshCcw />
         </TooltipIconButton>
+      )}
+      {isAiMessage && messageId && threadId && (
+        <FeedbackButtons
+          messageId={messageId}
+          threadId={threadId}
+          runId={runId}
+          disabled={isLoading}
+        />
       )}
       {showEdit && (
         <TooltipIconButton

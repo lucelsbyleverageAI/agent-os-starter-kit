@@ -3,5 +3,6 @@ from langconnect.api.documents import router as documents_router
 from langconnect.api.users import router as users_router
 from langconnect.api.agents import router as agents_router
 from langconnect.api.jobs import router as jobs_router
+from langconnect.api.feedback import router as feedback_router
 
-__all__ = ["collections_router", "documents_router", "users_router", "agents_router", "jobs_router"]
+__all__ = ["collections_router", "documents_router", "users_router", "agents_router", "jobs_router", "feedback_router"]
