@@ -519,7 +519,10 @@ services:
       - LANGCONNECT_POSTGRES_SCHEMA=langconnect
       # LangGraph configuration (configurable external URL)
       - LANGCONNECT_LANGGRAPH_API_URL=${LANGGRAPH_EXTERNAL_URL}
+      # LangSmith configuration
       - LANGSMITH_API_KEY=${LANGSMITH_API_KEY}
+      - LANGSMITH_ENDPOINT=${LANGSMITH_ENDPOINT:-https://eu.api.smith.langchain.com}
+      - LANGSMITH_PROJECT=${LANGSMITH_PROJECT:-agent-os-dev}
       # Authentication (internal Supabase URLs - container network)
       - SUPABASE_URL=http://kong:8000
       - SUPABASE_ANON_KEY=${SUPABASE_ANON_KEY}
