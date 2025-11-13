@@ -168,10 +168,10 @@ def create_react_agent_with_approval(
 
         This node:
         1. Extracts tool calls from the last AI message
-        2. For each tool requiring approval, creates an interrupt
-        3. Waits for human response
-        4. Processes the response (accept/edit/respond/reject)
-        5. Returns appropriate messages to continue execution
+        2. Separates tools into approval-required and non-approval batches
+        3. For approval-required tools, creates interrupts and waits for responses
+        4. For non-approval tools, executes them directly
+        5. Returns all tool messages to continue execution
         """
         logger.info("[approval_node] === APPROVAL NODE STARTED ===")
         messages = state["messages"]
@@ -188,28 +188,35 @@ def create_react_agent_with_approval(
 
         tool_messages = []
 
-        # Process each tool call
-        for idx, tool_call in enumerate(last_message.tool_calls, 1):
+        # Separate tool calls into approval and non-approval batches
+        approval_required_calls = []
+        non_approval_calls = []
+
+        for tool_call in last_message.tool_calls:
+            tool_name = tool_call.get("name")
+            if should_require_approval(tool_name, tool_approvals):
+                approval_required_calls.append(tool_call)
+            else:
+                non_approval_calls.append(tool_call)
+
+        logger.info(
+            "[approval_node] Split: %d require approval, %d do not",
+            len(approval_required_calls),
+            len(non_approval_calls)
+        )
+
+        # Process approval-required tools first
+        for idx, tool_call in enumerate(approval_required_calls, 1):
             tool_name = tool_call.get("name")
             tool_call_id = tool_call.get("id", "unknown")
 
             logger.info(
-                "[approval_node] [%d/%d] Processing tool call: %s (id=%s, requires_approval=%s)",
+                "[approval_node] [%d/%d] Processing approval-required tool: %s (id=%s)",
                 idx,
-                len(last_message.tool_calls),
+                len(approval_required_calls),
                 tool_name,
-                tool_call_id,
-                should_require_approval(tool_name, tool_approvals)
+                tool_call_id
             )
-
-            # Check if this specific tool requires approval
-            if not should_require_approval(tool_name, tool_approvals):
-                # This shouldn't happen due to routing, but handle gracefully
-                logger.warning(
-                    "[approval_node] Tool %s routed to approval but doesn't require it - skipping",
-                    tool_name
-                )
-                continue
 
             # Create interrupt for approval
             logger.info(
@@ -300,6 +307,36 @@ def create_react_agent_with_approval(
                     )
                 )
 
+        # Execute non-approval tools directly
+        if non_approval_calls:
+            logger.info(
+                "[approval_node] Executing %d non-approval tool(s) directly: %s",
+                len(non_approval_calls),
+                [call.get("name") for call in non_approval_calls]
+            )
+
+            # Create temporary message with only non-approval tool calls
+            temp_message = AIMessage(
+                content="",
+                tool_calls=non_approval_calls,
+                id=last_message.id
+            )
+            temp_state = {"messages": [temp_message]}
+
+            # Execute non-approval tools
+            logger.info("[approval_node] Invoking tool node for non-approval tools...")
+            non_approval_results = await tool_node.ainvoke(temp_state, config)
+
+            if non_approval_results and "messages" in non_approval_results:
+                num_messages = len(non_approval_results["messages"])
+                logger.info(
+                    "[approval_node] Non-approval tools executed, adding %d result message(s)",
+                    num_messages
+                )
+                tool_messages.extend(non_approval_results["messages"])
+            else:
+                logger.warning("[approval_node] Non-approval tools returned no messages")
+
         logger.info(
             "[approval_node] === APPROVAL NODE COMPLETED === Returning %d message(s)",
             len(tool_messages)
@@ -368,26 +405,6 @@ def create_react_agent_with_approval(
                 tools_not_requiring_approval
             )
             return "tools"
-
-    # Define router after approval node
-    def route_after_approval(state: AgentState) -> Literal["agent", "tools", "__end__"]:
-        """
-        Route after approval node.
-
-        If approval node added ToolMessages (feedback/rejection), route back to agent.
-        Otherwise, we shouldn't reach here (approval node handles execution).
-        """
-        messages = state["messages"]
-
-        # Check if last message is a ToolMessage (feedback/rejection)
-        if messages and isinstance(messages[-1], ToolMessage):
-            logger.debug("[route_after_approval] Tool feedback provided, routing to agent")
-            return "agent"
-
-        # If we have tool calls still pending, this shouldn't happen
-        # but route back to agent to be safe
-        logger.debug("[route_after_approval] Routing back to agent")
-        return "agent"
 
     # Build the graph
     workflow = StateGraph(AgentState, config_schema=config_schema)

@@ -236,27 +236,37 @@ def process_tool_approval_response(
             # Update the tool call arguments
             new_args = response_args["args"]
 
-            # Create a modified copy of the tool call
-            # The exact implementation depends on your tool call structure
-            # This is a generic approach that should work with most tool call objects
-            try:
-                # Try to create a new instance with modified args
-                modified_call = type(original_tool_call)(
-                    name=tool_name,
-                    args=new_args,
-                    id=tool_call_id
+            # Validate that new_args is a dictionary
+            if not isinstance(new_args, dict):
+                logger.warning(
+                    "[tool_approval] Edited arguments are not a dict (type=%s), using original",
+                    type(new_args).__name__
                 )
+                return original_tool_call
+
+            # Create a modified copy of the tool call
+            # Use dict construction for maximum compatibility
+            try:
+                # Construct tool call as dict (compatible with LangChain)
+                modified_call = {
+                    "name": tool_name,
+                    "args": new_args,
+                    "id": tool_call_id,
+                    "type": original_tool_call.get("type", "function") if isinstance(original_tool_call, dict)
+                           else getattr(original_tool_call, "type", "function")
+                }
                 logger.info(
-                    "[tool_approval] Tool arguments edited: %s",
-                    tool_name
+                    "[tool_approval] Tool arguments edited: %s (new args: %s)",
+                    tool_name,
+                    list(new_args.keys())
                 )
                 return modified_call
-            except Exception:
-                # Fallback: modify the original object directly
+            except Exception as e:
+                # Log the error and use original
                 logger.warning(
-                    "[tool_approval] Could not create new tool call, modifying original"
+                    "[tool_approval] Could not create modified tool call: %s - using original",
+                    str(e)
                 )
-                original_tool_call.args = new_args
                 return original_tool_call
         else:
             logger.warning(
@@ -281,13 +291,13 @@ def process_tool_approval_response(
         )
 
         if not tool_call_id:
-            logger.error(
-                "[tool_approval] Missing tool_call_id for feedback! This will cause API errors."
-            )
+            error_msg = f"Missing tool_call_id for {tool_name} - cannot create ToolMessage"
+            logger.error("[tool_approval] %s", error_msg)
+            raise ValueError(error_msg)
 
         return ToolMessage(
             content=feedback_message,
-            tool_call_id=tool_call_id or "unknown",
+            tool_call_id=tool_call_id,
             name=tool_name
         )
 
@@ -305,13 +315,13 @@ def process_tool_approval_response(
         )
 
         if not tool_call_id:
-            logger.error(
-                "[tool_approval] Missing tool_call_id for rejection! This will cause API errors."
-            )
+            error_msg = f"Missing tool_call_id for {tool_name} - cannot create ToolMessage"
+            logger.error("[tool_approval] %s", error_msg)
+            raise ValueError(error_msg)
 
         return ToolMessage(
             content=rejection_message,
-            tool_call_id=tool_call_id or "unknown",
+            tool_call_id=tool_call_id,
             name=tool_name
         )
 
@@ -321,9 +331,15 @@ def process_tool_approval_response(
             "[tool_approval] Unknown response type: %s",
             response_type
         )
+
+        if not tool_call_id:
+            error_msg = f"Missing tool_call_id for {tool_name} - cannot create ToolMessage"
+            logger.error("[tool_approval] %s", error_msg)
+            raise ValueError(error_msg)
+
         return ToolMessage(
             content=f"Tool call could not be processed (unknown response type: {response_type})",
-            tool_call_id=tool_call_id or "unknown",
+            tool_call_id=tool_call_id,
             name=tool_name
         )
 

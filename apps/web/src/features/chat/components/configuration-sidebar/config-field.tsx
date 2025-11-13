@@ -299,7 +299,6 @@ export function ConfigField({
         <Select
           value={currentValue ?? ""} // Use currentValue, provide default empty string if undefined/null
           onValueChange={(value) => {
-            console.log(`📊 Select field [${label}] changed:`, { value, fieldWidth: fieldRef.current?.getBoundingClientRect().width });
             handleChange(value);
           }}
         >
@@ -1022,17 +1021,10 @@ export function ConfigFieldRAGTools({
   ) as any;
 
   if (!defaults) {
-    console.log('[ConfigFieldRAGTools] No defaults found', {
-      actualAgentId,
-      label,
-      configsByAgentId: store.configsByAgentId,
-      ragConfig: store.configsByAgentId[actualAgentId],
-    });
     return null;
   }
 
   // Get the enabled_tools list and tool metadata
-  console.log('[ConfigFieldRAGTools] Defaults:', defaults);
   const enabledTools = defaults.enabled_tools || ["hybrid_search", "fs_list_collections", "fs_list_files", "fs_read_file", "fs_grep_files"];
   
   const toggleGroup = (groupName: string) => {

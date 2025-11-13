@@ -206,7 +206,6 @@ export const ConfigurationSidebar = forwardRef<
 
     // Check if we have a lightweight agent and hydrate if needed
     if ('_isLightweight' in selectedAgent && selectedAgent._isLightweight) {
-      console.log(`[ConfigSidebar] Hydrating lightweight agent ${agentId}...`);
       hydrateAgent(agentId)
         .then(fullAgent => {
           // Load tags and schema from hydrated agent
