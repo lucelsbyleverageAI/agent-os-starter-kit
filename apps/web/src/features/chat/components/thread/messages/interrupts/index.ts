@@ -1,4 +1,4 @@
-import { DefaultInterrupt, LightToolReviewInterrupt } from "./components";
+import { DefaultInterrupt, LightToolReviewInterrupt, ToolApprovalInterrupt } from "./components";
 
 // Import the types directly from the existing interrupt types file
 export type { 
@@ -31,16 +31,21 @@ export const INTERRUPT_REGISTRY: Record<string, InterruptComponent> = {
 export const DEFAULT_INTERRUPT_COMPONENT = DefaultInterrupt;
 
 export function getInterruptComponent(actionName: string): InterruptComponent {
+  // Check for tool approval pattern (tool_approval_*)
+  if (actionName.startsWith('tool_approval_')) {
+    return ToolApprovalInterrupt;
+  }
+
   // Check for tool call review pattern
   if (actionName.startsWith('tool_call_review_')) {
     return LightToolReviewInterrupt;
   }
-  
+
   // Check for exact matches in registry
   if (INTERRUPT_REGISTRY[actionName]) {
     return INTERRUPT_REGISTRY[actionName];
   }
-  
+
   // Fallback to default
   return DEFAULT_INTERRUPT_COMPONENT;
 }

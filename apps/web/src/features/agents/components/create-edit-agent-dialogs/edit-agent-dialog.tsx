@@ -230,6 +230,7 @@ function EditAgentDialogContent({
               agentId={agent.assistant_id}
               ragConfigurations={ragConfigurations}
               agentsConfigurations={agentsConfigurations}
+              graphId={agent.graph_id}
             />
           </FormProvider>
         )}

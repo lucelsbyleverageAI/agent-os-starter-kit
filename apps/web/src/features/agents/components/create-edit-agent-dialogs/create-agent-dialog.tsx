@@ -189,6 +189,7 @@ function CreateAgentFormContent(props: {
               toolConfigurations={toolConfigurations}
               ragConfigurations={ragConfigurations}
               agentsConfigurations={agentsConfigurations}
+              graphId={props.graphId}
             />
           </FormProvider>
       )}
