@@ -11,7 +11,6 @@ from agent_platform.utils.tool_utils import (
     create_collection_tools,
     create_langchain_mcp_tool_with_universal_context,
 )
-from agent_platform.utils.tool_approval_utils import merge_tool_approvals
 from agent_platform.utils.prompt_utils import append_datetime_to_prompt
 from mcp.client.streamable_http import streamablehttp_client
 from mcp import ClientSession
@@ -49,7 +48,7 @@ async def _get_tools_for_sub_agent(
     sub_agent_config: Union[SerializableSubAgent, dict],
     parent_tools: List[BaseTool],
     config: RunnableConfig,
-) -> tuple[List[BaseTool], dict[str, bool]]:
+) -> List[BaseTool]:
     tools = []
     tools_by_name = {t.name: t for t in parent_tools}
 
@@ -63,22 +62,6 @@ async def _get_tools_for_sub_agent(
         agent_tools = getattr(sub_agent_config, 'tools', [])
         rag_config = getattr(sub_agent_config, 'rag_config', None)
         mcp_config = getattr(sub_agent_config, 'mcp_config', None)
-
-    # Extract tool approvals from both rag and mcp configs
-    rag_approvals = {}
-    mcp_approvals = {}
-
-    if rag_config:
-        if isinstance(rag_config, dict):
-            rag_approvals = rag_config.get('tool_approvals', {})
-        else:
-            rag_approvals = getattr(rag_config, 'tool_approvals', {})
-
-    if mcp_config:
-        if isinstance(mcp_config, dict):
-            mcp_approvals = mcp_config.get('tool_approvals', {})
-        else:
-            mcp_approvals = getattr(mcp_config, 'tool_approvals', {})
 
     if agent_tools:
         for tool_name in agent_tools:
@@ -206,11 +189,7 @@ async def _get_tools_for_sub_agent(
             except Exception:
                 logger.exception("[SUB_AGENT] error_fetching_mcp_tools")
                 pass
-
-    # Merge tool approvals from both rag and mcp configs
-    merged_approvals = merge_tool_approvals(rag_approvals, mcp_approvals)
-
-    return tools, merged_approvals
+    return tools
 
 
 def _create_combined_hook(trimming_hook: Optional[Callable], img_preprocessor: Optional[Callable]) -> Optional[Callable]:
@@ -256,7 +235,6 @@ async def _get_agents(
     post_model_hook: Optional[Callable] = None,
     config: Optional[RunnableConfig] = None,
     include_general_purpose: bool = True,
-    parent_tool_approvals: Optional[dict[str, bool]] = None,
 ):
     all_builtin_tools = [write_todos, write_file, read_file, ls, edit_file]
     agents = {}
@@ -306,8 +284,7 @@ async def _get_agents(
             checkpointer=False,
             post_model_hook=post_model_hook,
             pre_model_hook=gp_combined_hook,  # Use combined hook
-            enable_image_processing=False,
-            tool_approvals=parent_tool_approvals or {}
+            enable_image_processing=False
         )
     # Parent tools (selected for main agent)
     parent_tools_by_name = {
@@ -336,12 +313,9 @@ async def _get_agents(
             agent_model = getattr(_agent, 'model_name', None) or getattr(_agent, 'model', None)
             agent_prompt = getattr(_agent, 'prompt', 'You are a helpful assistant.')
 
-        # Initialize tool approvals dict
-        sub_tool_approvals = {}
-
         if config:
-            # Fetch sub-agent specific tools (RAG/MCP) and their approval settings
-            sub_specific_tools, sub_tool_approvals = await _get_tools_for_sub_agent(
+            # Fetch sub-agent specific tools (RAG/MCP)
+            sub_specific_tools = await _get_tools_for_sub_agent(
                 _agent, list(builtin_tools_by_name.values()), config
             )
             # Combine ONLY sub-agent specific tools with built-in tools (do NOT inherit parent's selected MCP tools)
@@ -422,8 +396,7 @@ async def _get_agents(
         # IMPORTANT: Trim FIRST (when images are storage paths), THEN convert images
         sub_combined_hook = _create_combined_hook(sub_trimming_hook, image_preprocessor)
 
-        logger.info("[SUB_AGENT] tools_assigned agent=%s total=%s approvals=%s",
-                    agent_name, len(_tools), len(sub_tool_approvals))
+        logger.info("[SUB_AGENT] tools_assigned agent=%s total=%s", agent_name, len(_tools))
         agents[agent_name] = custom_create_react_agent(
             sub_model,
             prompt=append_datetime_to_prompt(agent_prompt),
@@ -433,7 +406,6 @@ async def _get_agents(
             post_model_hook=post_model_hook,
             pre_model_hook=sub_combined_hook,  # Use combined hook
             enable_image_processing=False,
-            tool_approvals=sub_tool_approvals,
         )
 
     return agents
@@ -463,7 +435,6 @@ def _create_task_tool(
     post_model_hook: Optional[Callable] = None,
     config: Optional[RunnableConfig] = None,
     include_general_purpose: bool = True,
-    parent_tool_approvals: Optional[dict[str, bool]] = None,
 ):
     other_agents_string = _get_subagent_description(subagents)
 
@@ -501,7 +472,6 @@ Available agent types and the tools they have access to:
             post_model_hook,
             config,
             include_general_purpose,
-            parent_tool_approvals,
         )
         if subagent_type not in agents:
             return f"Error: invoked agent of type {subagent_type}, the only allowed types are {[f'`{k}`' for k in agents]}"
@@ -533,7 +503,6 @@ def _create_sync_task_tool(
     post_model_hook: Optional[Callable] = None,
     config: Optional[RunnableConfig] = None,
     include_general_purpose: bool = True,
-    parent_tool_approvals: Optional[dict[str, bool]] = None,
 ):
     # This is a sync function, so we need to run the async _get_agents in an event loop.
     import asyncio
@@ -558,7 +527,6 @@ def _create_sync_task_tool(
                 post_model_hook,
                 config,
                 include_general_purpose,
-                parent_tool_approvals,
             )
         )
     else:
@@ -572,7 +540,6 @@ def _create_sync_task_tool(
                 post_model_hook,
                 config,
                 include_general_purpose,
-                parent_tool_approvals,
             )
         )
 

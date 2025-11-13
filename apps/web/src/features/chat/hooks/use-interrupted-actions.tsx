@@ -3,6 +3,9 @@ import { toast } from "sonner";
 import { useStreamContext } from "@/features/chat/providers/Stream";
 import { HumanInterrupt, HumanResponse, HumanResponseWithEdits, SubmitType } from "../components/thread/messages/interrupt-types";
 import { Message } from "@langchain/langgraph-sdk";
+import { useConfigStore } from "@/features/chat/hooks/use-config-store";
+import { useAuthContext } from "@/providers/Auth";
+import { logger } from "@/lib/logger";
 
 function createDefaultHumanResponse(
   interrupt: HumanInterrupt,
@@ -129,6 +132,8 @@ export function useInterruptedActions({
   interrupt,
 }: UseInterruptedActionsInput): UseInterruptedActionsValue {
   const thread = useStreamContext();
+  const { getAgentConfig } = useConfigStore();
+  const { session } = useAuthContext();
   const [humanResponse, setHumanResponse] = useState<HumanResponseWithEdits[]>([]);
   const [loading, setLoading] = useState(false);
   const [streaming, setStreaming] = useState(false);
@@ -153,7 +158,16 @@ export function useInterruptedActions({
 
   const resumeRun = (response: HumanResponse[]): boolean => {
     try {
-      
+      // Get agent configuration and log for debugging
+      const agentId = thread.assistantId;
+      const agentConfig = getAgentConfig(agentId);
+
+      logger.debug("[useInterruptedActions] Resuming with config", {
+        agentId,
+        hasToolApprovals: !!agentConfig?.mcp_config?.tool_approvals,
+        toolApprovalCount: Object.keys(agentConfig?.mcp_config?.tool_approvals || {}).length
+      });
+
       thread.submit(
         { messages: thread.messages }, // Pass existing messages to backend
         {
@@ -161,6 +175,12 @@ export function useInterruptedActions({
             resume: response,
           },
           streamMode: ["values"],
+          config: {
+            configurable: agentConfig,
+          },
+          metadata: {
+            supabaseAccessToken: session?.accessToken,
+          },
           optimisticValues: (prev: { messages?: Message[] }) => {
             const result = {
               ...prev,

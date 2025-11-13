@@ -94,124 +94,75 @@ class ApprovalToolNode(ToolNode):
             sum(1 for v in self.tool_approvals.values() if v)
         )
 
-    def __call__(self, state: Dict[str, Any], config: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
+    def _run_one(self, call: Dict[str, Any], input_type: str, config: Dict[str, Any]) -> ToolMessage:
         """
-        Execute tools with approval workflow.
+        Execute a single tool with approval workflow.
 
-        This method intercepts tool calls from the agent, checks if they require
-        approval, and handles the interrupt/resume flow as needed.
+        This method overrides ToolNode._run_one to intercept tool execution and
+        check if approval is required before invoking the tool.
 
         Args:
-            state: The current graph state containing messages
-            config: Optional configuration (not used currently)
+            call: Tool call dictionary with name, args, id
+            input_type: Type of input ("list", "dict", or "tool_calls")
+            config: LangGraph RunnableConfig
 
         Returns:
-            Dict containing tool messages to add to the state
+            ToolMessage: Result of tool execution or human feedback
         """
-        messages = state.get("messages", [])
-        if not messages:
-            logger.warning("[ApprovalToolNode] No messages in state")
-            return {"messages": []}
-
-        last_message = messages[-1]
-
-        # Check if the last message has tool calls
-        if not isinstance(last_message, AIMessage) or not last_message.tool_calls:
-            logger.warning("[ApprovalToolNode] Last message has no tool calls")
-            return {"messages": []}
+        tool_name = call.get("name")
 
         logger.info(
-            "[ApprovalToolNode] Processing %d tool call(s)",
-            len(last_message.tool_calls)
+            "[ApprovalToolNode._run_one] ✅ METHOD INVOKED! Processing tool call: name=%s, has_approval_config=%s, all_approvals=%s",
+            tool_name,
+            tool_name in self.tool_approvals if tool_name else False,
+            list(self.tool_approvals.keys())
         )
 
-        # Process each tool call
-        tool_messages = []
-        for tool_call in last_message.tool_calls:
-            tool_name = tool_call.get("name")
+        # Check if this tool requires approval
+        if tool_name and should_require_approval(tool_name, self.tool_approvals):
+            logger.info(
+                "[ApprovalToolNode._run_one] Tool requires approval: %s",
+                tool_name
+            )
 
-            if not tool_name:
-                logger.warning("[ApprovalToolNode] Tool call missing name")
-                continue
+            # Create interrupt and wait for human response
+            interrupt_data = create_tool_approval_interrupt(
+                call,
+                description=f"**Tool Approval Required**\n\nThe agent wants to call `{tool_name}`.\n\nReview the arguments and choose an action."
+            )
 
-            # Check if this tool requires approval
-            if should_require_approval(tool_name, self.tool_approvals):
-                logger.info(
-                    "[ApprovalToolNode] Tool requires approval: %s",
-                    tool_name
+            # This will pause execution until human responds
+            human_response = interrupt(interrupt_data)
+
+            logger.info(
+                "[ApprovalToolNode._run_one] Received approval response type=%s for tool=%s",
+                human_response.get("type"),
+                tool_name
+            )
+
+            # Process the human response
+            result = process_tool_approval_response(human_response, call)
+
+            if isinstance(result, ToolMessage):
+                # Human provided feedback or rejected - return message directly
+                logger.info("[ApprovalToolNode._run_one] Returning human feedback as ToolMessage")
+                return result
+            elif result is None:
+                # Should not happen, but handle gracefully
+                logger.warning("[ApprovalToolNode._run_one] Null result from approval response")
+                return ToolMessage(
+                    content="Tool approval response was invalid",
+                    tool_call_id=call.get("id", "unknown"),
+                    name=tool_name or "unknown"
                 )
+            else:
+                # result is a modified or original tool_call - update for execution
+                call = result
+                logger.info("[ApprovalToolNode._run_one] Tool approved, proceeding with execution")
 
-                # Create interrupt and wait for human response
-                interrupt_data = create_tool_approval_interrupt(
-                    tool_call,
-                    description=f"**Tool Approval Required**\n\nThe agent wants to call `{tool_name}`.\n\nReview the arguments and choose an action."
-                )
-
-                # This will pause execution until human responds
-                human_response = interrupt(interrupt_data)
-
-                logger.info(
-                    "[ApprovalToolNode] Received approval response type=%s for tool=%s",
-                    human_response.get("type"),
-                    tool_name
-                )
-
-                # Process the human response
-                result = process_tool_approval_response(human_response, tool_call)
-
-                if isinstance(result, ToolMessage):
-                    # Human provided feedback or rejected - add message
-                    tool_messages.append(result)
-                    continue
-                elif result is None:
-                    # Should not happen, but handle gracefully
-                    logger.warning("[ApprovalToolNode] Null result from approval response")
-                    continue
-                else:
-                    # result is a modified or original tool_call - update for execution
-                    tool_call = result
-
-            # Execute the tool (either approved or didn't need approval)
-            try:
-                logger.info("[ApprovalToolNode] Executing tool: %s", tool_name)
-
-                # Create a temporary state with just this tool call for execution
-                temp_state = {
-                    "messages": [
-                        AIMessage(
-                            content="",
-                            tool_calls=[tool_call]
-                        )
-                    ]
-                }
-
-                # Call parent's __call__ to execute the tool
-                result = super().__call__(temp_state, config)
-
-                # Extract the tool message from the result
-                result_messages = result.get("messages", [])
-                if result_messages:
-                    tool_messages.extend(result_messages)
-
-            except Exception as e:
-                logger.exception(
-                    "[ApprovalToolNode] Error executing tool: %s",
-                    tool_name
-                )
-                # Create error message
-                error_msg = ToolMessage(
-                    content=f"Error executing {tool_name}: {str(e)}",
-                    tool_call_id=tool_call.get("id", "unknown"),
-                    name=tool_name
-                )
-                tool_messages.append(error_msg)
-
-        logger.info(
-            "[ApprovalToolNode] Generated %d tool message(s)",
-            len(tool_messages)
-        )
-
-        return {"messages": tool_messages}
+        # Execute the tool using parent's _run_one method
+        logger.info("[ApprovalToolNode._run_one] Executing tool: %s", tool_name)
+        return super()._run_one(call, input_type, config)
 
 
 def create_approval_tool_node(

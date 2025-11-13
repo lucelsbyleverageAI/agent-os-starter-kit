@@ -930,6 +930,7 @@ export function ConfigFieldAgents({
                         value={{ url: undefined as any, tools: sa.mcp_config?.tools || [] }}
                         onChange={(v) => updateAtPath(i, ["mcp_config", "tools"], (v && v.tools) ? v.tools : [])}
                         searchTerm={toolSearchTerm}
+                        showApprovalToggles={false}
                       />
                     </div>
                   </div>

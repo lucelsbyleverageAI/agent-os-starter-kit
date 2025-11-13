@@ -350,6 +350,14 @@ export const ConfigurationSidebar = forwardRef<
     }
   };
 
+  // Get selected agent and determine if tool approval should be shown
+  const selectedAgent = agents?.find(
+    (a) => a.assistant_id === agentId && a.deploymentId === deploymentId
+  );
+
+  // Only show tool approval toggles for tools_agent
+  const showToolApproval = selectedAgent?.graph_id === 'tools_agent';
+
   return (
     <div
       ref={ref}
@@ -617,13 +625,13 @@ export const ConfigurationSidebar = forwardRef<
                           toolId={toolConfigurations[0].label}
                           renderCustom={(value, onChange) => (
                             <ConfigToolkitSelector
-                              toolkits={tools.length > 0 ? 
+                              toolkits={tools.length > 0 ?
                                 // Group tools by toolkit for the selector
                                 Object.values(
                                   tools.reduce((acc, tool) => {
                                     const toolkitName = tool.toolkit || 'Other';
                                     const toolkitDisplayName = tool.toolkit_display_name || toolkitName;
-                                    
+
                                     if (!acc[toolkitName]) {
                                       acc[toolkitName] = {
                                         name: toolkitName,
@@ -632,10 +640,10 @@ export const ConfigurationSidebar = forwardRef<
                                         tools: [],
                                       };
                                     }
-                                    
+
                                     acc[toolkitName].tools.push(tool);
                                     acc[toolkitName].count = acc[toolkitName].tools.length;
-                                    
+
                                     return acc;
                                   }, {} as Record<string, any>)
                                 ) : []
@@ -643,6 +651,7 @@ export const ConfigurationSidebar = forwardRef<
                               value={value}
                               onChange={onChange}
                               searchTerm={toolSearchTerm}
+                              showApprovalToggles={showToolApproval}
                             />
                           )}
                         />

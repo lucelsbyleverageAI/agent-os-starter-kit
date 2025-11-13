@@ -101,7 +101,7 @@ def create_tool_approval_interrupt(
 
     Args:
         tool_call: The tool call object to create an interrupt for.
-                  Must have 'name' and 'args' attributes.
+                  Must have 'name' and 'args' attributes or be a dict.
         description: Optional markdown description providing context
                     about the tool call. If None, generates a default
                     description.
@@ -126,18 +126,23 @@ def create_tool_approval_interrupt(
         The interrupt uses DEFAULT_FULL_CONFIG which allows all response types:
         accept, edit, respond, and ignore.
     """
-    # Extract tool name and args
-    tool_name = getattr(tool_call, "name", str(tool_call))
-    tool_args = getattr(tool_call, "args", {})
+    # Extract tool name and args - handle both dict and object formats
+    if isinstance(tool_call, dict):
+        tool_name = tool_call.get("name", "unknown")
+        tool_args = tool_call.get("args", {})
+    else:
+        tool_name = getattr(tool_call, "name", str(tool_call))
+        tool_args = getattr(tool_call, "args", {})
 
     # Generate default description if not provided
     if description is None:
         description = f"**Tool Approval Required**\n\nThe agent wants to call `{tool_name}`.\n\nReview the arguments and choose an action."
 
     # Create the interrupt structure
+    # Use tool_approval_ prefix so frontend routes to ToolApprovalInterrupt component
     interrupt_data: HumanInterrupt = {
         "action_request": {
-            "action": tool_name,
+            "action": f"tool_approval_{tool_name}",
             "args": tool_args if isinstance(tool_args, dict) else {}
         },
         "config": DEFAULT_FULL_CONFIG,  # Allow all response types
@@ -205,13 +210,19 @@ def process_tool_approval_response(
     response_args = response.get("args")
 
     # Get tool call ID for feedback messages
-    tool_call_id = getattr(original_tool_call, "id", None)
-    tool_name = getattr(original_tool_call, "name", "unknown")
+    # original_tool_call can be either a dict or an object
+    if isinstance(original_tool_call, dict):
+        tool_call_id = original_tool_call.get("id")
+        tool_name = original_tool_call.get("name", "unknown")
+    else:
+        tool_call_id = getattr(original_tool_call, "id", None)
+        tool_name = getattr(original_tool_call, "name", "unknown")
 
     logger.info(
-        "[tool_approval] Processing response type=%s for tool=%s",
+        "[tool_approval] Processing response type=%s for tool=%s (tool_call_id=%s)",
         response_type,
-        tool_name
+        tool_name,
+        tool_call_id
     )
 
     if response_type == "accept":
@@ -253,7 +264,7 @@ def process_tool_approval_response(
             )
             return original_tool_call
 
-    elif response_type == "respond":
+    elif response_type in ("respond", "response"):  # Support both spellings
         # User provided feedback - send as tool message
         feedback_text = response_args if isinstance(response_args, str) else str(response_args)
         feedback_message = (
@@ -264,9 +275,15 @@ def process_tool_approval_response(
         )
 
         logger.info(
-            "[tool_approval] User provided feedback for: %s",
-            tool_name
+            "[tool_approval] User provided feedback for: %s (response_type=%s)",
+            tool_name,
+            response_type
         )
+
+        if not tool_call_id:
+            logger.error(
+                "[tool_approval] Missing tool_call_id for feedback! This will cause API errors."
+            )
 
         return ToolMessage(
             content=feedback_message,
@@ -286,6 +303,11 @@ def process_tool_approval_response(
             "[tool_approval] Tool call rejected: %s",
             tool_name
         )
+
+        if not tool_call_id:
+            logger.error(
+                "[tool_approval] Missing tool_call_id for rejection! This will cause API errors."
+            )
 
         return ToolMessage(
             content=rejection_message,

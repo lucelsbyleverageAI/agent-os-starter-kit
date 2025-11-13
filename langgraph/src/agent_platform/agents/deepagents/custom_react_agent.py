@@ -31,8 +31,6 @@ except Exception:  # pragma: no cover
 try:
     # Use ToolNode for robust tool execution and ToolMessage creation
     from langgraph.prebuilt.tool_node import ToolNode
-    # Import ApprovalToolNode for HITL tool approval
-    from agent_platform.utils.approval_tool_node import ApprovalToolNode
 except Exception as e:  # pragma: no cover
     raise e
 
@@ -209,7 +207,6 @@ def custom_create_react_agent(
     version: Literal["v1", "v2"] = "v2",
     name: Optional[str] = None,
     enable_image_processing: bool = False,
-    tool_approvals: Optional[dict[str, bool]] = None,
     **kwargs: Any,
 ) -> CompiledStateGraph:
     """Creates a ReAct agent graph that calls tools in a loop until a stopping condition is met.
@@ -245,19 +242,12 @@ def custom_create_react_agent(
 
     # Process tools
     llm_builtin_tools: list[dict] = []
-    if isinstance(tools, (ToolNode, ApprovalToolNode)):
+    if isinstance(tools, ToolNode):
         tool_classes = list(tools.tools_by_name.values())
         tool_node = tools
     else:
         llm_builtin_tools = [t for t in tools if isinstance(t, dict)]
-        # Use ApprovalToolNode if tool_approvals is provided, otherwise regular ToolNode
-        if tool_approvals:
-            tool_node = ApprovalToolNode(
-                [t for t in tools if not isinstance(t, dict)],
-                tool_approvals=tool_approvals
-            )
-        else:
-            tool_node = ToolNode([t for t in tools if not isinstance(t, dict)])
+        tool_node = ToolNode([t for t in tools if not isinstance(t, dict)])
         tool_classes = list(tool_node.tools_by_name.values())
 
     # Handle dynamic vs static models

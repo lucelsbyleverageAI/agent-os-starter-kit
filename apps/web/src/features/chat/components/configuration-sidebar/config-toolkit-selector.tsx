@@ -18,6 +18,7 @@ interface ConfigToolkitSelectorProps {
   onChange: (value: ConfigurableFieldMCPMetadata["default"]) => void;
   searchTerm?: string;
   className?: string;
+  showApprovalToggles?: boolean; // Control whether to show approval toggles
 }
 
 export function ConfigToolkitSelector({
@@ -26,6 +27,7 @@ export function ConfigToolkitSelector({
   onChange,
   searchTerm = "",
   className,
+  showApprovalToggles = true, // Default to true for backward compatibility
 }: ConfigToolkitSelectorProps) {
   const [expandedToolkits, setExpandedToolkits] = useState<Set<string>>(new Set());
 
@@ -106,7 +108,7 @@ export function ConfigToolkitSelector({
       onChange({
         ...value,
         tools: Array.from(currentTools),
-        tool_approvals: newApprovals,
+        tool_approvals: showApprovalToggles ? newApprovals : {},
       });
       return;
     }
@@ -114,6 +116,7 @@ export function ConfigToolkitSelector({
     onChange({
       ...value,
       tools: Array.from(currentTools),
+      tool_approvals: showApprovalToggles ? toolApprovals : {},
     });
   };
 
@@ -224,7 +227,7 @@ export function ConfigToolkitSelector({
                               </div>
                             )}
                           </div>
-                          {isToolSelected && (
+                          {isToolSelected && showApprovalToggles && (
                             <div className="flex items-center gap-2 ml-2">
                               <Label
                                 htmlFor={`approval-${tool.name}`}

@@ -13,7 +13,6 @@ from agent_platform.utils.tool_utils import (
     create_langchain_mcp_tool_with_universal_context,
     create_collection_tools,
 )
-from agent_platform.utils.tool_approval_utils import merge_tool_approvals
 from agent_platform.utils.model_utils import (
     init_model,
     ModelConfig,
@@ -163,17 +162,6 @@ async def graph(config: RunnableConfig):
 
     sub_agents_config = json.loads(cfg.json()).get("sub_agents", [])
 
-    # Collect tool approvals from configuration
-    mcp_approvals = cfg.mcp_config.tool_approvals if cfg.mcp_config else {}
-    rag_approvals = cfg.rag.tool_approvals if cfg.rag else {}
-    tool_approvals = merge_tool_approvals(mcp_approvals, rag_approvals)
-
-    logger.info(
-        "[DEEPAGENT] tool_approvals_configured count=%s tools_requiring_approval=%s",
-        len(tool_approvals),
-        [name for name, required in tool_approvals.items() if required]
-    )
-
     # Register the full schema so the UI renders all fields/tabs
     agent = async_create_deep_agent(
         tools=tools,
@@ -184,7 +172,6 @@ async def graph(config: RunnableConfig):
         runnable_config=config,
         include_general_purpose_agent=cfg.include_general_purpose_agent,
         pre_model_hook=trimming_hook,
-        tool_approvals=tool_approvals,
     )
 
     return agent

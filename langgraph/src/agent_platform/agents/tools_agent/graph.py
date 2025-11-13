@@ -86,10 +86,28 @@ async def graph(config: RunnableConfig):
     
     # Standard logging via Sentry integration; no verbosity overrides
     logger.info("[TOOLS_AGENT] start")
-    
+
     # Step 1: Parse and validate configuration
-    cfg = GraphConfigPydantic(**config.get("configurable", {}))
+    configurable_dict = config.get("configurable", {})
+    logger.info(
+        "[TOOLS_AGENT] config_received configurable_keys=%s",
+        list(configurable_dict.keys())
+    )
+
+    cfg = GraphConfigPydantic(**configurable_dict)
     tools = []
+
+    # Log parsed configuration for debugging
+    logger.info(
+        "[TOOLS_AGENT] parsed_config mcp_tools=%s rag_tools=%s",
+        cfg.mcp_config.tools if cfg.mcp_config else None,
+        cfg.rag.enabled_tools if cfg.rag else None
+    )
+    logger.info(
+        "[TOOLS_AGENT] tool_approvals_raw mcp=%s rag=%s",
+        cfg.mcp_config.tool_approvals if cfg.mcp_config else {},
+        cfg.rag.tool_approvals if cfg.rag else {}
+    )
 
     # Step 2: Extract authentication token for RAG and other services
     # Try multiple locations where the JWT token might be stored
