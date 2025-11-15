@@ -113,12 +113,21 @@ export default function useMCP({
     timeout?: number;
   }) => {
     const mcp = await createAndConnectMCPClient();
+    const toolParams: {
+      name: string;
+      arguments: Record<string, any>;
+      version?: string;
+    } = {
+      name,
+      arguments: args,
+    };
+
+    if (version !== undefined) {
+      toolParams.version = version;
+    }
+
     return await mcp.callTool(
-      {
-        name,
-        version,
-        arguments: args,
-      },
+      toolParams,
       undefined, // No schema
       {
         timeout,
