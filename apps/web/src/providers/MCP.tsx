@@ -114,14 +114,14 @@ export const MCPProvider: React.FC<PropsWithChildren> = ({ children }) => {
 
     try {
               setLoading(true);
-        
+
         const tools = await mcpState.getTools();
-      
-      
+
       mcpState.setTools(tools);
-      
+
       // Group tools into toolkits
       const groupedToolkits = groupToolsByToolkit(tools);
+
       mcpState.setToolkits(groupedToolkits);
       
       // Cache the results
