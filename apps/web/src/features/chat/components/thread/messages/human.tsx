@@ -13,6 +13,7 @@ import { isBase64ContentBlock } from "@/lib/multimodal-utils";
 import { MinimalistBadgeWithText } from "@/components/ui/minimalist-badge";
 import { FileText } from "lucide-react";
 import { MarkdownText } from "@/components/ui/markdown-text";
+import { logger } from "@/lib/logger";
 import {
   Dialog,
   DialogContent,
@@ -130,6 +131,13 @@ export function HumanMessage({
 
     const newMessage: Message = { type: "human", content: value };
     const { getAgentConfig } = useConfigStore.getState();
+    const agentConfig = getAgentConfig(agentId);
+
+    logger.debug("[HumanMessage] Editing message with config", {
+      agentId,
+      hasToolApprovals: !!agentConfig?.mcp_config?.tool_approvals,
+      toolApprovalCount: Object.keys(agentConfig?.mcp_config?.tool_approvals || {}).length
+    });
 
     thread.submit(
       { messages: [newMessage] },
@@ -146,7 +154,7 @@ export function HumanMessage({
           };
         },
         config: {
-          configurable: getAgentConfig(agentId),
+          configurable: agentConfig,
         },
         metadata: {
           supabaseAccessToken: session?.accessToken,

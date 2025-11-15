@@ -197,6 +197,7 @@ interface AgentFieldsFormProps {
   agentId: string;
   ragConfigurations: ConfigurableFieldRAGMetadata[];
   agentsConfigurations: ConfigurableFieldAgentsMetadata[];
+  graphId?: string; // Optional graph_id to determine if tool approval should be shown
 }
 
 export function AgentFieldsForm({
@@ -205,6 +206,7 @@ export function AgentFieldsForm({
   agentId,
   ragConfigurations,
   agentsConfigurations,
+  graphId,
 }: AgentFieldsFormProps) {
   const form = useFormContext<{
     name: string;
@@ -231,6 +233,9 @@ export function AgentFieldsForm({
   const hasTools = toolConfigurations.length > 0;
   const hasRag = ragConfigurations.length > 0;
   const hasAgents = agentsConfigurations.length > 0;
+
+  // Only show tool approval toggles for tools_agent
+  const showToolApproval = graphId === 'tools_agent';
 
   return (
     <div className="flex flex-col gap-6 py-2">
@@ -341,13 +346,13 @@ export function AgentFieldsForm({
                     name={`config.${toolConfigurations[0].label}`}
                     render={({ field: { value, onChange } }) => (
                       <ConfigToolkitSelector
-                        toolkits={tools.length > 0 ? 
+                        toolkits={tools.length > 0 ?
                           // Group tools by toolkit for the selector
                           Object.values(
                             tools.reduce((acc, tool) => {
                               const toolkitName = tool.toolkit || 'Other';
                               const toolkitDisplayName = tool.toolkit_display_name || toolkitName;
-                              
+
                               if (!acc[toolkitName]) {
                                 acc[toolkitName] = {
                                   name: toolkitName,
@@ -356,10 +361,10 @@ export function AgentFieldsForm({
                                   tools: [],
                                 };
                               }
-                              
+
                               acc[toolkitName].tools.push(tool);
                               acc[toolkitName].count = acc[toolkitName].tools.length;
-                              
+
                               return acc;
                             }, {} as Record<string, any>)
                           ) : []
@@ -367,6 +372,7 @@ export function AgentFieldsForm({
                         value={value}
                         onChange={onChange}
                         searchTerm={toolSearchTerm}
+                        showApprovalToggles={showToolApproval}
                       />
                     )}
                   />

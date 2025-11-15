@@ -11,6 +11,7 @@ from agent_platform.utils.tool_utils import (
     create_collection_tools,
     create_langchain_mcp_tool_with_universal_context,
 )
+from agent_platform.utils.prompt_utils import append_datetime_to_prompt
 from mcp.client.streamable_http import streamablehttp_client
 from mcp import ClientSession
 from .builder import SerializableSubAgent, RagConfig, MCPConfig
@@ -277,7 +278,7 @@ async def _get_agents(
 
         agents["general-purpose"] = custom_create_react_agent(
             model,
-            prompt=GENERAL_PURPOSE_SUBAGENT_PROMPT,
+            prompt=append_datetime_to_prompt(GENERAL_PURPOSE_SUBAGENT_PROMPT),
             tools=tools,
             state_schema=state_schema,
             checkpointer=False,
@@ -398,7 +399,7 @@ async def _get_agents(
         logger.info("[SUB_AGENT] tools_assigned agent=%s total=%s", agent_name, len(_tools))
         agents[agent_name] = custom_create_react_agent(
             sub_model,
-            prompt=agent_prompt,
+            prompt=append_datetime_to_prompt(agent_prompt),
             tools=_tools,
             state_schema=state_schema,
             checkpointer=False,

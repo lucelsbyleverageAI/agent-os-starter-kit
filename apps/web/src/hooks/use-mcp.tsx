@@ -65,16 +65,20 @@ export default function useMCP({
       const toolsResponse = await mcp.listTools({ cursor: nextCursor });
       const _toolsFetchDuration = Date.now() - toolsFetchStart;
       
-      // Transform MCP tools to include toolkit information from meta field
+      // Transform MCP tools to include toolkit information from _meta field (MCP SDK uses underscore)
       const transformedTools = toolsResponse.tools.map((tool: any) => {
-        
-        return {
-          ...tool,
-          // Extract toolkit info from meta field for backward compatibility
-          // Only set if meta fields exist, otherwise let the original fields through
-          ...(tool.meta?.toolkit && { toolkit: tool.meta.toolkit }),
-          ...(tool.meta?.toolkit_display_name && { toolkit_display_name: tool.meta.toolkit_display_name }),
-        };
+        const transformed: any = { ...tool };
+
+        // Explicitly extract toolkit metadata from _meta field (note the underscore)
+        // MCP SDK sends _meta over the wire, not meta
+        if (tool._meta?.toolkit) {
+          transformed.toolkit = tool._meta.toolkit;
+        }
+        if (tool._meta?.toolkit_display_name) {
+          transformed.toolkit_display_name = tool._meta.toolkit_display_name;
+        }
+
+        return transformed;
       });
       
       // Note: Toolkit grouping is handled by the MCP Provider
@@ -113,12 +117,21 @@ export default function useMCP({
     timeout?: number;
   }) => {
     const mcp = await createAndConnectMCPClient();
+    const toolParams: {
+      name: string;
+      arguments: Record<string, any>;
+      version?: string;
+    } = {
+      name,
+      arguments: args,
+    };
+
+    if (version !== undefined) {
+      toolParams.version = version;
+    }
+
     return await mcp.callTool(
-      {
-        name,
-        version,
-        arguments: args,
-      },
+      toolParams,
       undefined, // No schema
       {
         timeout,

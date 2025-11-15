@@ -6,6 +6,10 @@ from mcp import ClientSession
 from dotenv import find_dotenv, load_dotenv
 load_dotenv(find_dotenv())
 
+# Import approval utilities
+from agent_platform.utils.tool_approval_utils import merge_tool_approvals
+from agent_platform.agents.tools_agent.react_agent_with_approval import create_react_agent_with_approval
+
 # Import shared services and utilities
 from agent_platform.services.mcp_token import fetch_tokens
 from agent_platform.utils.tool_utils import (
@@ -26,6 +30,7 @@ from agent_platform.utils.model_utils import (
     create_trimming_hook,
 )
 from agent_platform.utils.message_utils import create_image_preprocessor
+from agent_platform.utils.prompt_utils import append_datetime_to_prompt
 
 # Import agent-specific configuration
 from agent_platform.agents.tools_agent.config import GraphConfigPydantic, UNEDITABLE_SYSTEM_PROMPT, DEFAULT_RECURSION_LIMIT
@@ -81,10 +86,28 @@ async def graph(config: RunnableConfig):
     
     # Standard logging via Sentry integration; no verbosity overrides
     logger.info("[TOOLS_AGENT] start")
-    
+
     # Step 1: Parse and validate configuration
-    cfg = GraphConfigPydantic(**config.get("configurable", {}))
+    configurable_dict = config.get("configurable", {})
+    logger.info(
+        "[TOOLS_AGENT] config_received configurable_keys=%s",
+        list(configurable_dict.keys())
+    )
+
+    cfg = GraphConfigPydantic(**configurable_dict)
     tools = []
+
+    # Log parsed configuration for debugging
+    logger.info(
+        "[TOOLS_AGENT] parsed_config mcp_tools=%s rag_tools=%s",
+        cfg.mcp_config.tools if cfg.mcp_config else None,
+        cfg.rag.enabled_tools if cfg.rag else None
+    )
+    logger.info(
+        "[TOOLS_AGENT] tool_approvals_raw mcp=%s rag=%s",
+        cfg.mcp_config.tool_approvals if cfg.mcp_config else {},
+        cfg.rag.tool_approvals if cfg.rag else {}
+    )
 
     # Step 2: Extract authentication token for RAG and other services
     # Try multiple locations where the JWT token might be stored
@@ -260,16 +283,29 @@ async def graph(config: RunnableConfig):
         trimming_hook is not None
     )
 
-    # Step 6: Create and return the ReAct agent
+    # Step 6: Collect tool approvals from configuration
+    # Merge approvals from both MCP and RAG sources
+    mcp_approvals = cfg.mcp_config.tool_approvals if cfg.mcp_config else {}
+    rag_approvals = cfg.rag.tool_approvals if cfg.rag else {}
+    tool_approvals = merge_tool_approvals(mcp_approvals, rag_approvals)
+
+    logger.info(
+        "[TOOLS_AGENT] tool_approvals_configured count=%s tools_requiring_approval=%s",
+        len(tool_approvals),
+        [name for name, required in tool_approvals.items() if required]
+    )
+
+    # Step 7: Create and return the ReAct agent with approval support
     # Get recursion limit from config, default to DEFAULT_RECURSION_LIMIT if not specified
     recursion_limit = cfg.recursion_limit if cfg.recursion_limit is not None else DEFAULT_RECURSION_LIMIT
 
     logger.info("[TOOLS_AGENT] agent_created tools_count=%s recursion_limit=%s", len(tools), recursion_limit)
 
-    return create_react_agent(
-        prompt=cfg.system_prompt + UNEDITABLE_SYSTEM_PROMPT,
+    return create_react_agent_with_approval(
+        prompt=append_datetime_to_prompt(cfg.system_prompt + UNEDITABLE_SYSTEM_PROMPT),
         model=model,
         tools=tools,
+        tool_approvals=tool_approvals,
         config_schema=GraphConfigPydantic,
         pre_model_hook=combined_hook,  # Combined image + trimming hooks
     ).with_config({"recursion_limit": recursion_limit})

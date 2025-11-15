@@ -76,6 +76,7 @@ const StreamSession = ({
   }
 
   const [threadId, setThreadId] = useQueryState("threadId");
+
   const streamValue = useTypedStream({
     apiUrl: deploymentUrl,
     assistantId: agentId,

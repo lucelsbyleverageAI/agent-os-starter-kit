@@ -299,7 +299,6 @@ export function ConfigField({
         <Select
           value={currentValue ?? ""} // Use currentValue, provide default empty string if undefined/null
           onValueChange={(value) => {
-            console.log(`📊 Select field [${label}] changed:`, { value, fieldWidth: fieldRef.current?.getBoundingClientRect().width });
             handleChange(value);
           }}
         >
@@ -890,7 +889,7 @@ export function ConfigFieldAgents({
                           </SelectTrigger>
                           <SelectContent>
                             <SelectItem value="anthropic:claude-sonnet-4-5-20250929">Claude 4.5 Sonnet</SelectItem>
-                            <SelectItem value="anthropic:claude-3-5-haiku-20250219">Claude 3.5 Haiku</SelectItem>
+                            <SelectItem value="anthropic:claude-haiku-4-5-20251001">Claude Haiku 4.5</SelectItem>
                             <SelectItem value="openai:gpt-4.1">GPT-4.1</SelectItem>
                             <SelectItem value="openai:gpt-4.1-mini">GPT-4.1 Mini</SelectItem>
                           </SelectContent>
@@ -930,6 +929,7 @@ export function ConfigFieldAgents({
                         value={{ url: undefined as any, tools: sa.mcp_config?.tools || [] }}
                         onChange={(v) => updateAtPath(i, ["mcp_config", "tools"], (v && v.tools) ? v.tools : [])}
                         searchTerm={toolSearchTerm}
+                        showApprovalToggles={false}
                       />
                     </div>
                   </div>
@@ -1021,17 +1021,10 @@ export function ConfigFieldRAGTools({
   ) as any;
 
   if (!defaults) {
-    console.log('[ConfigFieldRAGTools] No defaults found', {
-      actualAgentId,
-      label,
-      configsByAgentId: store.configsByAgentId,
-      ragConfig: store.configsByAgentId[actualAgentId],
-    });
     return null;
   }
 
   // Get the enabled_tools list and tool metadata
-  console.log('[ConfigFieldRAGTools] Defaults:', defaults);
   const enabledTools = defaults.enabled_tools || ["hybrid_search", "fs_list_collections", "fs_list_files", "fs_read_file", "fs_grep_files"];
   
   const toggleGroup = (groupName: string) => {

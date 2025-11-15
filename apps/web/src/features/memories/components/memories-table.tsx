@@ -219,10 +219,10 @@ export function MemoriesTable({
     });
 
     try {
-      // Delete memories one by one
+      // Delete memories one by one (silent mode to avoid individual toasts)
       for (const memoryId of memoriesToDelete) {
         try {
-          const success = await deleteMemory(memoryId);
+          const success = await deleteMemory(memoryId, true);
           if (success) {
             successCount++;
           } else {

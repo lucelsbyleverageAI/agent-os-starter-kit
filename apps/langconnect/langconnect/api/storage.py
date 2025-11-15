@@ -182,3 +182,83 @@ async def upload_chat_image(
             status_code=500,
             detail=f"Failed to upload image: {str(e)}"
         )
+
+
+@router.post("/upload-support-image")
+async def upload_support_image(
+    actor: Annotated[AuthenticatedActor, Depends(resolve_user_or_service)],
+    file: UploadFile = File(...),
+) -> dict:
+    """
+    Upload a screenshot for bug reports and feature requests.
+
+    The image is stored in the support bucket with path: {user_id}/{timestamp}_{filename}
+    Returns only the storage path (not base64), which will be converted to a signed URL at runtime.
+
+    Args:
+        file: Image file to upload
+
+    Returns:
+        Dict with storage_path for use in feedback screenshot_urls array
+
+    Raises:
+        400: Invalid file type or size
+        500: Upload failed
+    """
+    try:
+        # Validate file type
+        content_type = file.content_type
+        allowed_types = [
+            'image/jpeg', 'image/png', 'image/gif',
+            'image/webp', 'image/bmp', 'image/tiff'
+        ]
+
+        if content_type not in allowed_types:
+            raise HTTPException(
+                status_code=400,
+                detail=f"Invalid file type: {content_type}. Allowed types: {', '.join(allowed_types)}"
+            )
+
+        # Validate file size (50MB limit)
+        file_data = await file.read()
+        if len(file_data) > 52428800:  # 50MB in bytes
+            raise HTTPException(
+                status_code=400,
+                detail="File size exceeds 50MB limit"
+            )
+
+        # Upload to storage
+        result = await storage_service.upload_support_image(
+            file_data=file_data,
+            filename=file.filename,
+            content_type=content_type,
+            user_id=actor.identity,
+        )
+
+        # Generate signed URL for preview (30 minutes expiry)
+        signed_url = await storage_service.get_signed_url(
+            file_path=result["storage_path"],
+            bucket=result["bucket"],
+            expiry_seconds=1800
+        )
+
+        # Fix URL for development (replace kong with localhost)
+        preview_url = fix_storage_url_for_development(signed_url)
+
+        logger.info(f"Uploaded support screenshot for user {actor.identity}: {result['storage_path']}")
+
+        return {
+            "storage_path": result["storage_path"],
+            "bucket": result["bucket"],
+            "filename": file.filename,
+            "preview_url": preview_url  # Temporary signed URL for immediate preview (localhost in dev)
+        }
+
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Failed to upload support screenshot: {e}")
+        raise HTTPException(
+            status_code=500,
+            detail=f"Failed to upload screenshot: {str(e)}"
+        )

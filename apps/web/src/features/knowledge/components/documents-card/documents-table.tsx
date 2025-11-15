@@ -272,12 +272,12 @@ export function DocumentsTable({
     });
 
     try {
-      // Delete documents one by one (could be optimized with batch API in future)
+      // Delete documents one by one in silent mode (could be optimized with batch API in future)
       for (const documentId of documentsToDelete) {
         try {
           const doc = documents.find(d => d.metadata.file_id === documentId);
           const docName = doc?.metadata.name || "Unknown document";
-          await deleteDocument(documentId, docName, selectedCollection.uuid);
+          await handleDeleteDocument(documentId, docName, true);
           successCount++;
         } catch (_error) {
           console.error(`Failed to delete document ${documentId}:`, _error);
@@ -316,83 +316,98 @@ export function DocumentsTable({
   }, [selectedDocuments, selectedCollection.permission_level, documents, deleteDocument, clearSelection, onDocumentDeleted]);
 
   // Handle document deletion with proper loading states and error handling
-  const handleDeleteDocument = async (documentId: string, documentName: string) => {
+  const handleDeleteDocument = async (documentId: string, documentName: string, silent: boolean = false) => {
     // Double-check that the document still exists in our local state
     const documentExists = documents.some(doc => doc.metadata.file_id === documentId);
     if (!documentExists) {
-      toast.error("Document not found", {
-        richColors: true,
-        description: "The document may have already been deleted."
-      });
+      if (!silent) {
+        toast.error("Document not found", {
+          richColors: true,
+          description: "The document may have already been deleted."
+        });
+      }
       return;
     }
 
     // Check if user has permission to delete (based on collection permissions)
     const canDelete = selectedCollection.permission_level === 'owner' || selectedCollection.permission_level === 'editor';
     if (!canDelete) {
-      toast.error("Insufficient permissions", {
-        richColors: true,
-        description: "You don't have permission to delete documents from this collection."
-      });
+      if (!silent) {
+        toast.error("Insufficient permissions", {
+          richColors: true,
+          description: "You don't have permission to delete documents from this collection."
+        });
+      }
       return;
     }
 
-    const loadingToast = toast.loading("Deleting document", {
-      richColors: true,
-      description: `Removing "${documentName}" from collection...`
-    });
-    
+    let loadingToast: string | number | undefined;
+    if (!silent) {
+      loadingToast = toast.loading("Deleting document", {
+        richColors: true,
+        description: `Removing "${documentName}" from collection...`
+      });
+    }
+
     setDeletingDocumentId(documentId);
-    
+
     try {
       await deleteDocument(documentId, documentName, selectedCollection.uuid);
-      
-      toast.dismiss(loadingToast);
-      toast.success("Document deleted successfully", { 
-        richColors: true,
-        description: `"${documentName}" has been removed from the collection.`
-      });
-      
+
+      if (!silent) {
+        if (loadingToast) toast.dismiss(loadingToast);
+        toast.success("Document deleted successfully", {
+          richColors: true,
+          description: `"${documentName}" has been removed from the collection.`
+        });
+      }
+
       // Remove from selection if it was selected
       if (selectedDocuments.has(documentId)) {
         const newSelected = new Set(selectedDocuments);
         newSelected.delete(documentId);
         setSelectedDocuments(newSelected);
       }
-      
+
       // Call the callback to refresh the parent's document list
       if (onDocumentDeleted) {
         await onDocumentDeleted();
       }
-      
+
     } catch (error) {
-      toast.dismiss(loadingToast);
-      console.error("❌ Delete document error:", error);
-      
-      // Provide more specific error messages based on error type
-      let errorMessage = "Failed to delete document";
-      let errorDescription = "Unknown error occurred";
-      
-      if (error instanceof Error) {
-        errorDescription = error.message;
-        
-        // Check for specific error types
-        if (error.message.includes('permission') || error.message.includes('403')) {
-          errorMessage = "Permission denied";
-          errorDescription = "You don't have permission to delete this document.";
-        } else if (error.message.includes('404') || error.message.includes('not found')) {
-          errorMessage = "Document not found";
-          errorDescription = "The document may have already been deleted.";
-        } else if (error.message.includes('500')) {
-          errorMessage = "Server error";
-          errorDescription = "Please try again later or contact support.";
+      if (!silent) {
+        if (loadingToast) toast.dismiss(loadingToast);
+        console.error("❌ Delete document error:", error);
+
+        // Provide more specific error messages based on error type
+        let errorMessage = "Failed to delete document";
+        let errorDescription = "Unknown error occurred";
+
+        if (error instanceof Error) {
+          errorDescription = error.message;
+
+          // Check for specific error types
+          if (error.message.includes('permission') || error.message.includes('403')) {
+            errorMessage = "Permission denied";
+            errorDescription = "You don't have permission to delete this document.";
+          } else if (error.message.includes('404') || error.message.includes('not found')) {
+            errorMessage = "Document not found";
+            errorDescription = "The document may have already been deleted.";
+          } else if (error.message.includes('500')) {
+            errorMessage = "Server error";
+            errorDescription = "Please try again later or contact support.";
+          }
         }
+
+        toast.error(errorMessage, {
+          richColors: true,
+          description: errorDescription
+        });
+      } else {
+        // In silent mode, still log errors but don't show toast
+        console.error("❌ Delete document error:", error);
+        throw error; // Re-throw so batch operation can handle it
       }
-      
-      toast.error(errorMessage, { 
-        richColors: true,
-        description: errorDescription
-      });
     } finally {
       setDeletingDocumentId(null);
     }
