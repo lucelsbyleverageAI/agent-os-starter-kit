@@ -4,6 +4,7 @@ import { Suspense, useState } from "react";
 import { Button } from "@/components/ui/button";
 import { Plus } from "lucide-react";
 import { AgentMarketplace } from "./components/agent-marketplace";
+import { AgentCardLoading } from "./components/agent-card-loading";
 import { CreateAgentDialog } from "./components/create-edit-agent-dialogs/create-agent-dialog";
 
 export default function AgentsInterfaceV2() {
@@ -31,7 +32,13 @@ export default function AgentsInterfaceV2() {
 
       {/* Agent Marketplace */}
       <div className="mt-6">
-        <Suspense fallback={<p>Loading agents...</p>}>
+        <Suspense fallback={
+          <div className="grid grid-cols-1 gap-6 md:grid-cols-2 lg:grid-cols-3">
+            {Array.from({ length: 6 }).map((_, index) => (
+              <AgentCardLoading key={`suspense-skeleton-${index}`} />
+            ))}
+          </div>
+        }>
           <AgentMarketplace onCreateAgent={() => setShowCreateDialog(true)} />
         </Suspense>
       </div>

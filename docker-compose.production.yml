@@ -556,7 +556,10 @@ services:
       - LANGCONNECT_POSTGRES_SCHEMA=langconnect
       # LangGraph configuration
       - LANGCONNECT_LANGGRAPH_API_URL=${LANGGRAPH_EXTERNAL_URL}
+      # LangSmith configuration
       - LANGSMITH_API_KEY=${LANGSMITH_API_KEY}
+      - LANGSMITH_ENDPOINT=${LANGSMITH_ENDPOINT:-https://eu.api.smith.langchain.com}
+      - LANGSMITH_PROJECT=${LANGSMITH_PROJECT:-agent-os-prod}
       # Authentication and Storage
       - SUPABASE_URL=http://kong_prod:8000  # Internal Docker network URL for auth/REST API
       - SUPABASE_PUBLIC_URL=${SUPABASE_PUBLIC_URL}  # Public HTTPS URL for storage signed URLs

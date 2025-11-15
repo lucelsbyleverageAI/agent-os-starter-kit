@@ -8,7 +8,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from fastapi.exceptions import RequestValidationError
 from fastapi.responses import JSONResponse
 
-from langconnect.api import collections_router, documents_router, users_router, agents_router, jobs_router
+from langconnect.api import collections_router, documents_router, users_router, agents_router, jobs_router, feedback_router
 from langconnect.api.chunks import router as chunks_router
 from langconnect.api.public_permissions import router as public_permissions_router
 from langconnect.api.notifications import router as notifications_router
@@ -140,6 +140,7 @@ APP.include_router(memory_router)
 APP.include_router(agent_filesystem_router)
 APP.include_router(default_assistant_router)
 APP.include_router(storage_router)
+APP.include_router(feedback_router)
 
 
 @APP.get("/health")

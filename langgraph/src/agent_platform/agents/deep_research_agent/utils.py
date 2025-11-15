@@ -5,7 +5,7 @@ import logging
 import os
 import warnings
 from datetime import datetime
-from typing import Annotated, Any, Dict, List, Literal, Optional
+from typing import Annotated, Dict, List, Literal
 
 from langchain_core.language_models import BaseChatModel
 from langchain_core.messages import (
@@ -27,11 +27,6 @@ from mcp import ClientSession
 from mcp import McpError
 from tavily import AsyncTavilyClient
 
-from agent_platform.utils.model_utils import (
-    init_model,
-    ModelConfig,
-    RetryConfig,
-)
 
 from agent_platform.agents.deep_research_agent.configuration import Configuration, SearchAPI
 from agent_platform.agents.deep_research_agent.prompts import summarize_webpage_prompt
@@ -39,7 +34,6 @@ from agent_platform.agents.deep_research_agent.state import ResearchComplete, Su
 from agent_platform.services.mcp_token import fetch_tokens as central_fetch_tokens
 from agent_platform.utils.tool_utils import (
     create_langchain_mcp_tool_with_universal_context,
-    create_rag_tool_with_universal_context,
     create_collection_tools,
 )
 
@@ -720,10 +714,24 @@ def _check_gemini_token_limit(exception: Exception, error_str: str) -> bool:
     return False
 
 # NOTE: This may be out of date or not applicable to your models. Please update this as needed.
+# Synced with MODEL_REGISTRY in agent_platform/utils/model_utils.py
 MODEL_TOKEN_LIMITS = {
-    "openai:gpt-4.1-mini": 1047576,
-    "openai:gpt-4.1-nano": 1047576,
-    "openai:gpt-4.1": 1047576,
+    # Anthropic Models (aligned with main registry)
+    "anthropic:claude-haiku-4-5-20251001": 200000,
+    "anthropic:claude-sonnet-4-5-20250929": 200000,
+    "anthropic:claude-opus-4-1-20250805": 200000,
+    "anthropic:claude-sonnet-4-5-20250929-extended-thinking": 200000,
+
+    # OpenAI Models (aligned with main registry)
+    "openai:gpt-4.1-mini": 128000,
+    "openai:gpt-4.1-nano": 128000,
+    "openai:gpt-5-mini": 128000,
+    "openai:gpt-5-nano": 128000,
+    "openai:gpt-4.1": 128000,
+    "openai:gpt-5": 200000,
+    "openai:gpt-5-thinking": 200000,
+
+    # Legacy OpenAI Models
     "openai:gpt-4o-mini": 128000,
     "openai:gpt-4o": 128000,
     "openai:o4-mini": 200000,
@@ -732,11 +740,8 @@ MODEL_TOKEN_LIMITS = {
     "openai:o3-pro": 200000,
     "openai:o1": 200000,
     "openai:o1-pro": 200000,
-    "anthropic:claude-opus-4": 200000,
-    "anthropic:claude-sonnet-4": 200000,
-    "anthropic:claude-3-7-sonnet": 200000,
-    "anthropic:claude-3-5-sonnet": 200000,
-    "anthropic:claude-3-5-haiku": 200000,
+
+    # Other Providers
     "google:gemini-1.5-pro": 2097152,
     "google:gemini-1.5-flash": 1048576,
     "google:gemini-pro": 32768,
@@ -757,10 +762,8 @@ MODEL_TOKEN_LIMITS = {
     "bedrock:us.amazon.nova-pro-v1:0": 300000,
     "bedrock:us.amazon.nova-lite-v1:0": 300000,
     "bedrock:us.amazon.nova-micro-v1:0": 128000,
-    "bedrock:us.anthropic.claude-3-7-sonnet-20250219-v1:0": 200000,
     "bedrock:us.anthropic.claude-sonnet-4-20250514-v1:0": 200000,
     "bedrock:us.anthropic.claude-opus-4-20250514-v1:0": 200000,
-    "anthropic.claude-opus-4-1-20250805-v1:0": 200000,
 }
 
 def get_model_token_limit(model_string):

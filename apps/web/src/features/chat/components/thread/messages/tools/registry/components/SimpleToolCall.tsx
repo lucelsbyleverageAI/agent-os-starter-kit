@@ -1,27 +1,57 @@
 import React, { useState } from "react";
 import { ToolComponentProps } from "../../types";
 import { Card } from "@/components/ui/card";
-import { ChevronDown, ChevronRight, Loader2, CheckCircle } from "lucide-react";
+import { ChevronDown, ChevronRight, Loader2, CheckCircle, XCircle, MessageSquare } from "lucide-react";
 import { MinimalistBadge } from "@/components/ui/minimalist-badge";
 import { getToolDisplayName } from "../../utils";
 import { ToolArgumentsTable, ToolResultDisplay } from "../shared";
 import { cn } from "@/lib/utils";
 import { getScrollbarClasses } from "@/lib/scrollbar-styles";
 
-export function SimpleToolCall({ 
-  toolCall, 
-  toolResult, 
-  state, 
-  streaming 
+/**
+ * Detect if the tool result is from a tool approval rejection
+ */
+function isRejectedToolCall(toolResult?: any): boolean {
+  if (!toolResult?.content) return false;
+  const content = String(toolResult.content);
+  return content.includes("**Tool Call Rejected**") ||
+         content.includes("decided not to proceed with this action");
+}
+
+/**
+ * Detect if the tool result is from human feedback/response
+ */
+function isHumanFeedback(toolResult?: any): boolean {
+  if (!toolResult?.content) return false;
+  const content = String(toolResult.content);
+  return content.includes("**Human Feedback on") ||
+         content.includes("reviewed your tool call and provided this feedback");
+}
+
+export function SimpleToolCall({
+  toolCall,
+  toolResult,
+  state,
+  streaming
 }: ToolComponentProps) {
   const [isExpanded, setIsExpanded] = useState(false);
-  
+
   const toolDisplayName = getToolDisplayName(toolCall);
   const hasArgs = toolCall.args && Object.keys(toolCall.args).length > 0;
   const hasExpandableContent = hasArgs || (state === 'completed' && toolResult);
 
+  // Detect approval states
+  const isRejected = state === 'completed' && isRejectedToolCall(toolResult);
+  const isFeedback = state === 'completed' && isHumanFeedback(toolResult);
+
   const getStateText = () => {
     if (state === 'completed') {
+      if (isRejected) {
+        return `Tool Rejected: ${toolDisplayName}`;
+      }
+      if (isFeedback) {
+        return `Human Feedback: ${toolDisplayName}`;
+      }
       return `Tool Complete: ${toolDisplayName}`;
     }
     return `Agent is using the following tool: ${toolDisplayName}`;
@@ -29,6 +59,22 @@ export function SimpleToolCall({
 
   const getStateBadge = () => {
     if (state === 'completed') {
+      if (isRejected) {
+        return (
+          <MinimalistBadge
+            icon={XCircle}
+            tooltip="Tool call rejected by user"
+          />
+        );
+      }
+      if (isFeedback) {
+        return (
+          <MinimalistBadge
+            icon={MessageSquare}
+            tooltip="User provided feedback"
+          />
+        );
+      }
       return (
         <MinimalistBadge
           icon={CheckCircle}
@@ -36,7 +82,7 @@ export function SimpleToolCall({
         />
       );
     }
-    
+
     return (
       <MinimalistBadge
         icon={Loader2}

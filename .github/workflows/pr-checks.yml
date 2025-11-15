@@ -183,10 +183,85 @@ jobs:
         run: |
           echo "✅ Docker Compose files are valid"
 
+  langgraph-build:
+    name: LangGraph Build Validation
+    runs-on: ubuntu-latest
+    needs: backend-checks
+    timeout-minutes: 5
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Set up Python 3.11
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+
+      - name: Install Poetry
+        uses: snok/install-poetry@v1
+        with:
+          version: 2.1.2
+          virtualenvs-create: true
+          virtualenvs-in-project: true
+
+      - name: Cache LangGraph dependencies
+        uses: actions/cache@v4
+        with:
+          path: langgraph/.venv
+          key: venv-langgraph-${{ runner.os }}-${{ hashFiles('langgraph/poetry.lock') }}
+
+      - name: Install LangGraph dependencies
+        working-directory: langgraph
+        run: poetry install --no-interaction
+
+      - name: Create minimal .env file for build
+        working-directory: langgraph
+        run: |
+          # Create minimal .env file with dummy values for build validation
+          cat > .env << 'EOF'
+          LANGCHAIN_PROJECT="ci-test"
+          LANGSMITH_API_KEY="${{ secrets.LANGSMITH_API_KEY }}"
+          LANGSMITH_TRACING="false"
+          LANGSMITH_ENDPOINT="https://api.smith.langchain.com"
+          OPENAI_API_KEY="dummy-key"
+          ANTHROPIC_API_KEY="dummy-key"
+          SUPABASE_URL=http://localhost:8000
+          SUPABASE_ANON_KEY=dummy-key
+          SUPABASE_SERVICE_KEY=dummy-key
+          LANGCONNECT_API_URL=http://localhost:8080
+          MCP_SERVER_URL=http://localhost:8001
+          MCP_SERVICE_ACCOUNT_KEY=dummy-key
+          DEBUG=false
+          ENVIRONMENT=ci
+          EOF
+
+      - name: Run LangGraph build and validate expected error
+        working-directory: langgraph
+        run: |
+          echo "Running LangGraph build process..."
+          set +e  # Don't exit on error
+          OUTPUT=$(poetry run langgraph up 2>&1)
+          EXIT_CODE=$?
+          set -e  # Re-enable exit on error
+
+          echo "$OUTPUT"
+
+          # Check if output contains the expected custom auth error
+          if echo "$OUTPUT" | grep -q "Custom authentication is currently available in the cloud version"; then
+            echo "✅ LangGraph build succeeded with expected custom authentication error"
+            echo "This confirms the build process works and custom auth is configured correctly"
+            exit 0
+          else
+            echo "❌ LangGraph build failed with unexpected error or succeeded unexpectedly"
+            echo "Expected to see custom authentication license error"
+            exit 1
+          fi
+
   summary:
     name: Check Summary
     runs-on: ubuntu-latest
-    needs: [backend-checks, frontend-checks, docker-validation]
+    needs: [backend-checks, frontend-checks, docker-validation, langgraph-build]
     if: always()
 
     steps:
@@ -194,7 +269,8 @@ jobs:
         run: |
           if [ "${{ needs.backend-checks.result }}" != "success" ] || \
              [ "${{ needs.frontend-checks.result }}" != "success" ] || \
-             [ "${{ needs.docker-validation.result }}" != "success" ]; then
+             [ "${{ needs.docker-validation.result }}" != "success" ] || \
+             [ "${{ needs.langgraph-build.result }}" != "success" ]; then
             echo "❌ Some checks failed"
             exit 1
           else

@@ -784,6 +784,7 @@ async def list_threads_from_mirror(
     sync_service: Annotated[LangGraphSyncService, Depends(get_sync_service)],
     assistant_id: Optional[str] = None,
     graph_id: Optional[str] = None,
+    thread_id: Optional[str] = None,
     limit: int = 50,
     offset: int = 0
 ) -> Dict[str, Any]:
@@ -794,7 +795,7 @@ async def list_threads_from_mirror(
     """
     try:
         log.info(
-            f"[threads:list] actor={actor.actor_type}:{actor.identity} assistant_id={assistant_id} graph_id={graph_id} limit={limit} offset={offset}"
+            f"[threads:list] actor={actor.actor_type}:{actor.identity} assistant_id={assistant_id} graph_id={graph_id} thread_id={thread_id} limit={limit} offset={offset}"
         )
         
         if actor.actor_type == "service":
@@ -826,7 +827,12 @@ async def list_threads_from_mirror(
                 param_count += 1
                 where_clauses.append(f"tm.graph_id = ${param_count}")
                 params.append(graph_id)
-            
+
+            if thread_id:
+                param_count += 1
+                where_clauses.append(f"tm.thread_id = ${param_count}")
+                params.append(UUID(thread_id))
+
             # Snapshot params for filters (used by count query)
             params_filters = list(params)
             
@@ -840,7 +846,7 @@ async def list_threads_from_mirror(
             params.append(offset)
             
             threads_query = f"""
-                SELECT 
+                SELECT
                     tm.thread_id,
                     tm.assistant_id,
                     tm.graph_id,
@@ -850,6 +856,9 @@ async def list_threads_from_mirror(
                     tm.last_message_at,
                     tm.langgraph_created_at,
                     tm.langgraph_updated_at,
+                    tm.is_deprecated,
+                    tm.deprecated_at,
+                    tm.deprecated_reason,
                     am.name as assistant_name
                 FROM langconnect.threads_mirror tm
                 LEFT JOIN langconnect.assistants_mirror am ON tm.assistant_id = am.assistant_id
@@ -888,7 +897,10 @@ async def list_threads_from_mirror(
                     "assistant_name": thread["assistant_name"],
                     "last_message_at": thread["last_message_at"].isoformat() if thread["last_message_at"] else None,
                     "created_at": thread["langgraph_created_at"].isoformat(),
-                    "updated_at": thread["langgraph_updated_at"].isoformat() if thread["langgraph_updated_at"] else None
+                    "updated_at": thread["langgraph_updated_at"].isoformat() if thread["langgraph_updated_at"] else None,
+                    "is_deprecated": thread.get("is_deprecated", False),
+                    "deprecated_at": thread["deprecated_at"].isoformat() if thread.get("deprecated_at") else None,
+                    "deprecated_reason": thread.get("deprecated_reason")
                 })
             
             response.headers["Cache-Control"] = "private, max-age=60"  # 1 minute for threads

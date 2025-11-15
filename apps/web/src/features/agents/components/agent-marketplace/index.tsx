@@ -13,6 +13,7 @@ import {
   SelectValue,
 } from "@/components/ui/select";
 import { AgentCard } from "../agent-card";
+import { AgentCardLoading } from "../agent-card-loading";
 import { useAgentsContext } from "@/providers/Agents";
 import { getDeployments } from "@/lib/environment/deployments";
 import { GraphGroup } from "../../types";
@@ -196,7 +197,13 @@ export function AgentMarketplace({ onCreateAgent }: AgentMarketplaceProps) {
       </div>
 
       {/* Agents Grid or Empty State */}
-      {filteredAgents.length === 0 ? (
+      {agentsLoading ? (
+        <div className="grid grid-cols-1 gap-6 md:grid-cols-2 lg:grid-cols-3">
+          {Array.from({ length: 6 }).map((_, index) => (
+            <AgentCardLoading key={`agent-skeleton-${index}`} />
+          ))}
+        </div>
+      ) : filteredAgents.length === 0 ? (
         <div className="animate-in fade-in-50 flex flex-col items-center justify-center rounded-lg border border-dashed p-8 text-center">
           <div className="bg-muted mx-auto flex h-20 w-20 items-center justify-center rounded-full">
             <Search className="text-muted-foreground h-10 w-10" />

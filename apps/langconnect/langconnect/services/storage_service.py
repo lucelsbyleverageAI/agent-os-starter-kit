@@ -12,6 +12,7 @@ logger = logging.getLogger(__name__)
 # Configuration - hard-coded for consistency across deployments
 COLLECTIONS_BUCKET = "collections"
 CHAT_UPLOADS_BUCKET = "chat-uploads"
+SUPPORT_BUCKET = "support"
 SIGNED_URL_EXPIRY_SECONDS = 1800  # 30 minutes
 
 
@@ -30,6 +31,7 @@ class StorageService:
         self.client = create_client(storage_url, config.SUPABASE_KEY)
         self.collections_bucket = COLLECTIONS_BUCKET
         self.chat_uploads_bucket = CHAT_UPLOADS_BUCKET
+        self.support_bucket = SUPPORT_BUCKET
         self.signed_url_expiry = SIGNED_URL_EXPIRY_SECONDS
 
     def _generate_storage_path(
@@ -180,6 +182,78 @@ class StorageService:
 
         except Exception as e:
             logger.error(f"Failed to upload chat image to storage: {e}")
+            raise
+
+    def _generate_support_storage_path(
+        self,
+        user_id: str,
+        filename: str
+    ) -> str:
+        """Generate a storage path for a support screenshot upload.
+
+        Format: {user_id}/{timestamp}_{filename}
+
+        Args:
+            user_id: UUID of the user
+            filename: Original filename
+
+        Returns:
+            Storage path string
+        """
+        timestamp = datetime.utcnow().strftime("%Y%m%d_%H%M%S_%f")
+        safe_filename = filename.replace(" ", "_")
+        return f"{user_id}/{timestamp}_{safe_filename}"
+
+    async def upload_support_image(
+        self,
+        file_data: bytes,
+        filename: str,
+        content_type: str,
+        user_id: str,
+    ) -> dict:
+        """Upload a support screenshot to Supabase Storage.
+
+        Args:
+            file_data: Binary file content
+            filename: Original filename
+            content_type: MIME type (e.g., 'image/jpeg')
+            user_id: UUID of the user
+
+        Returns:
+            dict with:
+                - storage_path: Just the path within bucket (for feedback record)
+                - file_path: Same as storage_path
+                - bucket: Bucket name
+
+        Raises:
+            Exception: If upload fails
+        """
+        try:
+            # Generate storage path
+            file_path = self._generate_support_storage_path(user_id, filename)
+
+            # Upload to Supabase Storage
+            response = self.client.storage.from_(self.support_bucket).upload(
+                path=file_path,
+                file=file_data,
+                file_options={
+                    "content-type": content_type,
+                    "cache-control": "3600",
+                    "upsert": "false"  # Don't overwrite existing files
+                }
+            )
+
+            logger.info(f"Uploaded support screenshot to storage: {file_path}")
+
+            # Return just the storage path (will be converted to signed URL at runtime)
+            return {
+                "storage_path": file_path,  # Just the path, not storage:// URI
+                "file_path": file_path,
+                "bucket": self.support_bucket
+            }
+
+        except Exception as e:
+            logger.error(f"Failed to upload support screenshot to storage: {e}")
             raise
 
     async def get_signed_url(

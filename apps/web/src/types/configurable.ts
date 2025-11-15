@@ -74,6 +74,7 @@ export type ConfigurableFieldMCPMetadata = {
   default?: {
     tools?: string[];
     url?: string;
+    tool_approvals?: Record<string, boolean>;
   };
 };
 
@@ -87,6 +88,7 @@ export type ConfigurableFieldRAGMetadata = {
     langconnect_api_url?: string;
     collections?: string[];
     enabled_tools?: string[];
+    tool_approvals?: Record<string, boolean>;
   };
   /**
    * Metadata for the enabled_tools field, including tool groups structure

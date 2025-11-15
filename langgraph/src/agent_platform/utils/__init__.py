@@ -32,6 +32,7 @@ from .model_utils import (
     # Registry constant
     MODEL_REGISTRY,
 )
+from .prompt_utils import append_datetime_to_prompt
 
 __all__ = [
     "clean_orphaned_tool_calls",
@@ -56,4 +57,6 @@ __all__ = [
     "ModelTier",
     "ModelInfo",
     "MODEL_REGISTRY",
+    # Prompt utilities
+    "append_datetime_to_prompt",
 ]

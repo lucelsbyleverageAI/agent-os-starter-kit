@@ -166,6 +166,13 @@ export function AgentsCombobox({
   agentsLoading,
   showBorder = false,
 }: AgentsComboboxProps) {
+  // Track if component has mounted to prevent hydration mismatch
+  const [mounted, setMounted] = React.useState(false);
+
+  React.useEffect(() => {
+    setMounted(true);
+  }, []);
+
   // Convert value to array for internal handling
   const selectedValues = React.useMemo(() => {
     if (!value) return [];
@@ -222,11 +229,11 @@ export function AgentsCombobox({
                   )}
                   style={style}
                 >
-                  {selectedValues.length > 0
-                    ? multiple
-                      ? getMultipleSelectedAgentValues(selectedValues, agents)
-                      : getSelectedAgentValue(selectedValues[0], agents)
-                    : placeholder}
+                  {!mounted || selectedValues.length === 0
+                    ? placeholder
+                    : multiple
+                    ? getMultipleSelectedAgentValues(selectedValues, agents)
+                    : getSelectedAgentValue(selectedValues[0], agents)}
                   <ChevronDown className="h-4 w-4 opacity-50" />
                 </Button>
               )}
