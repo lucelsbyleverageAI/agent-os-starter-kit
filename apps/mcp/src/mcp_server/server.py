@@ -70,7 +70,7 @@ class MCPToolServer:
                         name=tool.name,
                         description=tool.description,
                         inputSchema=tool_schema["function"]["parameters"],
-                        meta=meta if meta else None
+                        _meta=meta if meta else None
                     ))
                 
                 logger.debug("Tools listed successfully", count=len(mcp_tools))
