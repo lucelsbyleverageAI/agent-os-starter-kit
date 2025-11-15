@@ -65,17 +65,17 @@ export default function useMCP({
       const toolsResponse = await mcp.listTools({ cursor: nextCursor });
       const _toolsFetchDuration = Date.now() - toolsFetchStart;
       
-      // Transform MCP tools to include toolkit information from meta field
+      // Transform MCP tools to include toolkit information from _meta field (MCP SDK uses underscore)
       const transformedTools = toolsResponse.tools.map((tool: any) => {
         const transformed: any = { ...tool };
 
-        // Explicitly extract toolkit metadata from meta field
-        // This is more reliable than conditional spread syntax in production builds
-        if (tool.meta?.toolkit) {
-          transformed.toolkit = tool.meta.toolkit;
+        // Explicitly extract toolkit metadata from _meta field (note the underscore)
+        // MCP SDK sends _meta over the wire, not meta
+        if (tool._meta?.toolkit) {
+          transformed.toolkit = tool._meta.toolkit;
         }
-        if (tool.meta?.toolkit_display_name) {
-          transformed.toolkit_display_name = tool.meta.toolkit_display_name;
+        if (tool._meta?.toolkit_display_name) {
+          transformed.toolkit_display_name = tool._meta.toolkit_display_name;
         }
 
         return transformed;
