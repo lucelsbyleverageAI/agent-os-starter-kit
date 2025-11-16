@@ -54,6 +54,9 @@ services:
       - coolify
     ports:
       - "5432:5432"  # Expose PostgreSQL for external connections (GitHub Actions pipeline)
+    labels:
+      # Stop during backup for data consistency
+      - docker-volume-backup.stop-during-backup=true
     volumes:
       - supabase-db-data:/var/lib/postgresql/data:Z
       - db-config:/etc/postgresql-custom
@@ -234,6 +237,9 @@ services:
     restart: unless-stopped
     networks:
       - coolify
+    labels:
+      # Stop during backup for data consistency
+      - docker-volume-backup.stop-during-backup=true
     environment:
       ANON_KEY: ${SUPABASE_ANON_KEY}
       SERVICE_KEY: ${SUPABASE_SERVICE_KEY}
@@ -842,6 +848,9 @@ services:
     restart: unless-stopped
     networks:
       - coolify
+    labels:
+      # Stop during backup for data consistency
+      - docker-volume-backup.stop-during-backup=true
     environment:
       - POSTGRES_USER=${SERVICE_USER_POSTGRES}
       - POSTGRES_PASSWORD=${SERVICE_PASSWORD_POSTGRES}
@@ -967,4 +976,65 @@ services:
       interval: 30s
       timeout: 10s
       retries: 3
-      start_period: 20s 
+      start_period: 20s
+
+  # ==========================================
+  # AUTOMATED BACKUP SERVICE
+  # ==========================================
+
+  # Backup Service: Automated backups of databases and volumes to Hetzner S3
+  volume-backup:
+    image: offen/docker-volume-backup:latest
+    container_name: volume-backup-prod
+    restart: unless-stopped
+    networks:
+      - coolify
+    environment:
+      # Backup schedule (3 AM daily UTC)
+      - BACKUP_CRON_EXPRESSION=0 3 * * *
+
+      # S3 configuration (Hetzner Object Storage)
+      - AWS_S3_BUCKET_NAME=${BACKUP_S3_BUCKET_NAME}
+      - AWS_S3_PATH=/agent-os-backups/
+      - AWS_ENDPOINT=${BACKUP_S3_ENDPOINT}
+      - AWS_ACCESS_KEY_ID=${BACKUP_S3_ACCESS_KEY_ID}
+      - AWS_SECRET_ACCESS_KEY=${BACKUP_S3_SECRET_ACCESS_KEY}
+
+      # Backup retention (14 days)
+      - BACKUP_RETENTION_DAYS=14
+
+      # Compression settings
+      - BACKUP_COMPRESSION=gz
+
+      # Archive naming (includes timestamp)
+      - BACKUP_FILENAME=backup-%Y-%m-%dT%H-%M-%S.tar.gz
+
+      # Pruning configuration
+      - BACKUP_PRUNING_PREFIX=backup-
+
+      # Stop containers during backup for data consistency
+      - BACKUP_STOP_DURING_BACKUP_LABEL=docker-volume-backup.stop-during-backup
+
+      # Notification on completion (optional - set to empty to disable)
+      - BACKUP_SKIP_BACKENDS_FROM_PRUNE=
+
+    volumes:
+      # Docker socket for container control
+      - /var/run/docker.sock:/var/run/docker.sock:ro
+
+      # Mount all critical volumes (read-only for safety)
+      - supabase-db-data:/backup/supabase-db-data:ro
+      - supabase-storage:/backup/supabase-storage:ro
+      - n8n_storage:/backup/n8n_storage:ro
+      - langconnect_storage:/backup/langconnect_storage:ro
+      - mcp_server_storage:/backup/mcp_server_storage:ro
+      - windmill_db_data:/backup/windmill_db_data:ro
+      - db-config:/backup/db-config:ro
+      # Note: Excluding cache volumes (windmill_worker_dependency_cache, windmill_lsp_cache)
+      # as they are regenerable and would waste storage space
+
+    depends_on:
+      db_prod:
+        condition: service_healthy
+      windmill-db-prod:
+        condition: service_healthy
