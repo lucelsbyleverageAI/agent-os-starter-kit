@@ -1007,10 +1007,11 @@ services:
       - BACKUP_COMPRESSION=gz
 
       # Archive naming (includes timestamp)
-      - BACKUP_FILENAME=backup-%Y-%m-%dT%H-%M-%S.tar.gz
+      # Use BACKUP_FILENAME_PREFIX env var (defaults to 'e18-agent-os-backup')
+      - BACKUP_FILENAME=${BACKUP_FILENAME_PREFIX:-e18-agent-os-backup}-%Y-%m-%dT%H-%M-%S.tar.gz
 
-      # Pruning configuration
-      - BACKUP_PRUNING_PREFIX=backup-
+      # Pruning configuration (must match filename prefix)
+      - BACKUP_PRUNING_PREFIX=${BACKUP_FILENAME_PREFIX:-e18-agent-os-backup}-
 
       # Stop containers during backup for data consistency
       - BACKUP_STOP_DURING_BACKUP_LABEL=docker-volume-backup.stop-during-backup
