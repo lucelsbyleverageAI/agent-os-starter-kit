@@ -1,8 +1,7 @@
 from langgraph.prebuilt.chat_agent_executor import AgentState
-from typing import NotRequired, Annotated, Any, Dict, Sequence
+from typing import NotRequired, Annotated, Any, Dict
 from typing import Literal
 from typing_extensions import TypedDict
-from langchain_core.messages import BaseMessage
 
 
 class Todo(TypedDict):
@@ -35,6 +34,3 @@ def file_reducer(left, right):
 class DeepAgentState(AgentState):
     todos: NotRequired[list[Todo]]
     files: Annotated[NotRequired[dict[str, FileEntry]], file_reducer]
-    # Optional field for trimmed/processed messages from pre_model_hook
-    # When present, this takes precedence over 'messages' for model input
-    llm_input_messages: NotRequired[Sequence[BaseMessage]]
