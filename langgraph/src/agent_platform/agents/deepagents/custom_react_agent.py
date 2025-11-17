@@ -69,12 +69,21 @@ class AgentStateWithStructuredResponse(AgentState):
 
 
 def _get_state_value(state: StateSchema, key: str, default: Any = None) -> Any:
-    """Get value from state dict or Pydantic model."""
-    return (
-        state.get(key, default)
-        if isinstance(state, dict)
-        else getattr(state, key, default)
-    )
+    """Get value from state dict or Pydantic model.
+
+    Special handling for 'messages' key: checks both 'llm_input_messages'
+    (set by trimming hook) and 'messages' keys to ensure processed messages are used.
+    """
+    if isinstance(state, dict):
+        # Special case: For 'messages', check llm_input_messages first (set by trimming hook)
+        if key == "messages":
+            return state.get("llm_input_messages") or state.get("messages", default)
+        return state.get(key, default)
+    else:
+        # For Pydantic models, check llm_input_messages first for 'messages' key
+        if key == "messages":
+            return getattr(state, "llm_input_messages", None) or getattr(state, "messages", default)
+        return getattr(state, key, default)
 
 
 def _get_prompt_runnable(prompt: Optional[Prompt]) -> Runnable:
@@ -441,6 +450,21 @@ def custom_create_react_agent(
     async def acall_model(
         state: StateSchema, runtime: Runtime[ContextT], config: RunnableConfig
     ) -> StateSchema:
+        # Run pre_model_hook inline if provided
+        if pre_model_hook is not None:
+            try:
+                # Check if hook is async
+                if inspect.iscoroutinefunction(pre_model_hook):
+                    hook_result = await pre_model_hook(state, config)
+                else:
+                    hook_result = pre_model_hook(state, config)
+
+                # If hook returns a state dict, merge it
+                if isinstance(hook_result, dict):
+                    state = {**state, **hook_result}
+            except Exception:
+                logger.exception("[acall_model] pre_model_hook failed")
+
         # Prepare messages for the model (with optional system note injection)
         model_messages = _prepare_messages_for_model(state)
         
@@ -548,21 +572,13 @@ def custom_create_react_agent(
             # Connect file attachments -> image processing
             workflow.add_edge("extract_file_attachments", "dispatch_image_processing")
 
-            # Flow: extract_file_attachments -> dispatch -> [process_single_image (parallel)] -> continue_after_image_processing -> agent/pre_model_hook
+            # Flow: extract_file_attachments -> dispatch -> [process_single_image (parallel)] -> continue_after_image_processing -> agent
             # The continue_after_image_processing node acts as fan-in for all parallel processing
-
-            if pre_model_hook is not None:
-                workflow.add_node("pre_model_hook", pre_model_hook)
-                workflow.add_edge("continue_after_image_processing", "pre_model_hook")
-                workflow.add_edge("pre_model_hook", "agent")
-            else:
-                workflow.add_edge("continue_after_image_processing", "agent")
-        elif pre_model_hook is not None:
-            workflow.add_node("pre_model_hook", pre_model_hook)
-            workflow.add_edge("extract_file_attachments", "pre_model_hook")
-            workflow.add_edge("pre_model_hook", "agent")
+            # Note: pre_model_hook runs inline in acall_model, not as a separate node
+            workflow.add_edge("continue_after_image_processing", "agent")
         else:
             # Direct connection: extract_file_attachments -> agent
+            # Note: pre_model_hook runs inline in acall_model, not as a separate node
             workflow.add_edge("extract_file_attachments", "agent")
 
         workflow.set_entry_point(entrypoint)
@@ -654,26 +670,16 @@ def custom_create_react_agent(
         # Connect file attachments -> image processing
         workflow.add_edge("extract_file_attachments", "dispatch_image_processing")
 
-        # Flow: extract_file_attachments -> dispatch -> [process_single_image (parallel)] -> continue_after_image_processing -> agent/pre_model_hook
+        # Flow: extract_file_attachments -> dispatch -> [process_single_image (parallel)] -> continue_after_image_processing -> agent
         # The continue_after_image_processing node acts as fan-in for all parallel processing
-
-        if pre_model_hook is not None:
-            workflow.add_node("pre_model_hook", pre_model_hook)
-            workflow.add_edge("continue_after_image_processing", "pre_model_hook")
-            workflow.add_edge("pre_model_hook", "agent")
-        else:
-            workflow.add_edge("continue_after_image_processing", "agent")
+        # Note: pre_model_hook runs inline in acall_model, not as a separate node
+        workflow.add_edge("continue_after_image_processing", "agent")
 
         # Tools should route back to agent (image processing already happened)
         agent_loop_entrypoint = "agent"
-    elif pre_model_hook is not None:
-        workflow.add_node("pre_model_hook", pre_model_hook)
-        workflow.add_edge("extract_file_attachments", "pre_model_hook")
-        workflow.add_edge("pre_model_hook", "agent")
-        # Tools should route back to pre_model_hook
-        agent_loop_entrypoint = "pre_model_hook"
     else:
         # Direct connection: extract_file_attachments -> agent
+        # Note: pre_model_hook runs inline in acall_model, not as a separate node
         workflow.add_edge("extract_file_attachments", "agent")
         # Tools should route back to agent
         agent_loop_entrypoint = "agent"

@@ -169,6 +169,18 @@ MODEL_REGISTRY: Dict[str, ModelInfo] = {
         enable_trimming=True,
         trimming_max_tokens=150000,  # Leave room for reasoning tokens
     ),
+    "openai:gpt-5.1": ModelInfo(
+        name="gpt-5.1",  # Just model name, no provider prefix for direct API calls
+        display_name="GPT-5.1",
+        provider=ModelProvider.OPENAI,
+        tier=ModelTier.STANDARD,
+        context_window=200000,
+        max_output_tokens=100000,
+        is_reasoning_model=True,
+        description="Latest GPT-5 series with adaptive reasoning (minor upgrade from GPT-5)",
+        enable_trimming=True,
+        trimming_max_tokens=150000,  # Leave room for reasoning tokens
+    ),
     
     # ========== ADVANCED TIER: High-cost, high-reasoning models ==========
     
@@ -209,6 +221,18 @@ MODEL_REGISTRY: Dict[str, ModelInfo] = {
         max_output_tokens=100000,
         is_reasoning_model=True,
         description="GPT-5 with enhanced thinking for complex reasoning tasks",
+        enable_trimming=True,
+        trimming_max_tokens=120000,  # Lower to leave room for reasoning tokens
+    ),
+    "openai:gpt-5.1-thinking": ModelInfo(
+        name="gpt-5.1",  # Same underlying model, no provider prefix
+        display_name="GPT-5.1 (Thinking Mode)",
+        provider=ModelProvider.OPENAI,
+        tier=ModelTier.ADVANCED,
+        context_window=200000,
+        max_output_tokens=100000,
+        is_reasoning_model=True,
+        description="GPT-5.1 with adaptive reasoning for complex tasks (minor upgrade from GPT-5)",
         enable_trimming=True,
         trimming_max_tokens=120000,  # Lower to leave room for reasoning tokens
     ),
@@ -593,26 +617,40 @@ def init_model(config: ModelConfig) -> BaseChatModel:
     model_info = get_model_info(config.model_name)
     
     # OpenAI reasoning models - use standard initialization
-    # Note: Reasoning parameters are passed at invoke time via reasoning={...}
-    # The "responses/v1" API is triggered automatically when using reasoning params
+    # Note: Reasoning parameters can be passed at init time or invoke time
+    # ChatOpenAI supports reasoning_effort and reasoning params at init
     if model_info.provider == ModelProvider.OPENAI and model_info.is_reasoning_model:
         # Build kwargs for ChatOpenAI directly
         openai_kwargs = {
             "model": model_info.name,
             "max_retries": 2,
         }
-        
+
         # Don't set temperature for reasoning models (they use fixed temperature)
-        
+
         if config.max_tokens:
             openai_kwargs["max_tokens"] = config.max_tokens
-        
+
         if config.streaming and model_info.supports_streaming:
             openai_kwargs["streaming"] = True
-        
+
+        # Add reasoning configuration at initialization if provided
+        # ChatOpenAI supports reasoning_effort as a direct parameter
+        if config.openai_reasoning and config.openai_reasoning.enabled:
+            # Determine reasoning effort based on model tier
+            # Standard tier: Use "low" for speed (GPT-5.1 defaults to "none" anyway)
+            # Advanced tier: Use "medium" or config value for better reasoning
+            reasoning_effort = config.openai_reasoning.reasoning_effort
+            if model_info.tier == ModelTier.STANDARD and reasoning_effort == "medium":
+                # Override default "medium" to "low" for standard tier
+                reasoning_effort = "low"
+
+            # Pass reasoning_effort directly (not via model_kwargs)
+            openai_kwargs["reasoning_effort"] = reasoning_effort
+
         # Add extra kwargs
         openai_kwargs.update(config.extra_kwargs)
-        
+
         # Directly instantiate ChatOpenAI
         model = ChatOpenAI(**openai_kwargs)
     else:
@@ -647,22 +685,23 @@ def init_model(config: ModelConfig) -> BaseChatModel:
         
         # Initialize the base model
         model = init_chat_model(**init_kwargs)
-    
+
     # Apply retry logic
     if config.retry:
         model = _apply_retry_logic(model, config.retry)
-    
+
     # Apply fallback logic
     if config.fallback:
         model = _apply_fallback_logic(model, config.fallback, config)
-    
-    # Apply provider-specific configurations
+
+    # Apply Anthropic-specific configurations
     if model_info.provider == ModelProvider.ANTHROPIC and config.anthropic_cache:
         model = _apply_anthropic_caching(model, config.anthropic_cache, model_info)
-    
-    if model_info.provider == ModelProvider.OPENAI and config.openai_reasoning:
-        model = _apply_openai_reasoning_config(model, config.openai_reasoning, model_info)
-    
+
+    # Store reasoning config on OpenAI models for inspection/debugging
+    if model_info.provider == ModelProvider.OPENAI and model_info.is_reasoning_model and config.openai_reasoning:
+        model._reasoning_config = config.openai_reasoning
+
     return model
 
 
@@ -780,59 +819,41 @@ def create_trimming_hook(config: MessageTrimmingConfig):
 
 def wrap_model_with_reasoning(model: BaseChatModel) -> BaseChatModel:
     """
-    Wrap an OpenAI reasoning model to automatically apply reasoning parameters.
-    
-    For OpenAI reasoning models (o-series, GPT-5), the reasoning parameters
-    must be passed at invoke time. This wrapper automatically applies them
-    based on the stored config.
-    
+    DEPRECATED: This function is no longer needed.
+
+    Reasoning parameters are now passed directly at ChatOpenAI initialization time,
+    which is the officially supported method according to LangChain documentation.
+
+    For OpenAI reasoning models (o-series, GPT-5, GPT-5.1), reasoning parameters
+    are automatically configured by init_model() when you specify a reasoning model.
+
     Args:
-        model: ChatOpenAI instance with _reasoning_config attribute
-        
+        model: ChatOpenAI instance
+
     Returns:
-        Wrapped model that automatically applies reasoning parameters
-        
+        The model unchanged (for backward compatibility)
+
     Example:
         ```python
-        model = init_model_simple(model_name="openai:gpt-5")
-        wrapped_model = wrap_model_with_reasoning(model)
-        
-        # Reasoning parameters automatically applied
-        response = wrapped_model.invoke("What is 2+2?")
+        # Reasoning params are set automatically at init
+        model = init_model_simple(model_name="openai:gpt-5.1-thinking")
+        response = model.invoke("What is 2+2?")
         ```
-    
+
     Note:
-        This is optional - you can also manually pass reasoning params:
-        model.invoke("...", reasoning={"effort": "medium", "summary": "auto"})
+        According to ChatOpenAI documentation, reasoning parameters should be
+        passed at initialization via the `reasoning` parameter:
+
+        ```python
+        ChatOpenAI(
+            model="gpt-5-nano",
+            reasoning={"effort": "medium", "summary": "auto"}
+        )
+        ```
+
+        This is now handled automatically by init_model() for reasoning models.
     """
-    if not hasattr(model, '_reasoning_config'):
-        return model
-    
-    if not isinstance(model, ChatOpenAI):
-        return model
-    
-    reasoning_config = model._reasoning_config
-    
-    # Create wrapper that adds reasoning params
-    original_invoke = model.invoke
-    
-    def invoke_with_reasoning(input, **kwargs):
-        # Only add reasoning if not already provided
-        if 'reasoning' not in kwargs:
-            reasoning_params = {
-                "effort": reasoning_config.reasoning_effort,
-            }
-            
-            # Only include summary if not "none"
-            if reasoning_config.reasoning_summary != "none":
-                reasoning_params["summary"] = reasoning_config.reasoning_summary
-            
-            kwargs['reasoning'] = reasoning_params
-        
-        return original_invoke(input, **kwargs)
-    
-    model.invoke = invoke_with_reasoning
-    
+    # Return model unchanged for backward compatibility
     return model
 
 

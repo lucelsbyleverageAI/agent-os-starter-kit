@@ -692,6 +692,7 @@ async def process_messages_with_signed_urls(
     # Step 2.5: Convert HTTP URLs to base64 data URLs (local development fallback)
     # Claude's API requires HTTPS URLs, so we convert local HTTP URLs to base64
     http_conversions = []
+
     for storage_path, signed_url in list(url_mapping.items()):
         if signed_url.startswith("http://"):
             logger.info(
