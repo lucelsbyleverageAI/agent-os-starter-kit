@@ -707,7 +707,7 @@ class GenerateProcessOnePagerTool(CustomTool):
             from supabase import create_client
 
             # Check if Supabase is configured
-            if not settings.supabase_url or not settings.supabase_service_role_key:
+            if not settings.supabase_url or not settings.supabase_service_key:
                 raise ToolExecutionError(
                     "generate_process_one_pager",
                     "Supabase storage not configured. Contact administrator."
@@ -716,7 +716,7 @@ class GenerateProcessOnePagerTool(CustomTool):
             # Create Supabase client
             supabase = create_client(
                 settings.supabase_url,
-                settings.supabase_service_role_key
+                settings.supabase_service_key
             )
 
             # Upload file to user's folder
