@@ -149,6 +149,7 @@ def create_react_agent_with_approval(
 
         # Call the model
         logger.info("[call_model] Invoking model with %d message(s)...", len(messages))
+
         response = await model.ainvoke(messages, config)
         logger.info("[call_model] Model responded")
 

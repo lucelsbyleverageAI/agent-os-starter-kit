@@ -69,12 +69,21 @@ class AgentStateWithStructuredResponse(AgentState):
 
 
 def _get_state_value(state: StateSchema, key: str, default: Any = None) -> Any:
-    """Get value from state dict or Pydantic model."""
-    return (
-        state.get(key, default)
-        if isinstance(state, dict)
-        else getattr(state, key, default)
-    )
+    """Get value from state dict or Pydantic model.
+
+    Special handling for 'messages' key: checks both 'llm_input_messages'
+    (set by trimming hook) and 'messages' keys to ensure processed messages are used.
+    """
+    if isinstance(state, dict):
+        # Special case: For 'messages', check llm_input_messages first (set by trimming hook)
+        if key == "messages":
+            return state.get("llm_input_messages") or state.get("messages", default)
+        return state.get(key, default)
+    else:
+        # For Pydantic models, check llm_input_messages first for 'messages' key
+        if key == "messages":
+            return getattr(state, "llm_input_messages", None) or getattr(state, "messages", default)
+        return getattr(state, key, default)
 
 
 def _get_prompt_runnable(prompt: Optional[Prompt]) -> Runnable:
