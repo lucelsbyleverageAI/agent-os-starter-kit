@@ -195,6 +195,28 @@ export function AgentCard({ agent, showDeployment }: AgentCardProps) {
     }
   };
 
+  const handleManageAccessClick = async () => {
+    // Check if agent needs hydration (doesn't have config field)
+    const needsHydration = !('config' in agent);
+
+    if (needsHydration) {
+      setIsHydrating(true);
+      try {
+        await hydrateAgent(agent.assistant_id);
+        setShowSharingDialog(true);
+      } catch (error) {
+        logger.error('[AgentCard] Failed to hydrate agent:', error);
+        notify.error("Failed to Load", {
+          description: "Could not load agent configuration. Please try again.",
+        });
+      } finally {
+        setIsHydrating(false);
+      }
+    } else {
+      setShowSharingDialog(true);
+    }
+  };
+
   const handleDuplicateAgent = async () => {
     setIsDuplicating(true);
     // Show loading toast
@@ -330,8 +352,12 @@ export function AgentCard({ agent, showDeployment }: AgentCardProps) {
                   </DropdownMenuItem>
                 )}
                 {canShare && (
-                  <DropdownMenuItem onClick={() => setShowSharingDialog(true)}>
-                    <Users className="h-4 w-4 mr-2" />
+                  <DropdownMenuItem onClick={handleManageAccessClick} disabled={isHydrating}>
+                    {isHydrating ? (
+                      <LoaderCircle className="h-4 w-4 mr-2 animate-spin" />
+                    ) : (
+                      <Users className="h-4 w-4 mr-2" />
+                    )}
                     Manage Access
                   </DropdownMenuItem>
                 )}
@@ -516,7 +542,7 @@ export function AgentCard({ agent, showDeployment }: AgentCardProps) {
         />
       )}
 
-      {/* Sharing Dialog */}
+      {/* Sharing Dialog - only render if agent is hydrated */}
       {canShare && isFullAgent(agent) && (
         <AssistantSharingDialog
           assistant={agent}

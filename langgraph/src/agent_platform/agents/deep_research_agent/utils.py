@@ -729,7 +729,9 @@ MODEL_TOKEN_LIMITS = {
     "openai:gpt-5-nano": 128000,
     "openai:gpt-4.1": 128000,
     "openai:gpt-5": 200000,
+    "openai:gpt-5.1": 200000,
     "openai:gpt-5-thinking": 200000,
+    "openai:gpt-5.1-thinking": 200000,
 
     # Legacy OpenAI Models
     "openai:gpt-4o-mini": 128000,
