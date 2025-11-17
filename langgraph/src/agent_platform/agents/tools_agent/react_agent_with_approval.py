@@ -134,7 +134,8 @@ def create_react_agent_with_approval(
                     # If hook returns a state dict, use it
                     if isinstance(hook_result, dict):
                         state = hook_result
-                        messages = state.get("messages", messages)
+                        # Check for llm_input_messages first (set by trimming hook), fall back to messages
+                        messages = state.get("llm_input_messages") or state.get("messages", messages)
                         logger.info("[call_model] Hook modified state, now %d message(s)", len(messages))
                     else:
                         logger.info("[call_model] Hook completed (no state modification)")
