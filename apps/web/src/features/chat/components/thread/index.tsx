@@ -172,6 +172,10 @@ export function Thread({ historyOpen = false, configOpen = false }: ThreadProps)
   // Track messages for deprecated threads (fetched separately)
   const [deprecatedThreadMessages, setDeprecatedThreadMessages] = useState<Message[]>([]);
 
+  // Track whether user has sent messages in this thread session
+  // This prevents touching the mirror for old threads that are just being viewed
+  const [hasUserActivityInSession, setHasUserActivityInSession] = useState(false);
+
   // Use preserved messages only when stream messages are empty and we have preserved ones
   // IMPORTANT: Force empty messages when threadId is null to prevent showing stale messages during new chat transition
   // IMPORTANT: For deprecated threads, show deprecatedThreadMessages instead
@@ -215,6 +219,9 @@ export function Thread({ historyOpen = false, configOpen = false }: ThreadProps)
       // This ensures we don't briefly show the previous thread's messages
       setPreservedMessages([]);
       setShowingCachedMessages(false);
+
+      // Reset user activity flag when switching threads
+      setHasUserActivityInSession(false);
 
       // Check if we have cached messages for this thread
       if (threadId) {
@@ -491,16 +498,22 @@ export function Thread({ historyOpen = false, configOpen = false }: ThreadProps)
   }, [messages]);
 
   // On stream completion (heuristic: last message is AI and not loading), touch mirror as idle
+  // ONLY if the user has sent messages in this session (prevents updating timestamp for old threads)
   useEffect(() => {
     try {
       const last = messages[messages.length - 1] as Message | undefined;
       if (!last || last.type !== 'ai') return;
+
+      // Only touch mirror if user has sent messages in this session
+      // This prevents updating the timestamp when just viewing old threads
+      if (!hasUserActivityInSession) return;
+
       // Touch as idle shortly after AI message arrives
       const timer = setTimeout(() => {
         if (session?.accessToken && threadId) {
           const currentAgent = agents.find(a => a.assistant_id === agentId);
           const graphId = currentAgent?.graph_id;
-          
+
           fetchWithAuth('/api/langconnect/agents/mirror/threads/touch', {
             method: 'POST',
             headers: {
@@ -522,7 +535,7 @@ export function Thread({ historyOpen = false, configOpen = false }: ThreadProps)
     } catch {
       // Ignore touch errors
     }
-  }, [messages, threadId, session?.accessToken, agentId, agents]);
+  }, [messages, threadId, session?.accessToken, agentId, agents, hasUserActivityInSession]);
 
   const handleSubmit = (e: FormEvent) => {
     e.preventDefault();
@@ -538,6 +551,9 @@ export function Thread({ historyOpen = false, configOpen = false }: ThreadProps)
       isLoading
     )
       return;
+
+    // Mark that user has activity in this thread session
+    setHasUserActivityInSession(true);
 
     const newHumanMessage: Message = {
       id: uuidv4(),
