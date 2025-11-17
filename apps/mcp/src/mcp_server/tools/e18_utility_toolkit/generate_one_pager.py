@@ -707,7 +707,7 @@ class GenerateProcessOnePagerTool(CustomTool):
             from supabase import create_client
 
             # Check if Supabase is configured
-            if not settings.supabase_url or not settings.supabase_service_role_key:
+            if not settings.supabase_url or not settings.supabase_service_key:
                 raise ToolExecutionError(
                     "generate_process_one_pager",
                     "Supabase storage not configured. Contact administrator."
@@ -716,7 +716,7 @@ class GenerateProcessOnePagerTool(CustomTool):
             # Create Supabase client
             supabase = create_client(
                 settings.supabase_url,
-                settings.supabase_service_role_key
+                settings.supabase_service_key
             )
 
             # Upload file to user's folder
@@ -746,9 +746,20 @@ class GenerateProcessOnePagerTool(CustomTool):
                     "Failed to generate download URL from storage"
                 )
 
-            # Fix URL for development environment
-            if os.getenv("ENVIRONMENT", "development") == "development":
+            # Fix URL for browser accessibility
+            # Replace internal Docker hostnames with browser-accessible URLs
+            environment = os.getenv("ENVIRONMENT", "development")
+
+            if environment == "development":
+                # Development: Replace Docker hostname with localhost
                 signed_url = signed_url.replace("kong:8000", "localhost:8000")
+            else:
+                # Production/Staging: Replace internal Docker hostname with public URL
+                public_url = os.getenv("SUPABASE_PUBLIC_URL", "")
+                if public_url:
+                    # Handle both with and without protocol prefix
+                    signed_url = signed_url.replace("http://kong_prod:8000", public_url)
+                    signed_url = signed_url.replace("kong_prod:8000", public_url)
 
             return signed_url
 
