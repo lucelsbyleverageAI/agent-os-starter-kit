@@ -746,9 +746,20 @@ class GenerateProcessOnePagerTool(CustomTool):
                     "Failed to generate download URL from storage"
                 )
 
-            # Fix URL for development environment
-            if os.getenv("ENVIRONMENT", "development") == "development":
+            # Fix URL for browser accessibility
+            # Replace internal Docker hostnames with browser-accessible URLs
+            environment = os.getenv("ENVIRONMENT", "development")
+
+            if environment == "development":
+                # Development: Replace Docker hostname with localhost
                 signed_url = signed_url.replace("kong:8000", "localhost:8000")
+            else:
+                # Production/Staging: Replace internal Docker hostname with public URL
+                public_url = os.getenv("SUPABASE_PUBLIC_URL", "")
+                if public_url:
+                    # Handle both with and without protocol prefix
+                    signed_url = signed_url.replace("http://kong_prod:8000", public_url)
+                    signed_url = signed_url.replace("kong_prod:8000", public_url)
 
             return signed_url
 
