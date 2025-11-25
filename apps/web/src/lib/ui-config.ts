@@ -2,6 +2,7 @@ import {
   ConfigurableFieldAgentsMetadata,
   ConfigurableFieldMCPMetadata,
   ConfigurableFieldRAGMetadata,
+  ConfigurableFieldSkillsMetadata,
   ConfigurableFieldUIMetadata,
 } from "@/types/configurable";
 import { Assistant, GraphSchema } from "@langchain/langgraph-sdk";
@@ -64,7 +65,7 @@ export function configSchemaToConfigurableFields(
   const fields: ConfigurableFieldUIMetadata[] = [];
   for (const [key, value] of Object.entries(schema.properties)) {
     const uiConfig = getUiConfig(value);
-    if (uiConfig && ["mcp", "rag", "hidden", "agent_name", "agent_description"].includes(uiConfig.type)) {
+    if (uiConfig && ["mcp", "rag", "skills", "hidden", "agent_name", "agent_description"].includes(uiConfig.type)) {
       continue;
     }
 
@@ -203,6 +204,32 @@ export function configSchemaToRagConfig(
   return ragField;
 }
 
+export function configSchemaToSkillsConfig(
+  schema: GraphSchema["config_schema"],
+): ConfigurableFieldSkillsMetadata | undefined {
+  if (!schema || !schema.properties) {
+    return undefined;
+  }
+
+  let skillsField: ConfigurableFieldSkillsMetadata | undefined;
+  for (const [key, value] of Object.entries(schema.properties)) {
+    const uiConfig = getUiConfig(value);
+    if (!uiConfig || uiConfig.type !== "skills") {
+      continue;
+    }
+
+    skillsField = {
+      label: key,
+      type: "skills",
+      default: {
+        skills: uiConfig.default?.skills ?? [],
+      },
+    };
+    break;
+  }
+  return skillsField;
+}
+
 export function configSchemaToAgentsConfig(
   schema: GraphSchema["config_schema"],
 ): ConfigurableFieldAgentsMetadata | undefined {
@@ -295,6 +322,7 @@ type ExtractedConfigs = {
   toolConfig: ConfigurableFieldMCPMetadata[];
   ragConfig: ConfigurableFieldRAGMetadata[];
   agentsConfig: ConfigurableFieldAgentsMetadata[];
+  skillsConfig: ConfigurableFieldSkillsMetadata[];
 };
 
 export function extractConfigurationsFromAgent({
@@ -308,6 +336,7 @@ export function extractConfigurationsFromAgent({
   const toolConfig = configSchemaToConfigurableTools(schema);
   const ragConfig = configSchemaToRagConfig(schema);
   const agentsConfig = configSchemaToAgentsConfig(schema);
+  const skillsConfig = configSchemaToSkillsConfig(schema);
 
   const configFieldsWithDefaults = configFields.map((f) => {
     const defaultConfig = (agent.config as Record<string, any>)?.[f.label] ?? f.default;
@@ -368,12 +397,27 @@ export function extractConfigurationsFromAgent({
       }
     : undefined;
 
+  const configurableSkillsWithDefaults = skillsConfig
+    ? {
+        ...skillsConfig,
+        default: {
+          skills:
+            configurable[skillsConfig.label]?.skills ??
+            skillsConfig.default?.skills ??
+            [],
+        },
+      }
+    : undefined;
+
   return {
     configFields: configFieldsWithDefaults,
     toolConfig: configToolsWithDefaults,
     ragConfig: configRagWithDefaults ? [configRagWithDefaults] : [],
     agentsConfig: configurableAgentsWithDefaults
       ? [configurableAgentsWithDefaults]
+      : [],
+    skillsConfig: configurableSkillsWithDefaults
+      ? [configurableSkillsWithDefaults]
       : [],
   };
 }
@@ -383,6 +427,7 @@ export function getConfigurableDefaults(
   toolConfig: ConfigurableFieldMCPMetadata[],
   ragConfig: ConfigurableFieldRAGMetadata[],
   agentsConfig: ConfigurableFieldAgentsMetadata[],
+  skillsConfig?: ConfigurableFieldSkillsMetadata[],
 ): Record<string, any> {
   const defaults: Record<string, any> = {};
   configFields.forEach((field) => {
@@ -395,6 +440,9 @@ export function getConfigurableDefaults(
     defaults[field.label] = field.default;
   });
   agentsConfig.forEach((field) => {
+    defaults[field.label] = field.default;
+  });
+  skillsConfig?.forEach((field) => {
     defaults[field.label] = field.default;
   });
   return defaults;

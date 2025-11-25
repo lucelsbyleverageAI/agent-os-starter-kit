@@ -2,6 +2,7 @@ import {
   ConfigurableFieldAgentsMetadata,
   ConfigurableFieldMCPMetadata,
   ConfigurableFieldRAGMetadata,
+  ConfigurableFieldSkillsMetadata,
   ConfigurableFieldUIMetadata,
 } from "@/types/configurable";
 import { useCallback, useState } from "react";
@@ -30,6 +31,7 @@ const lastExtractedByAssistantId = new Map<
     toolConfigurations: ConfigurableFieldMCPMetadata[];
     ragConfigurations: ConfigurableFieldRAGMetadata[];
     agentsConfigurations: ConfigurableFieldAgentsMetadata[];
+    skillsConfigurations: ConfigurableFieldSkillsMetadata[];
     supportedConfigs: string[];
     inputSchema: GraphSchema["input_schema"] | null;
     inputMode: InputMode;
@@ -63,6 +65,9 @@ export function useAgentConfig() {
   const [agentsConfigurations, setAgentsConfigurations] = useState<
     ConfigurableFieldAgentsMetadata[]
   >([]);
+  const [skillsConfigurations, setSkillsConfigurations] = useState<
+    ConfigurableFieldSkillsMetadata[]
+  >([]);
 
   const [supportedConfigs, setSupportedConfigs] = useState<string[]>([]);
   const [loading, setLoading] = useState(false);
@@ -76,6 +81,7 @@ export function useAgentConfig() {
     setToolConfigurations([]);
     setRagConfigurations([]);
     setAgentsConfigurations([]);
+    setSkillsConfigurations([]);
     // Do not modify loading here to avoid transient empty UI while not loading
     setInputSchema(null);
     setInputMode('loading');
@@ -104,6 +110,7 @@ export function useAgentConfig() {
             setToolConfigurations(cached.toolConfigurations);
             setRagConfigurations(cached.ragConfigurations);
             setAgentsConfigurations(cached.agentsConfigurations);
+            setSkillsConfigurations(cached.skillsConfigurations);
             setSupportedConfigs(cached.supportedConfigs);
             setInputSchema(cached.inputSchema);
             setInputMode(cached.inputMode);
@@ -224,7 +231,7 @@ export function useAgentConfig() {
         };
 
         // Extract config fields using the agent with full config
-        const { configFields, toolConfig, ragConfig, agentsConfig } =
+        const { configFields, toolConfig, ragConfig, agentsConfig, skillsConfig } =
           extractConfigurationsFromAgent({
             agent: agentWithFullConfig,
             schema: schema.config_schema,
@@ -237,7 +244,7 @@ export function useAgentConfig() {
 
         // Set config values using the extracted configurations (which already have the saved values merged)
         const { setDefaultConfig } = useConfigStore.getState();
-        
+
         setDefaultConfig(agentId, configFields);
 
         const supportedConfigs: string[] = [];
@@ -283,6 +290,11 @@ export function useAgentConfig() {
             void 0; // ignore sub-agent pre-populate errors
           }
         }
+        if (skillsConfig.length) {
+          setDefaultConfig(`${agentId}:skills`, skillsConfig);
+          setSkillsConfigurations(skillsConfig);
+          supportedConfigs.push("skills");
+        }
         setSupportedConfigs(supportedConfigs);
         // debug logs removed
 
@@ -309,6 +321,7 @@ export function useAgentConfig() {
           toolConfigurations: toolConfig,
           ragConfigurations: ragConfig,
           agentsConfigurations: agentsConfig,
+          skillsConfigurations: skillsConfig,
           supportedConfigs,
           inputSchema: effectiveInputSchema ?? null,
           inputMode: cachedInputMode,
@@ -319,6 +332,7 @@ export function useAgentConfig() {
           toolConfig,
           ragConfig,
           agentsConfig,
+          skillsConfig,
         );
 
         // Prefer saved sub-agents from backend config when available
@@ -441,7 +455,7 @@ export function useAgentConfig() {
         }
 
         // Extract config fields using empty config (since this is a template)
-        const { configFields, toolConfig, ragConfig, agentsConfig } =
+        const { configFields, toolConfig, ragConfig, agentsConfig, skillsConfig } =
           extractConfigurationsFromAgent({
             agent: { config: {} } as any,
             schema: schema.config_schema,
@@ -488,6 +502,11 @@ export function useAgentConfig() {
           setAgentsConfigurations(agentsConfig);
           supportedConfigs.push("supervisor");
         }
+        if (skillsConfig.length) {
+          setDefaultConfig(`${tempKey}:skills`, skillsConfig);
+          setSkillsConfigurations(skillsConfig);
+          supportedConfigs.push("skills");
+        }
         setSupportedConfigs(supportedConfigs);
 
         const configurableDefaults = getConfigurableDefaults(
@@ -495,6 +514,7 @@ export function useAgentConfig() {
           toolConfig,
           ragConfig,
           agentsConfig,
+          skillsConfig,
         );
 
         return {
@@ -526,6 +546,7 @@ export function useAgentConfig() {
     toolConfigurations,
     ragConfigurations,
     agentsConfigurations,
+    skillsConfigurations,
     supportedConfigs,
 
     loading,

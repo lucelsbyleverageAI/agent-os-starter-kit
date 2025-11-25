@@ -239,7 +239,7 @@ services:
           "--no-verbose",
           "--tries=1",
           "--spider",
-          "http://localhost:5000/status"
+          "http://127.0.0.1:5000/status"  # Use IPv4 explicitly to avoid IPv6 connection issues
         ]
       timeout: 5s
       interval: 5s
@@ -251,7 +251,7 @@ services:
         condition: service_started
       imgproxy:
         condition: service_started
-  
+
   # Image Proxy for Storage
   imgproxy:
     container_name: supabase-imgproxy
@@ -489,6 +489,8 @@ services:
     depends_on:
       db:
         condition: service_healthy
+      storage:
+        condition: service_healthy  # Wait for storage service to run its migrations (adds columns to storage.buckets)
     healthcheck:
       test: ["CMD", "python", "migrate.py", "--status"]
       interval: 10s
@@ -525,6 +527,8 @@ services:
       - LANGSMITH_PROJECT=${LANGSMITH_PROJECT:-agent-os-dev}
       # Authentication (internal Supabase URLs - container network)
       - SUPABASE_URL=http://kong:8000
+      # Public URL for generating signed URLs that are accessible from host machine (LangGraph)
+      - SUPABASE_PUBLIC_URL=${PLATFORM_PROTOCOL:-http}://${PLATFORM_DOMAIN:-localhost}:8000
       - SUPABASE_ANON_KEY=${SUPABASE_ANON_KEY}
       - SUPABASE_SERVICE_KEY=${SUPABASE_SERVICE_KEY}
       # External API Keys

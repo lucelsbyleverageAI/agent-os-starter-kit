@@ -790,4 +790,337 @@ async def re_invoke_public_collection_permission(
         raise
     except Exception as e:
         log.error(f"Error re-invoking public collection permission: {e}")
-        raise HTTPException(status_code=500, detail="Internal server error") 
+        raise HTTPException(status_code=500, detail="Internal server error")
+
+
+# ============================================================================
+# SKILL ENDPOINTS
+# ============================================================================
+
+class PublicSkillPermissionItem(PublicPermissionItem):
+    skill_id: str
+    created_by: str
+
+class CreatePublicSkillRequest(BaseModel):
+    skill_id: str
+    permission_level: str
+    notes: Optional[str] = None
+
+
+@router.get("/skills", response_model=List[PublicSkillPermissionItem])
+async def list_public_skill_permissions(
+    actor: Annotated[AuthenticatedActor, Depends(resolve_user_or_service)]
+):
+    """List all public skill permissions."""
+    user_role_manager = UserRoleManager(actor.identity)
+    if not await user_role_manager.is_dev_admin():
+        raise HTTPException(status_code=403, detail="Forbidden: Requires dev_admin role")
+
+    try:
+        async with get_db_connection() as connection:
+            permissions = await connection.fetch(
+                """
+                SELECT
+                    psp.id,
+                    psp.skill_id,
+                    psp.permission_level,
+                    psp.created_at,
+                    psp.revoked_at,
+                    psp.revoke_mode,
+                    psp.notes,
+                    ur.display_name as created_by_display_name,
+                    ur.email as created_by_email
+                FROM langconnect.public_skill_permissions psp
+                LEFT JOIN langconnect.user_roles ur ON psp.created_by::text = ur.user_id
+                ORDER BY psp.created_at DESC
+                """
+            )
+
+        response = []
+        for p in permissions:
+            response.append(PublicSkillPermissionItem(
+                id=p["id"],
+                skill_id=str(p["skill_id"]),
+                permission_level=p["permission_level"],
+                created_at=p["created_at"].isoformat() if p["created_at"] else None,
+                revoked_at=p["revoked_at"].isoformat() if p["revoked_at"] else None,
+                revoke_mode=p.get("revoke_mode"),
+                notes=p["notes"],
+                created_by=p.get("created_by_display_name") or "Unknown"
+            ))
+        return response
+
+    except Exception as e:
+        log.error(f"Error listing public skill permissions: {e}")
+        raise HTTPException(status_code=500, detail="Internal server error")
+
+
+@router.post("/skills", response_model=Dict[str, Any])
+async def create_public_skill_permission(
+    request: CreatePublicSkillRequest,
+    actor: Annotated[AuthenticatedActor, Depends(resolve_user_or_service)]
+):
+    """Create a new public skill permission and grant it to all existing users."""
+    user_role_manager = UserRoleManager(actor.identity)
+    if not await user_role_manager.is_dev_admin():
+        raise HTTPException(status_code=403, detail="Forbidden: Requires dev_admin role")
+
+    # Validate permission level
+    if request.permission_level not in ["viewer", "editor"]:
+        raise HTTPException(status_code=400, detail="Invalid permission level. Must be 'viewer' or 'editor'.")
+
+    try:
+        # First verify the skill exists
+        async with get_db_connection() as connection:
+            skill = await connection.fetchrow(
+                "SELECT id, name FROM langconnect.skills WHERE id = $1",
+                request.skill_id
+            )
+            if not skill:
+                raise HTTPException(status_code=404, detail=f"Skill '{request.skill_id}' not found")
+
+            # Use a transaction to ensure consistency
+            async with connection.transaction():
+                # Check if public permission already exists for this skill
+                existing = await connection.fetchrow(
+                    "SELECT id FROM langconnect.public_skill_permissions WHERE skill_id = $1::uuid AND revoked_at IS NULL",
+                    request.skill_id
+                )
+
+                if existing:
+                    raise HTTPException(status_code=409, detail="Public permission already exists for this skill")
+
+                # Create the public skill permission
+                result = await connection.fetchrow(
+                    """
+                    INSERT INTO langconnect.public_skill_permissions
+                    (skill_id, permission_level, created_by, notes)
+                    VALUES ($1::uuid, $2, $3, $4)
+                    RETURNING id, created_at
+                    """,
+                    request.skill_id, request.permission_level, actor.identity, request.notes
+                )
+
+                # Immediately grant this skill permission to all existing users
+                granted_result = await connection.execute(
+                    """
+                    INSERT INTO langconnect.skill_permissions (user_id, skill_id, permission_level, granted_by)
+                    SELECT ur.user_id, $1::uuid, $2, 'system:public'
+                    FROM langconnect.user_roles ur
+                    ON CONFLICT (skill_id, user_id) DO NOTHING
+                    """,
+                    request.skill_id, request.permission_level
+                )
+
+                # Extract number of users granted permission
+                users_granted = 0
+                if hasattr(granted_result, 'split'):
+                    users_granted = int(granted_result.split()[-1]) if granted_result.split()[-1].isdigit() else 0
+
+                # Increment cache version
+                await connection.execute(
+                    "SELECT langconnect.increment_cache_version('skills')"
+                )
+
+                log.info(f"User '{actor.identity}' created public permission for skill '{request.skill_id}' with level '{request.permission_level}' and granted to {users_granted} existing users")
+
+                return {
+                    "id": result["id"],
+                    "skill_id": request.skill_id,
+                    "skill_name": skill["name"],
+                    "permission_level": request.permission_level,
+                    "created_at": result["created_at"].isoformat(),
+                    "users_granted": users_granted,
+                }
+
+    except HTTPException:
+        raise
+    except Exception as e:
+        log.error(f"Error creating public skill permission: {e}")
+        raise HTTPException(status_code=500, detail="Internal server error")
+
+
+@router.delete("/skills/{skill_id}")
+async def revoke_public_skill_permission(
+    skill_id: str,
+    request: RevokeRequest,
+    actor: Annotated[AuthenticatedActor, Depends(resolve_user_or_service)]
+):
+    """Revoke a public permission for a skill."""
+    user_role_manager = UserRoleManager(actor.identity)
+    if not await user_role_manager.is_dev_admin():
+        raise HTTPException(status_code=403, detail="Forbidden: Requires dev_admin role")
+
+    try:
+        async with get_db_connection() as connection:
+            # First check if there's an active permission
+            active_permission = await connection.fetchrow(
+                "SELECT id FROM langconnect.public_skill_permissions WHERE skill_id = $1::uuid AND revoked_at IS NULL",
+                skill_id
+            )
+
+            # If there's an active permission, revoke it normally
+            if active_permission:
+                async with connection.transaction():
+                    # Mark the public permission as revoked
+                    await connection.execute(
+                        """
+                        UPDATE langconnect.public_skill_permissions
+                        SET revoked_at = NOW(), revoke_mode = $1
+                        WHERE skill_id = $2::uuid AND revoked_at IS NULL
+                        """,
+                        request.revoke_mode, skill_id
+                    )
+
+                    revoked_count = 0
+                    # If revoke_all mode, remove existing user permissions from public grants
+                    if request.revoke_mode == 'revoke_all':
+                        delete_result = await connection.execute(
+                            "DELETE FROM langconnect.skill_permissions WHERE skill_id = $1::uuid AND granted_by = 'system:public'",
+                            skill_id
+                        )
+
+                        if hasattr(delete_result, 'split'):
+                            revoked_count = int(delete_result.split()[-1]) if delete_result.split()[-1].isdigit() else 0
+
+                    # Increment cache version
+                    await connection.execute(
+                        "SELECT langconnect.increment_cache_version('skills')"
+                    )
+
+                    return {
+                        "message": "Public skill permission revoked successfully",
+                        "result": {
+                            "skill_id": skill_id,
+                            "status": "revoked",
+                            "mode": request.revoke_mode,
+                            "revoked_user_count": revoked_count
+                        }
+                    }
+
+            # If no active permission, check for a revoked one that we might want to change mode
+            revoked_permission = await connection.fetchrow(
+                "SELECT id, revoke_mode FROM langconnect.public_skill_permissions WHERE skill_id = $1::uuid AND revoked_at IS NOT NULL",
+                skill_id
+            )
+
+            if not revoked_permission:
+                raise HTTPException(status_code=404, detail=f"No public permission found for skill_id: {skill_id}")
+
+            # If we're trying to revoke_all on a future_only revoked permission, update it
+            if request.revoke_mode == 'revoke_all' and revoked_permission['revoke_mode'] == 'future_only':
+                # Update the revoke mode and remove existing user permissions
+                await connection.execute(
+                    "UPDATE langconnect.public_skill_permissions SET revoke_mode = 'revoke_all' WHERE skill_id = $1::uuid",
+                    skill_id
+                )
+
+                # Remove existing user permissions that were granted by the public permission
+                delete_result = await connection.execute(
+                    "DELETE FROM langconnect.skill_permissions WHERE skill_id = $1::uuid AND granted_by = 'system:public'",
+                    skill_id
+                )
+
+                revoked_count = 0
+                if hasattr(delete_result, 'split'):
+                    revoked_count = int(delete_result.split()[-1]) if delete_result.split()[-1].isdigit() else 0
+
+                # Increment cache version
+                await connection.execute(
+                    "SELECT langconnect.increment_cache_version('skills')"
+                )
+
+                return {
+                    "message": "Public skill permission updated to revoke all users",
+                    "result": {
+                        "skill_id": skill_id,
+                        "status": "revoked",
+                        "mode": "revoke_all",
+                        "revoked_user_count": revoked_count
+                    }
+                }
+            else:
+                raise HTTPException(status_code=400, detail=f"Permission already revoked with mode: {revoked_permission['revoke_mode']}")
+
+    except HTTPException:
+        raise
+    except Exception as e:
+        log.error(f"Error revoking public skill permission for {skill_id} by {actor.identity}: {e}")
+        raise HTTPException(status_code=500, detail="Internal server error")
+
+
+@router.post("/skills/{skill_id}/re-invoke")
+async def re_invoke_public_skill_permission(
+    skill_id: str,
+    actor: Annotated[AuthenticatedActor, Depends(resolve_user_or_service)]
+):
+    """Re-invoke a previously revoked public skill permission and grant to all existing users."""
+    user_role_manager = UserRoleManager(actor.identity)
+    if not await user_role_manager.is_dev_admin():
+        raise HTTPException(status_code=403, detail="Forbidden: Requires dev_admin role")
+
+    try:
+        async with get_db_connection() as connection:
+            async with connection.transaction():
+                # First, get the permission level from the revoked public permission
+                permission_info = await connection.fetchrow(
+                    """
+                    SELECT permission_level FROM langconnect.public_skill_permissions
+                    WHERE skill_id = $1::uuid AND revoked_at IS NOT NULL
+                    """,
+                    skill_id
+                )
+
+                if not permission_info:
+                    raise HTTPException(status_code=404, detail="No revoked permission found for this skill")
+
+                permission_level = permission_info["permission_level"]
+
+                # Re-invoke the public permission
+                result = await connection.execute(
+                    """
+                    UPDATE langconnect.public_skill_permissions
+                    SET revoked_at = NULL, revoke_mode = NULL
+                    WHERE skill_id = $1::uuid AND revoked_at IS NOT NULL
+                    """,
+                    skill_id
+                )
+
+                if "UPDATE 0" in result:
+                    raise HTTPException(status_code=404, detail="No revoked permission found for this skill")
+
+                # Grant this skill permission to all existing users
+                granted_result = await connection.execute(
+                    """
+                    INSERT INTO langconnect.skill_permissions (user_id, skill_id, permission_level, granted_by)
+                    SELECT ur.user_id, $1::uuid, $2, 'system:public'
+                    FROM langconnect.user_roles ur
+                    ON CONFLICT (skill_id, user_id) DO NOTHING
+                    """,
+                    skill_id, permission_level
+                )
+
+                # Extract number of users granted permission
+                users_granted = 0
+                if hasattr(granted_result, 'split'):
+                    users_granted = int(granted_result.split()[-1]) if granted_result.split()[-1].isdigit() else 0
+
+                # Increment cache version
+                await connection.execute(
+                    "SELECT langconnect.increment_cache_version('skills')"
+                )
+
+                log.info(f"User '{actor.identity}' re-invoked public permission for skill '{skill_id}' with level '{permission_level}' and granted to {users_granted} existing users")
+
+                return {
+                    "message": "Public skill permission re-invoked successfully",
+                    "skill_id": skill_id,
+                    "permission_level": permission_level,
+                    "users_granted": users_granted
+                }
+
+    except HTTPException:
+        raise
+    except Exception as e:
+        log.error(f"Error re-invoking public skill permission: {e}")
+        raise HTTPException(status_code=500, detail="Internal server error")

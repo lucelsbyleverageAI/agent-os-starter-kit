@@ -1,7 +1,7 @@
 "use client";
 
 import * as React from "react";
-import { Wrench, Bot, MessageCircle, Brain, Shield, BrainCircuit } from "lucide-react";
+import { Wrench, Bot, MessageCircle, Brain, Shield, BrainCircuit, Sparkles } from "lucide-react";
 
 import { NavMain } from "./nav-main";
 import { NavUser } from "./nav-user";
@@ -41,6 +41,11 @@ const baseNavItems = [
     title: "Knowledge",
     url: "/knowledge",
     icon: Brain,
+  },
+  {
+    title: "Skills",
+    url: "/skills",
+    icon: Sparkles,
   },
   {
     title: "Memories",

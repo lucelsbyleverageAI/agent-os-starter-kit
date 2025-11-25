@@ -5,6 +5,7 @@
       "supervisor_agent": "./src/agent_platform/agents/supervisor_agent/graph.py:graph",
       "deep_research_agent": "./src/agent_platform/agents/deep_research_agent/deep_researcher.py:deep_researcher",
       "deepagent": "./src/agent_platform/agents/deepagents/basic_deepagent/graph.py:graph",
+      "skills_deepagent": "./src/agent_platform/agents/deepagents/skills_deepagent/graph.py:graph",
       "n8n_agent": "./src/agent_platform/agents/n8n_agent/graph.py:graph"
     },
     "env": ".env",

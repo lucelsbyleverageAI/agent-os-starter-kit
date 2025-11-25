@@ -47,6 +47,7 @@ import { useAgentsContext } from "@/providers/Agents";
 import { getDeployments } from "@/lib/environment/deployments";
 import { useOptionalMCPContext } from "@/providers/MCP";
 import { ConfigToolkitSelector } from "./config-toolkit-selector";
+import { SubAgentSkillsPicker } from "./config-field-skills";
 import { Search } from "@/components/ui/tool-search";
 import { useSearchTools } from "@/hooks/use-search-tools";
 
@@ -959,6 +960,12 @@ export function ConfigFieldAgents({
                       />
                     )}
                   </div>
+
+                  {/* Sub-agent Skills */}
+                  <SubAgentSkillsPicker
+                    value={sa.skills_config?.skills || []}
+                    onChange={(skills) => updateAtPath(i, ["skills_config"], { skills })}
+                  />
                 </div>
               )}
             </div>

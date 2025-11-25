@@ -120,3 +120,15 @@ export type ConfigurableFieldAgentsMetadata = {
   }[];
   itemSchema?: ConfigurableFieldUIMetadata[]; // Schema for individual sub-agent fields
 };
+
+export type ConfigurableFieldSkillsMetadata = {
+  label: string;
+  type: "skills";
+  default?: {
+    skills?: Array<{
+      skill_id: string;
+      name: string;
+      description: string;
+    }>;
+  };
+};

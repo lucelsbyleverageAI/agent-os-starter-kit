@@ -19,6 +19,7 @@ else:
     # Public-facing HTTPS URL for storage signed URLs (external clients, LLMs)
     # Falls back to SUPABASE_URL if not set (for backwards compatibility)
     SUPABASE_PUBLIC_URL = env("SUPABASE_PUBLIC_URL", cast=str, default=SUPABASE_URL)
+    logger.info(f"[config] SUPABASE_URL={SUPABASE_URL}, SUPABASE_PUBLIC_URL={SUPABASE_PUBLIC_URL}")
 
 # Service Account Configuration
 # Static API key for external service authentication (n8n, Zapier, etc.)
