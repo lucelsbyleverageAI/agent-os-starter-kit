@@ -1,6 +1,7 @@
 import { Button } from "@/components/ui/button";
 import {
   AlertDialog,
+  AlertDialogAction,
   AlertDialogCancel,
   AlertDialogContent,
   AlertDialogDescription,
@@ -9,7 +10,7 @@ import {
   AlertDialogTitle,
 } from "@/components/ui/alert-dialog";
 import { useAgents } from "@/hooks/use-agents";
-import { useAgentConfig } from "@/hooks/use-agent-config";
+import { useAgentConfig, clearAgentConfigCache } from "@/hooks/use-agent-config";
 import { Bot, LoaderCircle, Trash, X } from "lucide-react";
 import { useLayoutEffect, useRef, useState } from "react";
 import { notify } from "@/utils/toast";
@@ -24,6 +25,8 @@ import { Crown, Edit, Shield, UserMinus } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { getScrollbarClasses } from "@/lib/scrollbar-styles";
 import { logger } from "@/lib/logger";
+import { Label } from "@/components/ui/label";
+import { Textarea } from "@/components/ui/textarea";
 
 interface EditAgentDialogProps {
   agent: Agent;
@@ -38,7 +41,7 @@ function EditAgentDialogContent({
   agent: Agent;
   onClose: () => void;
 }) {
-  const { updateAgent, deleteAgent, revokeMyAccess } = useAgents();
+  const { updateAgent, deleteAgent, revokeMyAccess, getAgent } = useAgents();
   const { refreshAgents, invalidateAssistantListCache } = useAgentsContext();
   const {
     getSchemaAndUpdateConfig,
@@ -51,6 +54,15 @@ function EditAgentDialogContent({
   } = useAgentConfig();
   const [deleteSubmitting, setDeleteSubmitting] = useState(false);
   const [revokeSubmitting, setRevokeSubmitting] = useState(false);
+  const [deleteConfirmDialogOpen, setDeleteConfirmDialogOpen] = useState(false);
+  const [commitMessageDialogOpen, setCommitMessageDialogOpen] = useState(false);
+  const [commitMessage, setCommitMessage] = useState("");
+  const [pendingFormData, setPendingFormData] = useState<{
+    name: string;
+    description: string;
+    tags: string[];
+    config: Record<string, any>;
+  } | null>(null);
 
   // Check user permissions
   const canDelete = canUserDeleteAssistant(agent);
@@ -93,17 +105,32 @@ function EditAgentDialogContent({
       return;
     }
 
+    // Store form data and show commit message dialog
+    setPendingFormData(data);
+    setCommitMessage("");
+    setCommitMessageDialogOpen(true);
+  };
+
+  const handleSaveWithCommitMessage = async (skipCommitMessage: boolean = false) => {
+    if (!pendingFormData) return;
+
+    setCommitMessageDialogOpen(false);
+
     const result = await updateAgent(
       agent.assistant_id,
       agent.deploymentId,
       {
-        name: data.name,
-        description: data.description,
-        config: data.config,
-        tags: data.tags || [],
+        name: pendingFormData.name,
+        description: pendingFormData.description,
+        config: pendingFormData.config,
+        tags: pendingFormData.tags || [],
         metadata: agent.metadata || undefined,
+        commitMessage: skipCommitMessage ? undefined : (commitMessage.trim() || undefined),
       },
     );
+
+    setPendingFormData(null);
+    setCommitMessage("");
 
     if (!result.ok) {
       const message = agentMessages.update.error();
@@ -114,7 +141,7 @@ function EditAgentDialogContent({
       return;
     }
 
-    const message = agentMessages.update.success(data.name);
+    const message = agentMessages.update.success(pendingFormData.name);
     notify.success(message.title, {
       description: message.description,
       key: message.key,
@@ -179,6 +206,48 @@ function EditAgentDialogContent({
     refreshAgents(true); // Silent refresh - user already got success toast
   };
 
+  const handleVersionRestored = async () => {
+    // Refresh the form with the latest config after version restore
+    // Add a small delay to ensure LangGraph has finished updating
+    await new Promise(resolve => setTimeout(resolve, 500));
+
+    // Clear cached config data to ensure we fetch fresh data
+    clearAgentConfigCache(agent.assistant_id);
+
+    // First, refetch the agent to get the updated config from the server
+    const agentResult = await getAgent(agent.assistant_id, agent.deploymentId);
+
+    if (agentResult.ok && agentResult.data) {
+      console.log('[handleVersionRestored] Fresh agent data:', {
+        name: agentResult.data.name,
+        configKeys: Object.keys(agentResult.data.config || {}),
+        config: agentResult.data.config,
+      });
+
+      // Get schema with the fresh agent data
+      const values = await getSchemaAndUpdateConfig(agentResult.data);
+
+      console.log('[handleVersionRestored] Schema values:', {
+        name: values.name,
+        configKeys: Object.keys(values.config || {}),
+        config: values.config,
+      });
+
+      // Reset form with the restored values
+      form.reset({
+        name: values.name,
+        description: values.description || "",
+        tags: agentResult.data.tags || [],
+        config: values.config,
+      });
+    } else {
+      console.warn('[handleVersionRestored] Failed to get fresh agent data:', agentResult);
+      // Fallback: just reset and try to get schema with original agent
+      form.reset();
+      await getSchemaAndUpdateConfig(agent);
+    }
+  };
+
   return (
     <AlertDialogContent className={cn("h-auto max-h-[90vh] sm:max-w-lg md:max-w-2xl lg:max-w-3xl", ...getScrollbarClasses('y'))}>
       <form onSubmit={form.handleSubmit(handleSubmit)}>
@@ -231,13 +300,17 @@ function EditAgentDialogContent({
               ragConfigurations={ragConfigurations}
               agentsConfigurations={agentsConfigurations}
               graphId={agent.graph_id}
+              assistantId={agent.assistant_id}
+              permissionLevel={permissionLevel}
+              onVersionRestored={handleVersionRestored}
             />
           </FormProvider>
         )}
                   <AlertDialogFooter>
             {canDelete && (
               <Button
-                onClick={handleDelete}
+                type="button"
+                onClick={() => setDeleteConfirmDialogOpen(true)}
                 className="flex w-full items-center justify-center gap-1"
                 disabled={loading || deleteSubmitting}
                 variant="destructive"
@@ -281,6 +354,73 @@ function EditAgentDialogContent({
             </Button>
           </AlertDialogFooter>
       </form>
+
+      {/* Commit Message Modal */}
+      <AlertDialog open={commitMessageDialogOpen} onOpenChange={setCommitMessageDialogOpen}>
+        <AlertDialogContent className="sm:max-w-md">
+          <AlertDialogHeader>
+            <AlertDialogTitle>Save Changes</AlertDialogTitle>
+            <AlertDialogDescription>
+              Add an optional message to describe your changes. This helps track version history.
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <div className="space-y-4 py-4">
+            <div className="space-y-2">
+              <Label htmlFor="commit-message">
+                Change description <span className="text-xs text-muted-foreground">(optional)</span>
+              </Label>
+              <Textarea
+                id="commit-message"
+                value={commitMessage}
+                onChange={(e) => setCommitMessage(e.target.value)}
+                placeholder="e.g., Updated system prompt, Added new tools..."
+                rows={3}
+              />
+            </div>
+          </div>
+          <AlertDialogFooter>
+            <AlertDialogCancel onClick={() => {
+              setPendingFormData(null);
+              setCommitMessage("");
+            }}>
+              Cancel
+            </AlertDialogCancel>
+            <Button
+              variant="outline"
+              onClick={() => handleSaveWithCommitMessage(true)}
+            >
+              Skip
+            </Button>
+            <AlertDialogAction onClick={() => handleSaveWithCommitMessage(false)}>
+              Save
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
+
+      {/* Delete Confirmation Modal */}
+      <AlertDialog open={deleteConfirmDialogOpen} onOpenChange={setDeleteConfirmDialogOpen}>
+        <AlertDialogContent className="sm:max-w-md">
+          <AlertDialogHeader>
+            <AlertDialogTitle>Delete Agent</AlertDialogTitle>
+            <AlertDialogDescription>
+              Are you sure you want to delete &quot;{agent.name}&quot;? This action cannot be undone.
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel>Cancel</AlertDialogCancel>
+            <AlertDialogAction
+              onClick={() => {
+                setDeleteConfirmDialogOpen(false);
+                handleDelete();
+              }}
+              className="bg-destructive text-destructive-foreground hover:bg-destructive/90"
+            >
+              Delete
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
     </AlertDialogContent>
   );
 }

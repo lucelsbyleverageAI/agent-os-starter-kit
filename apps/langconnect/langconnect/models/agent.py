@@ -261,6 +261,8 @@ class AssistantUpdateRequest(BaseModel):
     description: Optional[str] = Field(None, description="New assistant description")
     config: Optional[Dict[str, Any]] = Field(None, description="New assistant configuration")
     reason: Optional[str] = Field(None, description="Reason for update (for audit log)")
+    commit_message: Optional[str] = Field(None, description="Optional description of changes for version history")
+    skip_langgraph_update: Optional[bool] = Field(False, description="Skip LangGraph PATCH call (use when SDK already updated)")
 
 
 class AssistantUpdateResponse(BaseModel):
@@ -436,3 +438,44 @@ class AdminInitializePlatformResponse(BaseModel):
     duration_ms: int = Field(..., description="Total operation duration in milliseconds")
     warnings: List[str] = Field(default_factory=list, description="Warnings about operations")
     summary: str = Field(..., description="Summary of all operations performed")
+
+
+# ==================== ASSISTANT VERSION HISTORY MODELS ====================
+
+class AssistantVersionInfo(BaseModel):
+    """Individual version information for an assistant."""
+    version: int = Field(..., description="Version number")
+    name: str = Field(..., description="Assistant name at this version")
+    description: Optional[str] = Field(None, description="Assistant description at this version")
+    config: Dict[str, Any] = Field(default_factory=dict, description="Assistant configuration at this version")
+    metadata: Optional[Dict[str, Any]] = Field(None, description="Assistant metadata at this version")
+    tags: List[str] = Field(default_factory=list, description="Agent categorization tags at this version")
+    commit_message: Optional[str] = Field(None, description="User-provided description of changes")
+    created_by: Optional[str] = Field(None, description="User ID who created this version")
+    created_by_display_name: Optional[str] = Field(None, description="Display name of user who created this version")
+    created_at: str = Field(..., description="ISO timestamp when version was created")
+    is_latest: bool = Field(False, description="Whether this is the current/latest version")
+
+
+class AssistantVersionsResponse(BaseModel):
+    """Response for listing assistant versions."""
+    assistant_id: str = Field(..., description="Assistant identifier")
+    assistant_name: str = Field(..., description="Current assistant name")
+    versions: List[AssistantVersionInfo] = Field(default_factory=list, description="List of versions (newest first)")
+    total_versions: int = Field(..., description="Total number of versions")
+    latest_version: int = Field(..., description="Current/latest version number")
+
+
+class AssistantRestoreRequest(BaseModel):
+    """Request to restore an assistant to a previous version."""
+    version: int = Field(..., description="Version number to restore to")
+    commit_message: Optional[str] = Field(None, description="Optional description for the restore operation")
+
+
+class AssistantRestoreResponse(BaseModel):
+    """Response from restoring an assistant version."""
+    assistant_id: str = Field(..., description="Assistant that was restored")
+    restored_from_version: int = Field(..., description="Version that was restored from")
+    new_version: int = Field(..., description="New version number created by restore")
+    success: bool = Field(..., description="Whether restore was successful")
+    message: str = Field(..., description="Result message")
