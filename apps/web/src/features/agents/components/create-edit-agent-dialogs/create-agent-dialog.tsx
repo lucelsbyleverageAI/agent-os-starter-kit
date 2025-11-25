@@ -78,6 +78,7 @@ function CreateAgentFormContent(props: {
     toolConfigurations,
     ragConfigurations,
     agentsConfigurations,
+    skillsConfigurations,
   } = useAgentConfig();
   const [submitting, setSubmitting] = useState(false);
 
@@ -189,6 +190,7 @@ function CreateAgentFormContent(props: {
               toolConfigurations={toolConfigurations}
               ragConfigurations={ragConfigurations}
               agentsConfigurations={agentsConfigurations}
+              skillsConfigurations={skillsConfigurations}
               graphId={props.graphId}
             />
           </FormProvider>

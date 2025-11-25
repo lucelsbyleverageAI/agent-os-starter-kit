@@ -4,7 +4,7 @@ import { Label } from "@/components/ui/label";
 import { Skeleton } from "@/components/ui/skeleton";
 import { Textarea } from "@/components/ui/textarea";
 import { Badge } from "@/components/ui/badge";
-import { X, Check, History } from "lucide-react";
+import { X, Check, History, Sparkles } from "lucide-react";
 import { Search } from "@/components/ui/tool-search";
 import { Button } from "@/components/ui/button";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
@@ -13,6 +13,7 @@ import {
   ConfigFieldAgents,
   ConfigFieldRAG,
 } from "@/features/chat/components/configuration-sidebar/config-field";
+import { ConfigFieldSkills } from "@/features/chat/components/configuration-sidebar/config-field-skills";
 import { ConfigToolkitSelector } from "@/features/chat/components/configuration-sidebar/config-toolkit-selector";
 import { useSearchTools } from "@/hooks/use-search-tools";
 import { useMCPContext } from "@/providers/MCP";
@@ -20,6 +21,7 @@ import {
   ConfigurableFieldAgentsMetadata,
   ConfigurableFieldMCPMetadata,
   ConfigurableFieldRAGMetadata,
+  ConfigurableFieldSkillsMetadata,
   ConfigurableFieldUIMetadata,
 } from "@/types/configurable";
 import _ from "lodash";
@@ -198,6 +200,7 @@ interface AgentFieldsFormProps {
   agentId: string;
   ragConfigurations: ConfigurableFieldRAGMetadata[];
   agentsConfigurations: ConfigurableFieldAgentsMetadata[];
+  skillsConfigurations?: ConfigurableFieldSkillsMetadata[];
   graphId?: string; // Optional graph_id to determine if tool approval should be shown
   assistantId?: string; // For version history
   permissionLevel?: "owner" | "editor" | "viewer" | "admin";
@@ -210,6 +213,7 @@ export function AgentFieldsForm({
   agentId,
   ragConfigurations,
   agentsConfigurations,
+  skillsConfigurations = [],
   graphId,
   assistantId,
   permissionLevel,
@@ -240,6 +244,7 @@ export function AgentFieldsForm({
   const hasTools = toolConfigurations.length > 0;
   const hasRag = ragConfigurations.length > 0;
   const hasAgents = agentsConfigurations.length > 0;
+  const hasSkills = skillsConfigurations.length > 0;
 
   // Only show tool approval toggles for tools_agent
   const showToolApproval = graphId === 'tools_agent';
@@ -252,6 +257,12 @@ export function AgentFieldsForm({
             <TabsTrigger value="general">General</TabsTrigger>
             {hasTools && <TabsTrigger value="tools">Tools</TabsTrigger>}
             {hasRag && <TabsTrigger value="rag">Knowledge</TabsTrigger>}
+            {hasSkills && (
+              <TabsTrigger value="skills">
+                <Sparkles className="mr-1 h-4 w-4" />
+                Skills
+              </TabsTrigger>
+            )}
             {hasAgents && <TabsTrigger value="supervisor">Sub-Agents</TabsTrigger>}
             {assistantId && (
               <TabsTrigger value="versions">
@@ -492,6 +503,27 @@ export function AgentFieldsForm({
                     </div>
                   </div>
                 )}
+            </div>
+          </TabsContent>
+        )}
+
+        {hasSkills && (
+          <TabsContent value="skills" className="m-0 pt-2">
+            <div className="flex w-full flex-col items-start justify-start gap-2">
+              <p className="text-lg font-semibold tracking-tight">Agent Skills</p>
+              <Controller
+                control={form.control}
+                name={`config.${skillsConfigurations[0].label}`}
+                render={({ field: { value, onChange } }) => (
+                  <ConfigFieldSkills
+                    id={skillsConfigurations[0].label}
+                    label={skillsConfigurations[0].label}
+                    agentId={agentId}
+                    value={value}
+                    setValue={onChange}
+                  />
+                )}
+              />
             </div>
           </TabsContent>
         )}

@@ -51,6 +51,7 @@ function EditAgentDialogContent({
     toolConfigurations,
     ragConfigurations,
     agentsConfigurations,
+    skillsConfigurations,
   } = useAgentConfig();
   const [deleteSubmitting, setDeleteSubmitting] = useState(false);
   const [revokeSubmitting, setRevokeSubmitting] = useState(false);
@@ -299,6 +300,7 @@ function EditAgentDialogContent({
               agentId={agent.assistant_id}
               ragConfigurations={ragConfigurations}
               agentsConfigurations={agentsConfigurations}
+              skillsConfigurations={skillsConfigurations}
               graphId={agent.graph_id}
               assistantId={agent.assistant_id}
               permissionLevel={permissionLevel}

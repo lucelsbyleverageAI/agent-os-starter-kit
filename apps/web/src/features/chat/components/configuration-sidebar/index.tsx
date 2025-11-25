@@ -10,6 +10,7 @@ import {
   ConfigFieldRAG,
   ConfigFieldTool,
 } from "@/features/chat/components/configuration-sidebar/config-field";
+import { ConfigFieldSkills } from "@/features/chat/components/configuration-sidebar/config-field-skills";
 import { ConfigSection } from "@/features/chat/components/configuration-sidebar/config-section";
 import { useConfigStore } from "@/features/chat/hooks/use-config-store";
 import { cn } from "@/lib/utils";
@@ -156,6 +157,7 @@ export const ConfigurationSidebar = forwardRef<
     toolConfigurations,
     ragConfigurations,
     agentsConfigurations,
+    skillsConfigurations,
     loading,
     supportedConfigs,
   } = useAgentConfig();
@@ -444,6 +446,11 @@ export const ConfigurationSidebar = forwardRef<
                 {supportedConfigs.includes("supervisor") && (
                   <TabsTrigger value="supervisor">
                     Sub-Agents
+                  </TabsTrigger>
+                )}
+                {supportedConfigs.includes("skills") && (
+                  <TabsTrigger value="skills">
+                    Skills
                   </TabsTrigger>
                 )}
                 {selectedAgent && !isUserDefaultAssistant(selectedAgent) && (
@@ -779,6 +786,23 @@ export const ConfigurationSidebar = forwardRef<
                         label="sub_agents"
                         agentId={agentId}
                         itemSchema={agentsConfigurations[0].itemSchema}
+                      />
+                    )}
+                  </ConfigSection>
+                </TabsContent>
+              )}
+
+              {supportedConfigs.includes("skills") && (
+                <TabsContent
+                  value="skills"
+                  className="m-0 pb-4 pt-2 space-y-6"
+                >
+                  <ConfigSection title="Agent Skills">
+                    {agentId && skillsConfigurations[0]?.label && (
+                      <ConfigFieldSkills
+                        id={skillsConfigurations[0].label}
+                        label={skillsConfigurations[0].label}
+                        agentId={agentId}
                       />
                     )}
                   </ConfigSection>
