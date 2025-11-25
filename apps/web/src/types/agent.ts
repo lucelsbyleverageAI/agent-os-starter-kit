@@ -237,3 +237,42 @@ export interface AgentDisplayItem {
   updated_at?: string;
   supportedConfigs?: ["tools" | "rag" | "supervisor"];
 }
+
+/**
+ * Assistant Version History Types
+ */
+
+export interface AssistantVersion {
+  version: number;
+  name: string;
+  description?: string;
+  config: Record<string, any>;
+  metadata?: Record<string, any>;
+  tags?: string[];
+  commit_message?: string;
+  created_by?: string;
+  created_by_display_name?: string;
+  created_at: string;
+  is_latest: boolean;
+}
+
+export interface AssistantVersionsResponse {
+  assistant_id: string;
+  assistant_name: string;
+  versions: AssistantVersion[];
+  total_versions: number;
+  latest_version: number;
+}
+
+export interface RestoreVersionRequest {
+  version: number;
+  commit_message?: string;
+}
+
+export interface RestoreVersionResponse {
+  assistant_id: string;
+  restored_from_version: number;
+  new_version: number;
+  success: boolean;
+  message: string;
+}

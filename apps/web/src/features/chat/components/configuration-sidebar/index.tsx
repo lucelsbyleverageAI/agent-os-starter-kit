@@ -45,10 +45,12 @@ import {
 } from "@/components/ui/alert-dialog";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
-import { canUserEditAssistant } from "@/lib/agent-utils";
+import { canUserEditAssistant, isUserDefaultAssistant } from "@/lib/agent-utils";
 import { useAuthContext } from "@/providers/Auth";
 import { getScrollbarClasses } from "@/lib/scrollbar-styles";
 import { AGENT_TAG_GROUPS, getTagLabel } from "@/lib/agent-tags";
+import { VersionsTab } from "@/features/agents/components/create-edit-agent-dialogs/versions-tab";
+import { History } from "lucide-react";
 import {
   Command,
   CommandEmpty,
@@ -444,6 +446,12 @@ export const ConfigurationSidebar = forwardRef<
                     Sub-Agents
                   </TabsTrigger>
                 )}
+                {selectedAgent && !isUserDefaultAssistant(selectedAgent) && (
+                  <TabsTrigger value="versions">
+                    <History className="h-4 w-4 mr-1" />
+                    Versions
+                  </TabsTrigger>
+                )}
               </TabsList>
             </div>
 
@@ -774,6 +782,18 @@ export const ConfigurationSidebar = forwardRef<
                       />
                     )}
                   </ConfigSection>
+                </TabsContent>
+              )}
+
+              {selectedAgent && !isUserDefaultAssistant(selectedAgent) && (
+                <TabsContent
+                  value="versions"
+                  className="m-0 pb-4 pt-2"
+                >
+                  <VersionsTab
+                    assistantId={selectedAgent.assistant_id}
+                    permissionLevel={selectedAgent.permission_level}
+                  />
                 </TabsContent>
               )}
               </div>

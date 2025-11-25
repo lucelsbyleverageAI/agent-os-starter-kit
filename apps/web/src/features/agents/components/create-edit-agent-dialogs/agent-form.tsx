@@ -4,7 +4,7 @@ import { Label } from "@/components/ui/label";
 import { Skeleton } from "@/components/ui/skeleton";
 import { Textarea } from "@/components/ui/textarea";
 import { Badge } from "@/components/ui/badge";
-import { X, Check } from "lucide-react";
+import { X, Check, History } from "lucide-react";
 import { Search } from "@/components/ui/tool-search";
 import { Button } from "@/components/ui/button";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
@@ -40,6 +40,7 @@ import {
 } from "@/components/ui/popover";
 import { cn } from "@/lib/utils";
 import { getScrollbarClasses } from "@/lib/scrollbar-styles";
+import { VersionsTab } from "./versions-tab";
 
 // Separate component for tags selector to comply with React Hooks rules
 function TagsSelector({ value = [], onChange }: { value: string[]; onChange: (value: string[]) => void }) {
@@ -198,6 +199,9 @@ interface AgentFieldsFormProps {
   ragConfigurations: ConfigurableFieldRAGMetadata[];
   agentsConfigurations: ConfigurableFieldAgentsMetadata[];
   graphId?: string; // Optional graph_id to determine if tool approval should be shown
+  assistantId?: string; // For version history
+  permissionLevel?: "owner" | "editor" | "viewer" | "admin";
+  onVersionRestored?: () => void;
 }
 
 export function AgentFieldsForm({
@@ -207,6 +211,9 @@ export function AgentFieldsForm({
   ragConfigurations,
   agentsConfigurations,
   graphId,
+  assistantId,
+  permissionLevel,
+  onVersionRestored,
 }: AgentFieldsFormProps) {
   const form = useFormContext<{
     name: string;
@@ -246,6 +253,12 @@ export function AgentFieldsForm({
             {hasTools && <TabsTrigger value="tools">Tools</TabsTrigger>}
             {hasRag && <TabsTrigger value="rag">Knowledge</TabsTrigger>}
             {hasAgents && <TabsTrigger value="supervisor">Sub-Agents</TabsTrigger>}
+            {assistantId && (
+              <TabsTrigger value="versions">
+                <History className="mr-1 h-4 w-4" />
+                Versions
+              </TabsTrigger>
+            )}
           </TabsList>
         </div>
 
@@ -509,6 +522,17 @@ export function AgentFieldsForm({
                 </div>
               );
             })()}
+          </TabsContent>
+        )}
+
+        {/* Versions Tab */}
+        {assistantId && (
+          <TabsContent value="versions" className="m-0 pt-2">
+            <VersionsTab
+              assistantId={assistantId}
+              permissionLevel={permissionLevel}
+              onVersionRestored={onVersionRestored}
+            />
           </TabsContent>
         )}
       </Tabs>

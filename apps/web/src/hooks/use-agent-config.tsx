@@ -36,6 +36,15 @@ const lastExtractedByAssistantId = new Map<
   }
 >();
 
+/**
+ * Clear cached config data for an assistant.
+ * Call this after restoring a version to ensure fresh data is fetched.
+ */
+export function clearAgentConfigCache(assistantId: string): void {
+  inflightLoads.delete(assistantId);
+  lastExtractedByAssistantId.delete(assistantId);
+}
+
 export function useAgentConfig() {
   const { getAgentConfigSchema, getGraphConfigSchema, getAgent } = useAgents();
   const [chatWithCollectionId, setChatWithCollectionId] = useQueryState(
@@ -145,8 +154,9 @@ export function useAgentConfig() {
           setInputMode('chat'); // Default to chat mode if no schema
           return {
             name: agent.name,
+            // Prefer top-level description (from mirror), fall back to metadata.description
             description:
-              (agent.metadata?.description as string | undefined) ?? "",
+              (agent as any).description ?? (agent.metadata?.description as string | undefined) ?? "",
             config: {},
           };
         }
@@ -326,8 +336,9 @@ export function useAgentConfig() {
         
         const result = {
           name: agent.name,
+          // Prefer top-level description (from mirror), fall back to metadata.description
           description:
-            (agent.metadata?.description as string | undefined) ?? "",
+            (agent as any).description ?? (agent.metadata?.description as string | undefined) ?? "",
           config: configurableDefaults,
         };
         // debug logs removed
