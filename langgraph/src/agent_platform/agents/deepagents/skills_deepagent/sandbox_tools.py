@@ -1,23 +1,29 @@
 """
 E2B Sandbox tools for Skills DeepAgent.
 
-This module provides the sandbox tool for executing bash commands in an E2B
-environment. Skills and their files are uploaded to the sandbox at thread start.
+This module provides two tools for interacting with the E2B sandbox environment:
+
+1. `run_code` - Jupyter-style code interpreter for Python/bash/JavaScript
+   - Best for: Writing files, data processing, complex multi-line operations
+   - Uses E2B's code interpreter which handles multi-line content naturally
+
+2. `run_command` - Direct shell command execution
+   - Best for: Quick operations (ls, cat, head), running existing scripts, pip install
+   - Uses E2B's commands.run() for simple shell commands
 
 Design Decision:
-We provide a single `sandbox` tool that executes bash commands, rather than
-separate tools for each operation. This approach:
-1. Simpler tool surface - one tool to learn instead of many
-2. Matches the system prompt - we tell the agent to use `ls`, `cat`, `grep`, etc.
-3. More flexible - agent can compose complex commands, pipe outputs, etc.
-4. Matches Claude's native capabilities - Claude Code uses bash commands extensively
+We provide two tools because:
+1. Code interpreter handles multi-line content, file writing, and complex logic naturally
+2. Shell commands are better for quick operations and running existing scripts
+3. Both share the same filesystem and environment (pip installs are visible to both)
+4. This avoids bash escaping issues (heredocs, quotes) that break with commands.run()
 """
 
 import io
 import logging
 import os
 import zipfile
-from typing import Any, Dict, List, Optional
+from typing import Any, Dict, List, Literal, Optional, Tuple
 
 import httpx
 from langchain_core.tools import tool
@@ -172,6 +178,7 @@ async def get_or_create_sandbox(
 
     # Create directory structure
     sandbox.files.make_dir("/sandbox/skills")
+    sandbox.files.make_dir("/sandbox/user_uploads")  # User uploaded files
     sandbox.files.make_dir("/sandbox/shared")
     sandbox.files.make_dir("/sandbox/shared/research")
     sandbox.files.make_dir("/sandbox/shared/drafts")
@@ -239,44 +246,150 @@ def cleanup_sandbox(thread_id: str):
         del _sandboxes[thread_id]
 
 
-def create_sandbox_tool(thread_id: str):
+def create_sandbox_tools(thread_id: str) -> Tuple[Any, Any]:
     """
-    Create a sandbox tool bound to a specific thread.
+    Create sandbox tools bound to a specific thread.
 
     Args:
         thread_id: Thread identifier for sandbox lookup
 
     Returns:
-        LangChain tool function
+        Tuple of (run_code tool, run_command tool)
     """
 
     @tool
-    def sandbox(
+    def run_code(
+        code: str,
+        language: Literal["python", "bash", "javascript"] = "python",
+        timeout_seconds: int = 120
+    ) -> str:
+        """
+        Execute code using the Jupyter-style code interpreter.
+
+        **Use this tool for:**
+        - Writing files (use Python's open() or pathlib)
+        - Data processing and transformation
+        - Complex multi-line operations
+        - Any task requiring proper handling of multi-line strings
+
+        **Languages:** python (default), bash, javascript
+
+        **Examples:**
+
+        Write a file:
+        ```
+        run_code(code='''
+        with open("/sandbox/outputs/report.md", "w") as f:
+            f.write(\"\"\"# Report Title
+
+        ## Section 1
+        Content here with "quotes" and special chars...
+        \"\"\")
+        print("File written successfully")
+        ''')
+        ```
+
+        Process data:
+        ```
+        run_code(code='''
+        import json
+        data = {"key": "value", "items": [1, 2, 3]}
+        with open("/sandbox/outputs/data.json", "w") as f:
+            json.dump(data, f, indent=2)
+        ''')
+        ```
+
+        Args:
+            code: Code to execute
+            language: python (default), bash, or javascript
+            timeout_seconds: Timeout (default 120s, max 600s)
+
+        Returns:
+            Execution output (stdout, results, errors)
+        """
+        sandbox_instance = get_sandbox(thread_id)
+        if not sandbox_instance:
+            return "Error: Sandbox not initialized for this thread"
+
+        try:
+            execution = sandbox_instance.run_code(
+                code,
+                language=language,
+                timeout=min(timeout_seconds, 600)
+            )
+
+            # Build output from execution result
+            output_parts = []
+
+            # Add stdout/stderr from logs
+            if hasattr(execution, 'logs'):
+                if execution.logs.stdout:
+                    output_parts.extend(execution.logs.stdout)
+                if execution.logs.stderr:
+                    for err in execution.logs.stderr:
+                        output_parts.append(f"[stderr] {err}")
+
+            # Add results if any
+            if hasattr(execution, 'results') and execution.results:
+                for result in execution.results:
+                    if hasattr(result, 'text') and result.text:
+                        output_parts.append(f"[result] {result.text}")
+                    elif hasattr(result, 'value') and result.value is not None:
+                        output_parts.append(f"[result] {result.value}")
+
+            # Add error if present
+            if hasattr(execution, 'error') and execution.error:
+                error_msg = str(execution.error)
+                if hasattr(execution.error, 'name'):
+                    error_msg = f"{execution.error.name}: {execution.error.value}"
+                output_parts.append(f"[error] {error_msg}")
+
+            output = "\n".join(output_parts)
+
+            # Truncate if too long
+            max_length = 30000
+            if len(output) > max_length:
+                output = output[:max_length] + f"\n... (truncated, {len(output)} total chars)"
+
+            return output or "(no output)"
+
+        except Exception as e:
+            return f"Error executing code: {e}"
+
+    @tool
+    def run_command(
         command: str,
         timeout_seconds: int = 120
     ) -> str:
         """
-        Execute a command in the sandbox environment.
+        Execute a shell command in the sandbox.
 
-        Use standard bash commands to interact with the filesystem:
-        - List files: ls -la /sandbox/skills/
-        - Read files: cat /sandbox/skills/my-skill/SKILL.md
-        - Search: grep -r "pattern" /sandbox/
-        - Run Python: python /sandbox/skills/my-skill/scripts/run.py
-        - Write files: echo "content" > /sandbox/outputs/result.txt
-        - And any other bash commands
+        **Use this tool for:**
+        - Quick file operations (ls, cat, head, grep, find)
+        - Running existing scripts (python /path/to/script.py)
+        - Installing packages (pip install pandas)
+        - Simple file reading
+
+        **Do NOT use for:**
+        - Writing file content (use run_code with Python instead)
+        - Complex bash with heredocs, multi-line strings, or escaping
+        - Any operation requiring special character handling
+
+        **Examples:**
+        ```
+        run_command(command="ls -la /sandbox/skills/")
+        run_command(command="cat /sandbox/skills/my-skill/SKILL.md")
+        run_command(command="python /sandbox/skills/my-skill/scripts/run.py arg1 arg2")
+        run_command(command="pip install pandas openpyxl")
+        run_command(command="head -50 /sandbox/outputs/result.md")
+        ```
 
         Args:
-            command: The bash command to execute
-            timeout_seconds: Command timeout in seconds (default: 120)
+            command: Shell command to execute
+            timeout_seconds: Timeout (default 120s, max 600s)
 
         Returns:
-            Command output (stdout and stderr combined)
-
-        Example:
-            sandbox(command="cat /sandbox/skills/brand-guidelines/SKILL.md")
-            sandbox(command="python /sandbox/skills/analysis/scripts/run.py input.csv")
-            sandbox(command="ls -la /sandbox/shared/")
+            Command output (stdout + stderr)
         """
         sandbox_instance = get_sandbox(thread_id)
         if not sandbox_instance:
@@ -285,7 +398,7 @@ def create_sandbox_tool(thread_id: str):
         try:
             result = sandbox_instance.commands.run(
                 command,
-                timeout=timeout_seconds
+                timeout=min(timeout_seconds, 600)  # Cap at 600s
             )
 
             # Combine stdout and stderr
@@ -294,6 +407,10 @@ def create_sandbox_tool(thread_id: str):
                 output_parts.append(result.stdout)
             if result.stderr:
                 output_parts.append(f"[stderr] {result.stderr}")
+
+            # Include exit code if non-zero
+            if hasattr(result, 'exit_code') and result.exit_code != 0:
+                output_parts.append(f"[exit_code] {result.exit_code}")
 
             output = "\n".join(output_parts)
 
@@ -307,4 +424,16 @@ def create_sandbox_tool(thread_id: str):
         except Exception as e:
             return f"Error executing command: {e}"
 
-    return sandbox
+    return run_code, run_command
+
+
+# Keep backward compatibility alias
+def create_sandbox_tool(thread_id: str):
+    """
+    DEPRECATED: Use create_sandbox_tools() instead.
+
+    This function is kept for backward compatibility but returns only run_command.
+    """
+    log.warning("create_sandbox_tool is deprecated, use create_sandbox_tools instead")
+    _, run_command = create_sandbox_tools(thread_id)
+    return run_command
