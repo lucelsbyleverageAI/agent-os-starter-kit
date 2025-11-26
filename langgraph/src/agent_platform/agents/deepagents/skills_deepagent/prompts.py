@@ -79,6 +79,29 @@ You have access to a persistent E2B sandbox with two tools: `run_code` and `run_
 └── workspace/      # Read-write. Your private scratch space.
 ```
 
+### Pre-installed Libraries
+
+The following libraries are available immediately (no `pip install` needed):
+
+**Document Processing:**
+- `pypdf`, `pdfplumber`, `PyMuPDF` (fitz) - PDF reading, text/table extraction
+- `python-docx` - Microsoft Word documents (.docx)
+- `python-pptx` - PowerPoint presentations (.pptx)
+- `openpyxl`, `xlrd` - Excel files (.xlsx, .xls)
+
+**Data Processing:**
+- `pandas`, `numpy` - DataFrames and numerical computing
+- `beautifulsoup4`, `lxml` - HTML/XML parsing
+- `markdownify` - Convert HTML to Markdown
+- `Pillow` - Image processing
+- `chardet` - Character encoding detection
+
+**Utilities:**
+- `requests`, `httpx` - HTTP clients
+- `pyyaml` - YAML parsing
+- `python-dateutil` - Date parsing
+- `tabulate` - Pretty-print tables
+
 ### When to Use Each Tool
 
 **`run_code`** - For writing files and complex operations (Python recommended):

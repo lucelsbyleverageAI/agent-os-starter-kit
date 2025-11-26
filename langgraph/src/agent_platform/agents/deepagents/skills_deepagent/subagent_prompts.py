@@ -53,9 +53,32 @@ run_command(command="python /sandbox/skills/my-skill/scripts/run.py")
 
 ---
 
+## Pre-installed Libraries
+
+The following libraries are available immediately (no `pip install` needed):
+
+**Document Processing:**
+- `pypdf`, `pdfplumber`, `PyMuPDF` (fitz) - PDF reading, text/table extraction
+- `python-docx` - Word documents (.docx)
+- `python-pptx` - PowerPoint (.pptx)
+- `openpyxl`, `xlrd` - Excel files (.xlsx, .xls)
+
+**Data Processing:**
+- `pandas`, `numpy` - DataFrames and numerical computing
+- `beautifulsoup4`, `lxml` - HTML/XML parsing
+- `markdownify` - HTML to Markdown
+- `Pillow` - Image processing
+- `chardet` - Encoding detection
+
+**Utilities:**
+- `requests`, `httpx` - HTTP clients
+- `pyyaml`, `python-dateutil`, `tabulate`
+
+---
+
 ## Sandbox Filesystem
 
-You share a persistent E2B sandbox with the main agent:
+You share a persistent sandbox with the main agent:
 
 ```
 /sandbox/
