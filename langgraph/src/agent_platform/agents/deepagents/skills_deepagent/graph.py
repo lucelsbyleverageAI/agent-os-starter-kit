@@ -1,12 +1,16 @@
 """
 Skills DeepAgent graph definition.
 
-This module defines the main graph for the Skills DeepAgent, which extends
-the basic DeepAgent with E2B sandbox and skills support.
+This module defines the main graph for the Skills DeepAgent, which uses:
+- E2B sandbox for ALL file operations (no state filesystem)
+- Two sandbox tools: run_code (for writing files) and run_command (for shell ops)
+- Local agent_builder instead of base deepagent graph
+
+This is a refactored version that creates an independent skills agent implementation
+while keeping the base deepagent backward compatible.
 """
 
 import json
-import logging
 from dotenv import find_dotenv, load_dotenv
 
 from langchain_core.runnables import RunnableConfig
@@ -26,13 +30,20 @@ from agent_platform.utils.model_utils import (
     MessageTrimmingConfig,
     create_trimming_hook,
 )
-from agent_platform.agents.deepagents.graph import async_create_deep_agent
-from agent_platform.agents.deepagents.deep_agent_toolkit import write_todos
 from agent_platform.sentry import get_logger
 
-from agent_platform.agents.deepagents.skills_deepagent.configuration import GraphConfigPydantic
-from agent_platform.agents.deepagents.skills_deepagent.prompts import build_system_prompt
-from agent_platform.agents.deepagents.skills_deepagent.sandbox_tools import get_or_create_sandbox, create_sandbox_tool
+# Import from local skills_deepagent modules (NOT base deepagents)
+# Using try/except pattern to support both direct execution and package imports
+try:
+    from .configuration import GraphConfigPydantic
+    from .prompts import build_system_prompt
+    from .sandbox_tools import get_or_create_sandbox, create_sandbox_tools
+    from .agent_builder import async_create_skills_agent
+except ImportError:
+    from agent_platform.agents.deepagents.skills_deepagent.configuration import GraphConfigPydantic
+    from agent_platform.agents.deepagents.skills_deepagent.prompts import build_system_prompt
+    from agent_platform.agents.deepagents.skills_deepagent.sandbox_tools import get_or_create_sandbox, create_sandbox_tools
+    from agent_platform.agents.deepagents.skills_deepagent.agent_builder import async_create_skills_agent
 
 logger = get_logger(__name__)
 
@@ -42,10 +53,10 @@ async def graph(config: RunnableConfig):
     Build Skills DeepAgent graph.
 
     This creates an agent with:
-    - E2B sandbox for code execution and file operations
+    - E2B sandbox for ALL file operations (sandbox-only, no state filesystem)
+    - Two sandbox tools: run_code (writing files, complex ops) and run_command (shell ops)
     - Skills support with automatic loading and system prompt integration
-    - Standard MCP tools and RAG capabilities
-    - Sub-agent support with per-agent skills allocation
+    - Sub-agent support with per-agent skills allocation (sub-agents also get sandbox access)
     """
     raw_config = config.get("configurable", {})
 
@@ -88,27 +99,28 @@ async def graph(config: RunnableConfig):
         sandbox_timeout = cfg.sandbox_config.timeout_seconds
         sandbox_pip_packages = cfg.sandbox_config.pip_packages
 
-    # Initialize sandbox with skills if we have any skills or if sandbox is needed
-    if skills or sandbox_pip_packages:
-        try:
-            await get_or_create_sandbox(
-                thread_id=thread_id,
-                skills=skills,
-                langconnect_url=langconnect_url,
-                access_token=supabase_token,
-                pip_packages=sandbox_pip_packages,
-                timeout=sandbox_timeout
-            )
-            # Add sandbox tool
-            sandbox_tool = create_sandbox_tool(thread_id)
-            tools.append(sandbox_tool)
-            logger.info(f"[skills_deepagent] Initialized sandbox with {len(skills)} skills")
-        except Exception as e:
-            logger.error(f"[skills_deepagent] Failed to initialize sandbox: {e}")
-            # Continue without sandbox - agent can still use other tools
+    # ALWAYS initialize sandbox for skills_deepagent (it's the core of this agent type)
+    # The sandbox is required for all file operations
+    try:
+        await get_or_create_sandbox(
+            thread_id=thread_id,
+            skills=skills,
+            langconnect_url=langconnect_url,
+            access_token=supabase_token,
+            pip_packages=sandbox_pip_packages,
+            timeout=sandbox_timeout
+        )
+        # Add both sandbox tools: run_code and run_command
+        run_code_tool, run_command_tool = create_sandbox_tools(thread_id)
+        tools.append(run_code_tool)
+        tools.append(run_command_tool)
+        logger.info(f"[SKILLS_DEEPAGENT] Initialized sandbox with {len(skills)} skills")
+    except Exception as e:
+        logger.error(f"[SKILLS_DEEPAGENT] Failed to initialize sandbox: {e}")
+        # For skills_deepagent, sandbox is required - raise the error
+        raise RuntimeError(f"Sandbox initialization failed: {e}. Sandbox is required for skills_deepagent.")
 
-    # Add write_todos tool
-    tools.append(write_todos)
+    # Note: write_todos is added by agent_builder, not here
 
     # Add collection tools (RAG + file system) if configured
     if cfg.rag and cfg.rag.langconnect_api_url and cfg.rag.collections and supabase_token:
@@ -184,12 +196,6 @@ async def graph(config: RunnableConfig):
             except Exception:
                 logger.exception("[skills_deepagent] MCP connection/tool loading error")
 
-    # Build system prompt with skills table
-    system_prompt = build_system_prompt(
-        user_prompt=cfg.system_prompt,
-        skills=skills
-    )
-
     # Initialize model
     model = init_model_simple(model_name=cfg.model_name)
 
@@ -222,9 +228,20 @@ async def graph(config: RunnableConfig):
     # Prepare sub-agents config
     sub_agents_config = json.loads(cfg.model_dump_json()).get("sub_agents", [])
 
-    # Create the deep agent
-    agent = async_create_deep_agent(
-        tools=tools,
+    # Determine if sub-agents are available (for prompt building)
+    has_subagents = (sub_agents_config and len(sub_agents_config) > 0) or cfg.include_general_purpose_agent
+
+    # Build system prompt with skills table and proper tool section
+    system_prompt = build_system_prompt(
+        user_prompt=cfg.system_prompt,
+        skills=skills,
+        has_subagents=has_subagents
+    )
+
+    # Create the skills agent using local agent_builder
+    # This uses SkillsDeepAgentState (no files field) and write_todos + run_code + run_command
+    agent = async_create_skills_agent(
+        tools=tools,  # Contains run_code, run_command + RAG + MCP tools
         instructions=system_prompt,
         model=model,
         subagents=sub_agents_config,

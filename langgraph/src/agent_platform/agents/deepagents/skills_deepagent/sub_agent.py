@@ -1,34 +1,37 @@
+"""Sub-agent module for Skills DeepAgent.
+
+This is a modified version of deepagents/sub_agent.py that:
+1. Uses SkillsDeepAgentState instead of DeepAgentState
+2. Includes execute_in_sandbox tool for all sub-agents
+3. Uses only write_todos as the built-in tool (no state file tools)
+4. Has a condensed task tool description
+"""
+
 try:
-    from .deep_agent_toolkit_descriptions import TASK_DESCRIPTION_PREFIX, TASK_DESCRIPTION_SUFFIX
-    from .state import DeepAgentState
-    from .deep_agent_toolkit import write_todos, write_file, read_file, ls, edit_file
+    from .state import SkillsDeepAgentState, Todo
+    from .toolkit import write_todos
     from .subagent_prompts import build_subagent_system_prompt
 except ImportError:
-    from agent_platform.agents.deepagents.deep_agent_toolkit_descriptions import TASK_DESCRIPTION_PREFIX, TASK_DESCRIPTION_SUFFIX
-    from agent_platform.agents.deepagents.state import DeepAgentState
-    from agent_platform.agents.deepagents.deep_agent_toolkit import write_todos, write_file, read_file, ls, edit_file
-    from agent_platform.agents.deepagents.subagent_prompts import build_subagent_system_prompt
+    from agent_platform.agents.deepagents.skills_deepagent.state import SkillsDeepAgentState, Todo
+    from agent_platform.agents.deepagents.skills_deepagent.toolkit import write_todos
+    from agent_platform.agents.deepagents.skills_deepagent.subagent_prompts import build_subagent_system_prompt
+
 from agent_platform.services.mcp_token import fetch_tokens
 from agent_platform.utils.tool_utils import (
     create_collection_tools,
     create_langchain_mcp_tool_with_universal_context,
 )
-from agent_platform.utils.prompt_utils import append_datetime_to_prompt
 from mcp.client.streamable_http import streamablehttp_client
 from mcp import ClientSession
-from .builder import SerializableSubAgent, RagConfig, MCPConfig
-from langgraph.prebuilt import create_react_agent
-from .custom_react_agent import custom_create_react_agent
+from agent_platform.agents.deepagents.builder import SerializableSubAgent, RagConfig, MCPConfig
+from agent_platform.agents.deepagents.custom_react_agent import custom_create_react_agent
 from langchain_core.tools import BaseTool
-from typing_extensions import TypedDict
 from langchain_core.tools import tool, InjectedToolCallId
-from langchain_core.messages import ToolMessage
+from langchain_core.messages import ToolMessage, HumanMessage
 from langchain_core.language_models import LanguageModelLike
-from typing import Annotated, NotRequired, Any, Union, Optional, Callable, List
+from typing import Annotated, Optional, Callable, List, Union
 from agent_platform.utils.model_utils import (
-    init_model,
-    ModelConfig,
-    RetryConfig,
+    init_model_simple,
     get_model_info,
     MessageTrimmingConfig,
     create_trimming_hook,
@@ -36,15 +39,34 @@ from agent_platform.utils.model_utils import (
 from agent_platform.utils.message_utils import create_image_preprocessor
 from langgraph.types import Command
 from langchain_core.runnables import RunnableConfig
-from langchain_core.messages import HumanMessage
-
 from langgraph.prebuilt import InjectedState
 from agent_platform.sentry import get_logger
+
 logger = get_logger(__name__)
 
-# Default prompt for the general-purpose sub-agent (user instructions portion)
-# This gets enhanced with filesystem/sub-agent context via build_subagent_system_prompt()
-GENERAL_PURPOSE_SUBAGENT_PROMPT = """You are a general-purpose sub-agent with access to a variety of tools. You have been given a task by the main agent. Complete the task using the tools available to you. Always produce your result as a file and summarize your work in your final response, referencing any created files."""
+
+# Condensed task description (~400 tokens instead of ~800)
+TASK_DESCRIPTION_PREFIX = """Delegate tasks to specialized sub-agents.
+
+Available agents:
+- general-purpose: Handles research, analysis, and multi-step tasks
+{other_agents}
+"""
+
+TASK_DESCRIPTION_SUFFIX = """
+**Usage**: Specify `subagent_type` to select which agent.
+
+**Guidelines**:
+- Sub-agents are stateless - provide complete context in your prompt
+- They return a single response with their findings
+- Tell them exactly what to do and what to return
+- They share the sandbox filesystem at /sandbox/
+
+**Do NOT use** for simple file reads or single operations you can do directly.
+"""
+
+# Default prompt for the general-purpose sub-agent
+GENERAL_PURPOSE_SUBAGENT_PROMPT = """You are a general-purpose sub-agent with access to tools. You have been given a task by the main agent. Complete the task using the tools available to you. Always produce your result as a file in /sandbox/shared/ and summarize your work in your final response, referencing any created files."""
 
 
 async def _get_tools_for_sub_agent(
@@ -52,6 +74,7 @@ async def _get_tools_for_sub_agent(
     parent_tools: List[BaseTool],
     config: RunnableConfig,
 ) -> List[BaseTool]:
+    """Get tools specific to a sub-agent (RAG and MCP tools)."""
     tools = []
     tools_by_name = {t.name: t for t in parent_tools}
 
@@ -61,7 +84,6 @@ async def _get_tools_for_sub_agent(
         rag_config = sub_agent_config.get('rag_config', {})
         mcp_config = sub_agent_config.get('mcp_config', {})
     else:
-        # Handle SerializableSubAgent object
         agent_tools = getattr(sub_agent_config, 'tools', [])
         rag_config = getattr(sub_agent_config, 'rag_config', None)
         mcp_config = getattr(sub_agent_config, 'mcp_config', None)
@@ -75,28 +97,26 @@ async def _get_tools_for_sub_agent(
         "x-supabase-access-token"
     ) or config.get("metadata", {}).get("supabaseAccessToken")
 
-    # Handle RAG config (fallback to global RAG URL if not provided per sub-agent)
+    # Handle RAG config
     if rag_config:
         if isinstance(rag_config, dict):
             langconnect_api_url = rag_config.get('langconnect_api_url')
             collections = rag_config.get('collections', [])
-            enabled_tools = rag_config.get('enabled_tools', ["hybrid_search", "fs_list_collections", "fs_list_files", "fs_read_file", "fs_grep_files"])
+            enabled_tools = rag_config.get('enabled_tools', ["hybrid_search"])
         else:
             langconnect_api_url = getattr(rag_config, 'langconnect_api_url', None)
             collections = getattr(rag_config, 'collections', [])
-            enabled_tools = getattr(rag_config, 'enabled_tools', ["hybrid_search", "fs_list_collections", "fs_list_files", "fs_read_file", "fs_grep_files"])
-        
-        # Fallback to global RAG URL from main config
+            enabled_tools = getattr(rag_config, 'enabled_tools', ["hybrid_search"])
+
         if not langconnect_api_url:
             langconnect_api_url = (
                 config.get("configurable", {})
                 .get("rag", {})
                 .get("langconnect_api_url")
             )
-        
+
         if langconnect_api_url and collections and supabase_token:
             try:
-                # Use the new create_collection_tools that supports all file system operations
                 collection_tools = await create_collection_tools(
                     langconnect_api_url=langconnect_api_url,
                     collection_ids=collections,
@@ -105,13 +125,11 @@ async def _get_tools_for_sub_agent(
                     config_getter=lambda: config,
                 )
                 tools.extend(collection_tools)
-                logger.info("[SUB_AGENT] collection_tools_loaded count=%s enabled_tools=%s", 
-                           len(collection_tools), enabled_tools)
+                logger.info("[SKILLS_SUB_AGENT] collection_tools_loaded count=%s", len(collection_tools))
             except Exception as e:
-                logger.exception("[SUB_AGENT] collection_tools_create_failed error=%s", str(e))
-                pass
+                logger.exception("[SKILLS_SUB_AGENT] collection_tools_create_failed error=%s", str(e))
 
-    # Handle MCP config (fallback to global MCP URL if not provided per sub-agent)
+    # Handle MCP config
     if mcp_config:
         if isinstance(mcp_config, dict):
             mcp_url = mcp_config.get('url')
@@ -119,23 +137,19 @@ async def _get_tools_for_sub_agent(
         else:
             mcp_url = getattr(mcp_config, 'url', None)
             mcp_tools = getattr(mcp_config, 'tools', [])
-        # Fallback to global MCP URL from main config
+
         if not mcp_url:
             mcp_url = (
                 config.get("configurable", {})
                 .get("mcp_config", {})
                 .get("url")
             )
-        
+
         if mcp_url and (mcp_auth_data := await fetch_tokens(config)):
             server_url = mcp_url.rstrip("/") + "/mcp"
             headers = {}
             auth_type = mcp_auth_data.get("auth_type")
-            if auth_type == "mcp_access_token":
-                access_token = mcp_auth_data.get("access_token")
-                if access_token:
-                    headers["Authorization"] = f"Bearer {access_token}"
-            elif auth_type == "oauth":
+            if auth_type in ("mcp_access_token", "oauth", "service_account"):
                 access_token = mcp_auth_data.get("access_token")
                 if access_token:
                     headers["Authorization"] = f"Bearer {access_token}"
@@ -143,18 +157,10 @@ async def _get_tools_for_sub_agent(
                 jwt_token = mcp_auth_data.get("jwt_token")
                 if jwt_token:
                     headers["Authorization"] = f"Bearer {jwt_token}"
-            elif auth_type == "service_account":
-                access_token = mcp_auth_data.get("access_token")
-                if access_token:
-                    headers["Authorization"] = f"Bearer {access_token}"
 
             tool_names_to_find = set(mcp_tools or [])
             fetched_mcp_tools_list = []
             names_of_tools_added = set()
-            
-            logger.info("[SUB_AGENT] mcp_tools_filtering start")
-            logger.debug("[SUB_AGENT] requested_tools=%s", tool_names_to_find)
-            logger.debug("[SUB_AGENT] mcp_url=%s", mcp_url)
 
             try:
                 async with streamablehttp_client(server_url, headers=headers) as streams:
@@ -167,9 +173,8 @@ async def _get_tools_for_sub_agent(
                             if not tool_list_page or not tool_list_page.tools:
                                 break
                             for mcp_tool in tool_list_page.tools:
-                                # Only add tools that are specifically requested
                                 if (
-                                    tool_names_to_find and 
+                                    tool_names_to_find and
                                     mcp_tool.name in tool_names_to_find
                                     and mcp_tool.name not in names_of_tools_added
                                 ):
@@ -180,49 +185,31 @@ async def _get_tools_for_sub_agent(
                                     )
                                     fetched_mcp_tools_list.append(wrapped_tool)
                                     names_of_tools_added.add(mcp_tool.name)
-                            page_cursor = tool_list_page.nextCursor
+                            page_cursor = getattr(tool_list_page, 'nextCursor', None)
                             if not page_cursor:
                                 break
-                            if tool_names_to_find and len(
-                                names_of_tools_added
-                            ) == len(tool_names_to_find):
+                            if tool_names_to_find and len(names_of_tools_added) == len(tool_names_to_find):
                                 break
                         tools.extend(fetched_mcp_tools_list)
-                        logger.info("[SUB_AGENT] mcp_tools_added count=%s", len(fetched_mcp_tools_list))
+                        logger.info("[SKILLS_SUB_AGENT] mcp_tools_added count=%s", len(fetched_mcp_tools_list))
             except Exception:
-                logger.exception("[SUB_AGENT] error_fetching_mcp_tools")
-                pass
+                logger.exception("[SKILLS_SUB_AGENT] error_fetching_mcp_tools")
+
     return tools
 
 
 def _create_combined_hook(trimming_hook: Optional[Callable], img_preprocessor: Optional[Callable]) -> Optional[Callable]:
-    """
-    Factory function to properly capture hook instances in closure.
-
-    This prevents Python closure bugs where loop variables are captured by reference
-    instead of by value, ensuring each agent gets its own independent hook with
-    properly captured variables.
-
-    Args:
-        trimming_hook: Optional message trimming hook (sync function)
-        img_preprocessor: Optional image preprocessing hook (async function)
-
-    Returns:
-        Combined async hook function or None if neither hook is provided
-    """
+    """Factory function to properly capture hook instances in closure."""
     if trimming_hook and img_preprocessor:
         async def combined_hook(state, config):
-            # 1. Trim first (when images are just storage paths ~50 tokens each)
-            trimming_result = trimming_hook(state)  # Trimming hook is sync, no await
+            trimming_result = trimming_hook(state)
             state = {**state, **trimming_result}
-            # 2. Then convert images to signed URLs (or base64 in local dev)
             state = await img_preprocessor(state, config)
             return state
         return combined_hook
     elif img_preprocessor:
         return img_preprocessor
     elif trimming_hook:
-        # Wrap trimming_hook to accept (state, config) signature expected by LangGraph
         def wrapped_trimming_hook(state, config):
             return trimming_hook(state)
         return wrapped_trimming_hook
@@ -230,8 +217,8 @@ def _create_combined_hook(trimming_hook: Optional[Callable], img_preprocessor: O
 
 
 async def _get_agents(
-    tools,
-    instructions,
+    tools: List[BaseTool],
+    instructions: str,
     subagents: list[SerializableSubAgent],
     model,
     state_schema,
@@ -239,7 +226,15 @@ async def _get_agents(
     config: Optional[RunnableConfig] = None,
     include_general_purpose: bool = True,
 ):
-    all_builtin_tools = [write_todos, write_file, read_file, ls, edit_file]
+    """Build sub-agent instances for skills deepagent.
+
+    Key differences from base deepagent:
+    - Only write_todos as built-in tool (no state file tools)
+    - execute_in_sandbox tool comes from `tools` param (passed from main agent)
+    - Uses SkillsDeepAgentState
+    """
+    # Only write_todos as built-in - sandbox tool comes from `tools` param
+    all_builtin_tools = [write_todos]
     agents = {}
 
     # Get LangConnect URL from config
@@ -254,7 +249,6 @@ async def _get_agents(
 
     # Only add general-purpose agent if enabled
     if include_general_purpose:
-        # Create trimming hook for general-purpose agent
         gp_model_name = model if isinstance(model, str) else "anthropic:claude-sonnet-4-5-20250929"
         gp_model_info = get_model_info(gp_model_name)
         gp_trimming_hook = None
@@ -270,39 +264,33 @@ async def _get_agents(
                     include_system=True,
                 )
             )
-            logger.info(
-                "[SUB_AGENT] trimming_enabled agent=general-purpose max_tokens=%s",
-                gp_model_info.trimming_max_tokens
-            )
+            logger.info("[SKILLS_SUB_AGENT] trimming_enabled agent=general-purpose max_tokens=%s",
+                       gp_model_info.trimming_max_tokens)
 
-        # Combine image preprocessor with trimming hook
-        # IMPORTANT: Trim FIRST (when images are storage paths), THEN convert images
         gp_combined_hook = _create_combined_hook(gp_trimming_hook, image_preprocessor)
 
-        # Build enhanced prompt for general-purpose agent with filesystem instructions
+        # Build enhanced prompt for general-purpose agent
         # Note: general-purpose agent has no allocated skills, so skills=None
         gp_enhanced_prompt = build_subagent_system_prompt(GENERAL_PURPOSE_SUBAGENT_PROMPT, skills=None)
-        logger.info("[SUB_AGENT] prompt_enhanced agent=general-purpose skills_count=0")
+        logger.info("[SKILLS_SUB_AGENT] prompt_enhanced agent=general-purpose skills_count=0")
+
+        # Include tools from parent (which includes execute_in_sandbox)
+        gp_tools = list(all_builtin_tools) + list(tools)
 
         agents["general-purpose"] = custom_create_react_agent(
             model,
             prompt=gp_enhanced_prompt,
-            tools=tools,
+            tools=gp_tools,
             state_schema=state_schema,
             checkpointer=False,
             post_model_hook=post_model_hook,
-            pre_model_hook=gp_combined_hook,  # Use combined hook
+            pre_model_hook=gp_combined_hook,
             enable_image_processing=False
         )
-    # Parent tools (selected for main agent)
-    parent_tools_by_name = {
-        t.name: t
-        for t in ([tool(t) if not isinstance(t, BaseTool) else t for t in tools])
-    }
+
     # Built-in tools that every agent should have
     builtin_tools_by_name = {
-        t.name: t
-        for t in ([tool(t) if not isinstance(t, BaseTool) else t for t in all_builtin_tools])
+        t.name: t for t in all_builtin_tools
     }
 
     for _agent in subagents:
@@ -310,24 +298,18 @@ async def _get_agents(
         if isinstance(_agent, dict):
             agent_name = _agent.get('name', 'unnamed_agent')
             agent_tools = _agent.get('tools', [])
-            # Check for model_name field first (new centralized config), then fall back to legacy 'model' field
             agent_model = _agent.get('model_name', None) or _agent.get('model', None)
             agent_prompt = _agent.get('prompt', 'You are a helpful assistant.')
-            # Extract skills_config for skills-enabled sub-agents
             agent_skills_config = _agent.get('skills_config')
-            logger.info("[SUB_AGENT] config_extraction agent=%s prompt_preview='%s...' skills_config=%s",
-                       agent_name, agent_prompt[:50] if agent_prompt else 'None', agent_skills_config is not None)
         else:
-            # Handle SerializableSubAgent object
             agent_name = getattr(_agent, 'name', 'unnamed_agent')
             agent_tools = getattr(_agent, 'tools', [])
-            # Check for model_name field first (new centralized config), then fall back to legacy 'model' field
             agent_model = getattr(_agent, 'model_name', None) or getattr(_agent, 'model', None)
             agent_prompt = getattr(_agent, 'prompt', 'You are a helpful assistant.')
-            # Extract skills_config for skills-enabled sub-agents
             agent_skills_config = getattr(_agent, 'skills_config', None)
-            logger.info("[SUB_AGENT] config_extraction agent=%s prompt_preview='%s...' skills_config=%s (object)",
-                       agent_name, agent_prompt[:50] if agent_prompt else 'None', agent_skills_config is not None)
+
+        logger.info("[SKILLS_SUB_AGENT] config_extraction agent=%s skills_config=%s",
+                   agent_name, agent_skills_config is not None)
 
         # Convert skills_config to list of skills for prompt building
         agent_skills = []
@@ -342,57 +324,36 @@ async def _get_agents(
             sub_specific_tools = await _get_tools_for_sub_agent(
                 _agent, list(builtin_tools_by_name.values()), config
             )
-            # Combine ONLY sub-agent specific tools with built-in tools (do NOT inherit parent's selected MCP tools)
+            # Combine: built-ins + parent tools (execute_in_sandbox) + sub-agent specific
             combined_tools_by_name = {}
-            for tool_obj in sub_specific_tools + list(builtin_tools_by_name.values()):
+            for tool_obj in sub_specific_tools + list(builtin_tools_by_name.values()) + list(tools):
                 combined_tools_by_name[getattr(tool_obj, "name", str(tool_obj))] = tool_obj
             _tools = list(combined_tools_by_name.values())
-            logger.info("[SUB_AGENT] tools_composition agent=%s sub_specific=%s builtin=%s final=%s",
-                        agent_name, len(sub_specific_tools), len(builtin_tools_by_name), len(_tools))
+            logger.info("[SKILLS_SUB_AGENT] tools_composition agent=%s total=%s",
+                       agent_name, len(_tools))
         else:
-            if agent_tools:
-                _tools = [
-                    builtin_tools_by_name[t] for t in agent_tools if t in builtin_tools_by_name
-                ]
-            else:
-                _tools = list(builtin_tools_by_name.values())
+            _tools = list(builtin_tools_by_name.values()) + list(tools)
 
         if agent_model:
             if isinstance(agent_model, str):
-                # Direct model name string (new centralized config format)
-                # Use init_model_simple to get correct max_tokens from registry
-                from agent_platform.utils.model_utils import init_model_simple
                 sub_model = init_model_simple(model_name=agent_model)
-                logger.info("[SUB_AGENT] model_initialized agent=%s model=%s source=string", agent_name, agent_model)
+                logger.info("[SKILLS_SUB_AGENT] model_initialized agent=%s model=%s", agent_name, agent_model)
             elif isinstance(agent_model, dict):
-                # Legacy dict format with 'model_name' or 'model' key
-                if 'model_name' in agent_model or 'model' in agent_model:
-                    model_name = agent_model.get('model_name') or agent_model.get('model')
-                    # Use init_model_simple to get correct max_tokens from registry
-                    from agent_platform.utils.model_utils import init_model_simple
-                    sub_model = init_model_simple(model_name=model_name)
-                    logger.info("[SUB_AGENT] model_initialized agent=%s model=%s source=dict", agent_name, model_name)
-                else:
-                    # Fallback for legacy format
-                    sub_model = agent_model
-                    logger.info("[SUB_AGENT] model_initialized agent=%s source=legacy_dict", agent_name)
+                model_name = agent_model.get('model_name') or agent_model.get('model')
+                sub_model = init_model_simple(model_name=model_name)
+                logger.info("[SKILLS_SUB_AGENT] model_initialized agent=%s model=%s", agent_name, model_name)
             else:
-                # Already a model instance
                 sub_model = agent_model
-                logger.info("[SUB_AGENT] model_initialized agent=%s source=instance", agent_name)
         else:
-            # Use parent model
             sub_model = model
-            logger.info("[SUB_AGENT] model_initialized agent=%s source=parent", agent_name)
+            logger.info("[SKILLS_SUB_AGENT] model_initialized agent=%s source=parent", agent_name)
 
-        # Create trimming hook for this sub-agent based on its model
+        # Create trimming hook for this sub-agent
         sub_model_name = None
         if isinstance(agent_model, str):
             sub_model_name = agent_model
         elif isinstance(agent_model, dict):
             sub_model_name = agent_model.get('model_name') or agent_model.get('model')
-
-        # Fallback to parent model name or default
         if not sub_model_name:
             sub_model_name = model if isinstance(model, str) else "anthropic:claude-sonnet-4-5-20250929"
 
@@ -410,23 +371,16 @@ async def _get_agents(
                     include_system=True,
                 )
             )
-            logger.info(
-                "[SUB_AGENT] trimming_enabled agent=%s max_tokens=%s",
-                agent_name,
-                sub_model_info.trimming_max_tokens
-            )
+            logger.info("[SKILLS_SUB_AGENT] trimming_enabled agent=%s max_tokens=%s",
+                       agent_name, sub_model_info.trimming_max_tokens)
 
-        # Combine image preprocessor with trimming hook
-        # IMPORTANT: Trim FIRST (when images are storage paths), THEN convert images
         sub_combined_hook = _create_combined_hook(sub_trimming_hook, image_preprocessor)
 
-        # Build enhanced system prompt with sub-agent context and skills (if any)
-        # This adds filesystem instructions, behavioral guidelines, and skill documentation
+        # Build enhanced system prompt with sub-agent context and skills
         enhanced_prompt = build_subagent_system_prompt(agent_prompt, agent_skills)
-        logger.info("[SUB_AGENT] prompt_enhanced agent=%s skills_count=%s user_prompt_preview='%s...'",
-                   agent_name, len(agent_skills), agent_prompt[:80] if agent_prompt else 'None')
+        logger.info("[SKILLS_SUB_AGENT] prompt_enhanced agent=%s skills_count=%s",
+                   agent_name, len(agent_skills))
 
-        logger.info("[SUB_AGENT] tools_assigned agent=%s total=%s", agent_name, len(_tools))
         agents[agent_name] = custom_create_react_agent(
             sub_model,
             prompt=enhanced_prompt,
@@ -434,7 +388,7 @@ async def _get_agents(
             state_schema=state_schema,
             checkpointer=False,
             post_model_hook=post_model_hook,
-            pre_model_hook=sub_combined_hook,  # Use combined hook
+            pre_model_hook=sub_combined_hook,
             enable_image_processing=False,
         )
 
@@ -442,14 +396,13 @@ async def _get_agents(
 
 
 def _get_subagent_description(subagents):
+    """Build list of sub-agent descriptions for task tool."""
     descriptions = []
     for _agent in subagents:
-        # Handle both dictionary (from frontend JSON) and object formats
         if isinstance(_agent, dict):
             name = _agent.get('name', 'Unnamed Agent')
             description = _agent.get('description', 'No description')
         else:
-            # Handle SerializableSubAgent object
             name = getattr(_agent, 'name', 'Unnamed Agent')
             description = getattr(_agent, 'description', 'No description')
         descriptions.append(f"- {name}: {description}")
@@ -457,8 +410,8 @@ def _get_subagent_description(subagents):
 
 
 def _create_task_tool(
-    tools,
-    instructions,
+    tools: List[BaseTool],
+    instructions: str,
     subagents: list[SerializableSubAgent],
     model,
     state_schema,
@@ -466,22 +419,21 @@ def _create_task_tool(
     config: Optional[RunnableConfig] = None,
     include_general_purpose: bool = True,
 ):
+    """Create async task tool for delegating to sub-agents."""
     other_agents_string = _get_subagent_description(subagents)
 
     # Build description conditionally
     if not include_general_purpose and not other_agents_string:
-        # No agents available - update description accordingly
-        task_description = """Launch a new agent to handle complex, multi-step tasks autonomously.
+        task_description = """Delegate tasks to sub-agents.
 
-Note: No sub-agents are currently configured. Please add custom sub-agents in the agent configuration to enable task delegation.
+Note: No sub-agents are currently configured. Add custom sub-agents in agent configuration.
 """ + TASK_DESCRIPTION_SUFFIX
     elif include_general_purpose:
         task_description = TASK_DESCRIPTION_PREFIX.format(other_agents="\n".join(other_agents_string)) + TASK_DESCRIPTION_SUFFIX
     else:
-        # Has custom subagents but no general-purpose
-        task_description_no_gp = """Launch a new agent to handle complex, multi-step tasks autonomously.
+        task_description_no_gp = """Delegate tasks to specialized sub-agents.
 
-Available agent types and the tools they have access to:
+Available agents:
 {other_agents}
 """
         task_description = task_description_no_gp.format(other_agents="\n".join(other_agents_string)) + TASK_DESCRIPTION_SUFFIX
@@ -490,7 +442,7 @@ Available agent types and the tools they have access to:
     async def task(
         description: str,
         subagent_type: str,
-        state: Annotated[DeepAgentState, InjectedState],
+        state: Annotated[SkillsDeepAgentState, InjectedState],
         tool_call_id: Annotated[str, InjectedToolCallId],
     ):
         agents = await _get_agents(
@@ -512,7 +464,7 @@ Available agent types and the tools they have access to:
         result = await sub_agent.ainvoke(sub_agent_state)
         return Command(
             update={
-                "files": result.get("files", {}),
+                # Note: No "files" update - skills_deepagent doesn't use state files
                 "messages": [
                     ToolMessage(
                         result["messages"][-1].content, tool_call_id=tool_call_id
@@ -525,8 +477,8 @@ Available agent types and the tools they have access to:
 
 
 def _create_sync_task_tool(
-    tools,
-    instructions,
+    tools: List[BaseTool],
+    instructions: str,
     subagents: list[SerializableSubAgent],
     model,
     state_schema,
@@ -534,7 +486,7 @@ def _create_sync_task_tool(
     config: Optional[RunnableConfig] = None,
     include_general_purpose: bool = True,
 ):
-    # This is a sync function, so we need to run the async _get_agents in an event loop.
+    """Create sync task tool for delegating to sub-agents."""
     import asyncio
 
     try:
@@ -543,33 +495,19 @@ def _create_sync_task_tool(
         loop = None
 
     if loop and loop.is_running():
-        # This is for cases like Jupyter notebooks where an event loop is already running
         import nest_asyncio
-
         nest_asyncio.apply()
         agents = asyncio.run(
             _get_agents(
-                tools,
-                instructions,
-                subagents,
-                model,
-                state_schema,
-                post_model_hook,
-                config,
-                include_general_purpose,
+                tools, instructions, subagents, model, state_schema,
+                post_model_hook, config, include_general_purpose,
             )
         )
     else:
         agents = asyncio.run(
             _get_agents(
-                tools,
-                instructions,
-                subagents,
-                model,
-                state_schema,
-                post_model_hook,
-                config,
-                include_general_purpose,
+                tools, instructions, subagents, model, state_schema,
+                post_model_hook, config, include_general_purpose,
             )
         )
 
@@ -577,18 +515,16 @@ def _create_sync_task_tool(
 
     # Build description conditionally
     if not include_general_purpose and not other_agents_string:
-        # No agents available - update description accordingly
-        task_description = """Launch a new agent to handle complex, multi-step tasks autonomously.
+        task_description = """Delegate tasks to sub-agents.
 
-Note: No sub-agents are currently configured. Please add custom sub-agents in the agent configuration to enable task delegation.
+Note: No sub-agents are currently configured. Add custom sub-agents in agent configuration.
 """ + TASK_DESCRIPTION_SUFFIX
     elif include_general_purpose:
         task_description = TASK_DESCRIPTION_PREFIX.format(other_agents="\n".join(other_agents_string)) + TASK_DESCRIPTION_SUFFIX
     else:
-        # Has custom subagents but no general-purpose
-        task_description_no_gp = """Launch a new agent to handle complex, multi-step tasks autonomously.
+        task_description_no_gp = """Delegate tasks to specialized sub-agents.
 
-Available agent types and the tools they have access to:
+Available agents:
 {other_agents}
 """
         task_description = task_description_no_gp.format(other_agents="\n".join(other_agents_string)) + TASK_DESCRIPTION_SUFFIX
@@ -597,19 +533,18 @@ Available agent types and the tools they have access to:
     def task(
         description: str,
         subagent_type: str,
-        state: Annotated[DeepAgentState, InjectedState],
+        state: Annotated[SkillsDeepAgentState, InjectedState],
         tool_call_id: Annotated[str, InjectedToolCallId],
     ):
         if subagent_type not in agents:
             return f"Error: invoked agent of type {subagent_type}, the only allowed types are {[f'`{k}`' for k in agents]}"
         sub_agent = agents[subagent_type]
-        # Create a new state dict for the sub-agent invocation
         sub_agent_state = state.copy()
         sub_agent_state["messages"] = [HumanMessage(content=description)]
         result = sub_agent.invoke(sub_agent_state)
         return Command(
             update={
-                "files": result.get("files", {}),
+                # Note: No "files" update - skills_deepagent doesn't use state files
                 "messages": [
                     ToolMessage(
                         result["messages"][-1].content, tool_call_id=tool_call_id
