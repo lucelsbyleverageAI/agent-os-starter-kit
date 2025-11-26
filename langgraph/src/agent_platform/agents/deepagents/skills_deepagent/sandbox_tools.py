@@ -173,8 +173,16 @@ async def get_or_create_sandbox(
     if not e2b_api_key:
         log.warning("E2B_API_KEY not set - sandbox features will be limited")
 
-    # Create new sandbox
-    sandbox = Sandbox(timeout=timeout, api_key=e2b_api_key)
+    # Get custom template ID (if set) - uses pre-built template with document processing libraries
+    template_id = os.environ.get("E2B_TEMPLATE_ID")
+
+    # Create new sandbox (with custom template if configured)
+    if template_id:
+        log.info(f"Creating sandbox with custom template: {template_id}")
+        sandbox = Sandbox(template=template_id, timeout=timeout, api_key=e2b_api_key)
+    else:
+        log.info("Creating sandbox with default E2B code-interpreter template")
+        sandbox = Sandbox(timeout=timeout, api_key=e2b_api_key)
 
     # Create directory structure
     sandbox.files.make_dir("/sandbox/skills")
@@ -264,7 +272,7 @@ def create_sandbox_tools(thread_id: str) -> Tuple[Any, Any]:
         timeout_seconds: int = 120
     ) -> str:
         """
-        Execute code using the Jupyter-style code interpreter.
+        Execute code using the Jupyter-style code interpreter in the sandbox.
 
         **Use this tool for:**
         - Writing files (use Python's open() or pathlib)
@@ -273,6 +281,27 @@ def create_sandbox_tools(thread_id: str) -> Tuple[Any, Any]:
         - Any task requiring proper handling of multi-line strings
 
         **Languages:** python (default), bash, javascript
+
+        **Pre-installed Libraries (no pip install needed):**
+
+        Document Processing:
+        - pypdf, pdfplumber, PyMuPDF (fitz) - PDF reading/writing
+        - python-docx - Word documents (.docx)
+        - python-pptx - PowerPoint (.pptx)
+        - openpyxl, xlrd - Excel files (.xlsx, .xls)
+
+        Data Processing:
+        - pandas, numpy - DataFrames and numerical computing
+        - beautifulsoup4, lxml - HTML/XML parsing
+        - markdownify - HTML to Markdown conversion
+        - Pillow - Image processing
+        - chardet - Character encoding detection
+
+        Utilities:
+        - requests, httpx - HTTP clients
+        - pyyaml - YAML parsing
+        - python-dateutil - Date parsing
+        - tabulate - Pretty-print tables
 
         **Examples:**
 
@@ -289,13 +318,15 @@ def create_sandbox_tools(thread_id: str) -> Tuple[Any, Any]:
         ''')
         ```
 
-        Process data:
+        Process a PDF:
         ```
         run_code(code='''
-        import json
-        data = {"key": "value", "items": [1, 2, 3]}
-        with open("/sandbox/outputs/data.json", "w") as f:
-            json.dump(data, f, indent=2)
+        import pdfplumber
+        with pdfplumber.open("/sandbox/user_uploads/document.pdf") as pdf:
+            text = ""
+            for page in pdf.pages:
+                text += page.extract_text() or ""
+        print(f"Extracted {len(text)} characters")
         ''')
         ```
 
