@@ -40,6 +40,17 @@ Execute code using the Jupyter-style interpreter. **Use for writing files and co
 
 ### run_command
 Execute shell commands. **Use for quick operations (ls, cat) and running scripts.**
+
+### publish_file_to_user
+Share a file you've created with the user. This uploads the file and shows a download card in the chat.
+**Use when you've finished a deliverable the user needs** (report, document, processed data, etc.).
+```
+publish_file_to_user(
+    file_path="/sandbox/outputs/report.docx",
+    display_name="Monthly Report",
+    description="Summary of findings for October"
+)
+```
 """
 
 # Built-in tools section (without task tool)
@@ -56,6 +67,17 @@ Execute code using the Jupyter-style interpreter. **Use for writing files and co
 
 ### run_command
 Execute shell commands. **Use for quick operations (ls, cat) and running scripts.**
+
+### publish_file_to_user
+Share a file you've created with the user. This uploads the file and shows a download card in the chat.
+**Use when you've finished a deliverable the user needs** (report, document, processed data, etc.).
+```
+publish_file_to_user(
+    file_path="/sandbox/outputs/report.docx",
+    display_name="Monthly Report",
+    description="Summary of findings for October"
+)
+```
 """
 
 # Platform appendix that gets added after user's custom instructions (MAIN AGENT)
@@ -136,7 +158,9 @@ run_command(command="pip install pandas")
 
 **Before delegating to sub-agents**: Write context to `/sandbox/shared/`.
 
-**When producing deliverables**: Create files in `/sandbox/outputs/` and inform the user.
+**When producing deliverables**:
+1. Create the file in `/sandbox/outputs/`
+2. Use `publish_file_to_user` to share it - this shows a download card in the chat
 
 ---
 
@@ -174,6 +198,7 @@ run_command(command="cat /sandbox/skills/<skill-name>/SKILL.md")
 - **Check user uploads first**: Files are in `/sandbox/user_uploads/`
 - **Read SKILL.md before using skills**: Never skip this step
 - **Use skill scripts**: Don't reinvent what scripts already do
+- **Publish deliverables**: Use `publish_file_to_user` so the user can download your work
 - **Write outputs to files**: Don't return large content in messages
 - **Use absolute paths**: Always use `/sandbox/...` paths
 

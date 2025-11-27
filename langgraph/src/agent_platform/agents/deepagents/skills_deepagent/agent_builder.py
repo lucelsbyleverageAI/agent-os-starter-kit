@@ -5,6 +5,7 @@ This is a local version of the agent builder that:
 2. Includes write_todos as built-in, plus run_code and run_command from tools param
 3. Uses prompts from prompts.py (which includes tools, skills, sandbox, and date)
 4. Does NOT append any additional prompt content (prompts.py handles everything)
+5. Uses custom file attachment processor that downloads binaries from storage
 """
 
 from typing import Sequence, Union, Callable, Any, Optional, Type, TypeVar, List
@@ -17,10 +18,12 @@ try:
     from .state import SkillsDeepAgentState
     from .toolkit import write_todos
     from .sub_agent import _create_task_tool, _create_sync_task_tool
+    from .file_attachment_processing import create_file_attachment_node
 except ImportError:
     from agent_platform.agents.deepagents.skills_deepagent.state import SkillsDeepAgentState
     from agent_platform.agents.deepagents.skills_deepagent.toolkit import write_todos
     from agent_platform.agents.deepagents.skills_deepagent.sub_agent import _create_task_tool, _create_sync_task_tool
+    from agent_platform.agents.deepagents.skills_deepagent.file_attachment_processing import create_file_attachment_node
 
 from agent_platform.agents.deepagents.custom_react_agent import custom_create_react_agent
 from agent_platform.agents.deepagents.model import get_default_model
@@ -45,6 +48,9 @@ def skills_agent_builder(
     is_async: bool = False,
     runnable_config: Optional[RunnableConfig] = None,
     include_general_purpose_agent: bool = True,
+    thread_id: Optional[str] = None,
+    langconnect_url: str = "http://langconnect:8080",
+    access_token: Optional[str] = None,
 ):
     """Build a Skills DeepAgent with sandbox-only filesystem.
 
@@ -61,6 +67,9 @@ def skills_agent_builder(
         is_async: Whether to use async task tool
         runnable_config: LangGraph runtime configuration
         include_general_purpose_agent: Whether to include general-purpose sub-agent
+        thread_id: Thread ID for sandbox file attachment processing
+        langconnect_url: LangConnect URL for storage downloads
+        access_token: User access token for storage downloads
     """
     has_subagents = (subagents and len(subagents) > 0) or include_general_purpose_agent
 
@@ -130,6 +139,16 @@ def skills_agent_builder(
     else:
         all_tools = built_in_tools + list(tools)
 
+    # Create custom file attachment processor for skills_deepagent
+    # This downloads binaries from storage and writes to sandbox
+    file_attachment_processor = None
+    if thread_id:
+        file_attachment_processor = create_file_attachment_node(
+            thread_id=thread_id,
+            langconnect_url=langconnect_url,
+            access_token=access_token,
+        )
+
     return custom_create_react_agent(
         model,
         prompt=prompt,
@@ -139,6 +158,7 @@ def skills_agent_builder(
         pre_model_hook=combined_pre_hook,
         config_schema=config_schema,
         checkpointer=checkpointer,
+        file_attachment_processor=file_attachment_processor,
     )
 
 
@@ -154,6 +174,9 @@ def async_create_skills_agent(
     pre_model_hook: Optional[Callable] = None,
     runnable_config: Optional[RunnableConfig] = None,
     include_general_purpose_agent: bool = True,
+    thread_id: Optional[str] = None,
+    langconnect_url: str = "http://langconnect:8080",
+    access_token: Optional[str] = None,
 ):
     """Create an async Skills DeepAgent."""
     return skills_agent_builder(
@@ -169,6 +192,9 @@ def async_create_skills_agent(
         is_async=True,
         runnable_config=runnable_config,
         include_general_purpose_agent=include_general_purpose_agent,
+        thread_id=thread_id,
+        langconnect_url=langconnect_url,
+        access_token=access_token,
     )
 
 
@@ -184,6 +210,9 @@ def create_skills_agent(
     pre_model_hook: Optional[Callable] = None,
     runnable_config: Optional[RunnableConfig] = None,
     include_general_purpose_agent: bool = True,
+    thread_id: Optional[str] = None,
+    langconnect_url: str = "http://langconnect:8080",
+    access_token: Optional[str] = None,
 ):
     """Create a sync Skills DeepAgent."""
     return skills_agent_builder(
@@ -199,4 +228,7 @@ def create_skills_agent(
         is_async=False,
         runnable_config=runnable_config,
         include_general_purpose_agent=include_general_purpose_agent,
+        thread_id=thread_id,
+        langconnect_url=langconnect_url,
+        access_token=access_token,
     )
