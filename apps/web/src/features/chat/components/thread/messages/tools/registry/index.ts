@@ -4,7 +4,8 @@ import {
   SimpleToolCall,
   ResearchProgressTool,
   FinalResearchReportTool,
-  GenerateProcessOnePagerTool
+  GenerateProcessOnePagerTool,
+  PublishFileTool
 } from "./components";
 // Unused imports removed
 
@@ -27,6 +28,10 @@ export const TOOL_REGISTRY: ToolRegistry = {
     component: GenerateProcessOnePagerTool,
   },
 
+  // Skills DeepAgent file publishing tool
+  "*:publish_file_to_user": {
+    component: PublishFileTool,
+  },
 
   // Example: Global tools (available for all graphs)
   // "*:arcade_CodeSandbox_RunCode": {

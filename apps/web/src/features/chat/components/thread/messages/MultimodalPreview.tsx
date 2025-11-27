@@ -23,6 +23,12 @@ export const MultimodalPreview: React.FC<MultimodalPreviewProps> = ({
   expandable = false,
   onExpand,
 }) => {
+  // Hidden XML blocks for backend processing - don't render in UI
+  // These are used for sandbox file transfer metadata
+  if ((block as any).metadata?.is_hidden_xml) {
+    return null;
+  }
+
   // Image block with base64 data (legacy)
   if (
     block.type === "image" &&

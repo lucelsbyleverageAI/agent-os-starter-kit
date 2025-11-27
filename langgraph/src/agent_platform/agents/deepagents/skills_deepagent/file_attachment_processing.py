@@ -1,13 +1,18 @@
 """File attachment processing for Skills DeepAgent - writes to sandbox.
 
-This is a modified version of deepagents/file_attachment_processing.py that:
-1. Writes uploaded files to /sandbox/user_uploads/ instead of state.files
-2. Uses SkillsDeepAgentState (no files field)
-3. Requires a sandbox to be initialized for the thread
+This module handles transferring user-uploaded files to the E2B sandbox.
+
+Supported formats:
+1. <UserUploadedImage> - Binary images downloaded from storage
+2. <UserUploadedDocument> - Binary documents downloaded from storage
+3. <UserUploadedAttachment> - Legacy text-only format (backwards compatibility)
+
+Files are downloaded from Supabase Storage and written to /sandbox/user_uploads/.
 """
 
 import re
-from typing import Annotated, Optional
+import httpx
+from typing import Annotated, Optional, List, Dict, Any
 from langchain_core.messages import HumanMessage
 from langgraph.types import Command
 from langgraph.prebuilt import InjectedState
@@ -23,73 +28,197 @@ except ImportError:
 logger = get_logger(__name__)
 
 
+def _extract_xml_field(content: str, field_name: str) -> Optional[str]:
+    """Extract a field value from XML content."""
+    pattern = rf'<{field_name}>(.*?)</{field_name}>'
+    match = re.search(pattern, content, re.DOTALL)
+    return match.group(1).strip() if match else None
+
+
+def _download_from_storage(
+    storage_path: str,
+    bucket: str,
+    langconnect_url: str,
+    access_token: str,
+) -> bytes:
+    """Download a file from Supabase Storage via LangConnect.
+
+    Args:
+        storage_path: Path within the bucket (e.g., "user_id/timestamp_filename.xlsx")
+        bucket: Storage bucket name (e.g., "chat-uploads")
+        langconnect_url: LangConnect API URL
+        access_token: User's access token for authentication
+
+    Returns:
+        File content as bytes
+
+    Raises:
+        Exception if download fails
+    """
+    # Use the thread-file endpoint which supports both buckets
+    url = f"{langconnect_url}/storage/thread-file"
+    params = {
+        "storage_path": storage_path,
+        "bucket": bucket,
+    }
+    headers = {
+        "Authorization": f"Bearer {access_token}",
+    }
+
+    with httpx.Client(timeout=60.0) as client:
+        response = client.get(url, params=params, headers=headers)
+        response.raise_for_status()
+        return response.content
+
+
+def _parse_binary_uploads(message_content: str) -> List[Dict[str, Any]]:
+    """Parse UserUploadedImage and UserUploadedDocument XML blocks.
+
+    Returns list of dicts with:
+    - type: "image" or "document"
+    - file_name: Original filename
+    - file_type: MIME type
+    - storage_path: Path in Supabase Storage
+    - sandbox_path: Target path in sandbox
+    - preview: Optional text preview (documents only)
+    """
+    uploads = []
+
+    # Parse UserUploadedImage blocks
+    image_pattern = r'<UserUploadedImage[^>]*>(.*?)</UserUploadedImage>'
+    for match in re.finditer(image_pattern, message_content, re.DOTALL):
+        content = match.group(1)
+        file_name = _extract_xml_field(content, 'FileName')
+        file_type = _extract_xml_field(content, 'FileType')
+        storage_path = _extract_xml_field(content, 'StoragePath')
+        sandbox_path = _extract_xml_field(content, 'SandboxPath')
+
+        if file_name and storage_path and sandbox_path:
+            uploads.append({
+                'type': 'image',
+                'file_name': file_name,
+                'file_type': file_type or 'image/png',
+                'storage_path': storage_path,
+                'sandbox_path': sandbox_path,
+            })
+
+    # Parse UserUploadedDocument blocks
+    doc_pattern = r'<UserUploadedDocument[^>]*>(.*?)</UserUploadedDocument>'
+    for match in re.finditer(doc_pattern, message_content, re.DOTALL):
+        content = match.group(1)
+        file_name = _extract_xml_field(content, 'FileName')
+        file_type = _extract_xml_field(content, 'FileType')
+        storage_path = _extract_xml_field(content, 'StoragePath')
+        sandbox_path = _extract_xml_field(content, 'SandboxPath')
+        preview = _extract_xml_field(content, 'Preview')
+
+        if file_name and storage_path and sandbox_path:
+            uploads.append({
+                'type': 'document',
+                'file_name': file_name,
+                'file_type': file_type or 'application/octet-stream',
+                'storage_path': storage_path,
+                'sandbox_path': sandbox_path,
+                'preview': preview,
+            })
+
+    return uploads
+
+
+def _parse_legacy_attachments(message_content: str) -> List[Dict[str, Any]]:
+    """Parse legacy UserUploadedAttachment XML blocks (text only).
+
+    Returns list of dicts with:
+    - type: "legacy"
+    - file_name: Original filename
+    - file_type: MIME type
+    - content: Extracted text content
+    """
+    attachments = []
+
+    attachment_pattern = r'<UserUploadedAttachment>(.*?)</UserUploadedAttachment>'
+    for match in re.finditer(attachment_pattern, message_content, re.DOTALL):
+        content = match.group(1)
+        file_name = _extract_xml_field(content, 'FileName')
+        file_type = _extract_xml_field(content, 'FileType')
+        text_content = _extract_xml_field(content, 'Content')
+
+        if file_name and text_content:
+            attachments.append({
+                'type': 'legacy',
+                'file_name': file_name,
+                'file_type': file_type or 'text/plain',
+                'content': text_content,
+            })
+
+    return attachments
+
+
 def extract_file_attachments_to_sandbox(
     state: Annotated[SkillsDeepAgentState, InjectedState],
     thread_id: str,
+    langconnect_url: str = "http://langconnect:8080",
+    access_token: Optional[str] = None,
 ) -> Command:
     """Extract file attachments from messages and write to sandbox.
 
-    Files are written to /sandbox/user_uploads/<filename>.md
+    Handles three formats:
+    1. UserUploadedImage - Downloads binary from storage
+    2. UserUploadedDocument - Downloads binary from storage
+    3. UserUploadedAttachment - Legacy text-only format
+
+    Files are written to /sandbox/user_uploads/
 
     Returns Command with empty update (files are in sandbox, not state).
     """
+    logger.info("[SKILLS_FILE_ATTACH] Starting file attachment extraction for thread: %s", thread_id)
+
     messages = state.get("messages", [])
     if not messages:
+        logger.info("[SKILLS_FILE_ATTACH] No messages in state")
         return Command(update={})
 
     latest_message = messages[-1]
+    logger.info("[SKILLS_FILE_ATTACH] Latest message type: %s", type(latest_message).__name__)
+
     if not isinstance(latest_message, HumanMessage):
+        logger.info("[SKILLS_FILE_ATTACH] Latest message is not HumanMessage, skipping")
         return Command(update={})
 
-    # Extract file attachments from the message content
-    message_content = None
+    # Collect all text content from the message
+    message_texts = []
 
-    # Handle both string and list content formats
+    logger.info("[SKILLS_FILE_ATTACH] Message content type: %s", type(latest_message.content).__name__)
+
     if isinstance(latest_message.content, str):
-        message_content = latest_message.content
+        message_texts.append(latest_message.content)
+        logger.info("[SKILLS_FILE_ATTACH] Content is string, length: %d", len(latest_message.content))
     elif isinstance(latest_message.content, list):
-        # Collect ALL text blocks that contain UserUploadedAttachment
-        attachment_texts = []
-        for content_item in latest_message.content:
-            if isinstance(content_item, dict) and content_item.get('type') == 'text':
-                text = content_item.get('text', '')
-                if '<UserUploadedAttachment>' in text:
-                    attachment_texts.append(text)
-        # Concatenate all attachment texts
-        if attachment_texts:
-            message_content = '\n'.join(attachment_texts)
+        logger.info("[SKILLS_FILE_ATTACH] Content is list with %d items", len(latest_message.content))
+        for i, content_item in enumerate(latest_message.content):
+            logger.info("[SKILLS_FILE_ATTACH] Item %d: type=%s", i, type(content_item).__name__)
+            if isinstance(content_item, dict):
+                item_type = content_item.get('type', 'unknown')
+                logger.info("[SKILLS_FILE_ATTACH] Item %d is dict with type=%s", i, item_type)
+                if item_type == 'text':
+                    text = content_item.get('text', '')
+                    message_texts.append(text)
+                    # Log first 200 chars of text to help debug
+                    preview = text[:200] if len(text) > 200 else text
+                    logger.info("[SKILLS_FILE_ATTACH] Item %d text preview: %s", i, preview)
 
-    if not message_content or '<UserUploadedAttachment>' not in message_content:
-        logger.debug("[SKILLS_FILE_ATTACH] No file attachments found in message")
-        return Command(update={})
+    message_content = '\n'.join(message_texts)
+    logger.info("[SKILLS_FILE_ATTACH] Combined message content length: %d", len(message_content))
 
-    # Extract all UserUploadedAttachment blocks using regex
-    attachment_pattern = r'<UserUploadedAttachment>(.*?)</UserUploadedAttachment>'
-    attachment_matches = re.finditer(attachment_pattern, message_content, re.DOTALL)
+    # Check for any upload markers
+    has_binary_uploads = '<UserUploadedImage' in message_content or '<UserUploadedDocument' in message_content
+    has_legacy_attachments = '<UserUploadedAttachment>' in message_content
 
-    attachments_found = []
-    for match in attachment_matches:
-        attachment_content = match.group(1)
+    logger.info("[SKILLS_FILE_ATTACH] has_binary_uploads=%s, has_legacy_attachments=%s",
+                has_binary_uploads, has_legacy_attachments)
 
-        # Extract FileType, FileName, and Content
-        file_type_match = re.search(r'<FileType>(.*?)</FileType>', attachment_content, re.DOTALL)
-        file_name_match = re.search(r'<FileName>(.*?)</FileName>', attachment_content, re.DOTALL)
-        content_match = re.search(r'<Content>(.*?)</Content>', attachment_content, re.DOTALL)
-
-        if file_type_match and file_name_match and content_match:
-            file_type = file_type_match.group(1).strip()
-            file_name = file_name_match.group(1).strip()
-            file_content = content_match.group(1).strip()
-
-            attachments_found.append({
-                'file_type': file_type,
-                'file_name': file_name,
-                'content': file_content,
-            })
-            logger.info("[SKILLS_FILE_ATTACH] Found attachment: %s (type: %s)", file_name, file_type)
-
-    if not attachments_found:
-        logger.debug("[SKILLS_FILE_ATTACH] No valid attachments found after parsing")
+    if not has_binary_uploads and not has_legacy_attachments:
+        logger.info("[SKILLS_FILE_ATTACH] No file attachments found in message")
         return Command(update={})
 
     # Get sandbox for this thread
@@ -104,33 +233,94 @@ def extract_file_attachments_to_sandbox(
     except Exception:
         pass  # May already exist
 
-    # Write each attachment to sandbox
-    for attachment in attachments_found:
-        original_file_name = attachment['file_name']
-        content = attachment['content']
+    files_written = 0
 
-        # Convert to markdown filename (append .md to preserve original name context)
-        markdown_file_name = f"{original_file_name}.md"
-        sandbox_path = f"/sandbox/user_uploads/{markdown_file_name}"
+    # Process binary uploads (images and documents)
+    if has_binary_uploads and access_token:
+        binary_uploads = _parse_binary_uploads(message_content)
 
-        try:
-            sandbox.files.write(sandbox_path, content.encode('utf-8'))
-            logger.info("[SKILLS_FILE_ATTACH] Wrote %s to %s", original_file_name, sandbox_path)
-        except Exception as e:
-            logger.error("[SKILLS_FILE_ATTACH] Failed to write %s: %s", original_file_name, str(e))
+        for upload in binary_uploads:
+            try:
+                # Download binary from storage
+                file_data = _download_from_storage(
+                    storage_path=upload['storage_path'],
+                    bucket='chat-uploads',
+                    langconnect_url=langconnect_url,
+                    access_token=access_token,
+                )
 
-    logger.info("[SKILLS_FILE_ATTACH] Extracted %d file attachment(s) to sandbox", len(attachments_found))
+                # Write to sandbox
+                sandbox.files.write(upload['sandbox_path'], file_data)
+                logger.info(
+                    "[SKILLS_FILE_ATTACH] Wrote %s to %s (%d bytes)",
+                    upload['file_name'],
+                    upload['sandbox_path'],
+                    len(file_data)
+                )
+                files_written += 1
+
+            except Exception as e:
+                logger.error(
+                    "[SKILLS_FILE_ATTACH] Failed to transfer %s: %s",
+                    upload['file_name'],
+                    str(e)
+                )
+    elif has_binary_uploads and not access_token:
+        logger.warning(
+            "[SKILLS_FILE_ATTACH] Binary uploads found but no access token - cannot download from storage"
+        )
+
+    # Process legacy attachments (text only, for backwards compatibility)
+    if has_legacy_attachments:
+        legacy_attachments = _parse_legacy_attachments(message_content)
+
+        for attachment in legacy_attachments:
+            try:
+                # Write text content as markdown file
+                markdown_file_name = f"{attachment['file_name']}.md"
+                sandbox_path = f"/sandbox/user_uploads/{markdown_file_name}"
+
+                sandbox.files.write(sandbox_path, attachment['content'].encode('utf-8'))
+                logger.info(
+                    "[SKILLS_FILE_ATTACH] Wrote legacy attachment %s to %s",
+                    attachment['file_name'],
+                    sandbox_path
+                )
+                files_written += 1
+
+            except Exception as e:
+                logger.error(
+                    "[SKILLS_FILE_ATTACH] Failed to write legacy attachment %s: %s",
+                    attachment['file_name'],
+                    str(e)
+                )
+
+    logger.info("[SKILLS_FILE_ATTACH] Extracted %d file(s) to sandbox", files_written)
 
     # Return empty update - files are in sandbox, not state
     return Command(update={})
 
 
-def create_file_attachment_node(thread_id: str):
+def create_file_attachment_node(
+    thread_id: str,
+    langconnect_url: str = "http://langconnect:8080",
+    access_token: Optional[str] = None,
+):
     """Create a file attachment processing node bound to a specific thread.
+
+    Args:
+        thread_id: Thread identifier for sandbox lookup
+        langconnect_url: LangConnect API URL for storage downloads
+        access_token: User's access token for authentication
 
     Returns a function that can be used as a LangGraph node.
     """
     def file_attachment_node(state: SkillsDeepAgentState) -> Command:
-        return extract_file_attachments_to_sandbox(state, thread_id)
+        return extract_file_attachments_to_sandbox(
+            state,
+            thread_id,
+            langconnect_url,
+            access_token,
+        )
 
     return file_attachment_node

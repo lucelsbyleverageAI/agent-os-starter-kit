@@ -39,11 +39,13 @@ try:
     from .prompts import build_system_prompt
     from .sandbox_tools import get_or_create_sandbox, create_sandbox_tools
     from .agent_builder import async_create_skills_agent
+    from .tools import create_publish_file_tool
 except ImportError:
     from agent_platform.agents.deepagents.skills_deepagent.configuration import GraphConfigPydantic
     from agent_platform.agents.deepagents.skills_deepagent.prompts import build_system_prompt
     from agent_platform.agents.deepagents.skills_deepagent.sandbox_tools import get_or_create_sandbox, create_sandbox_tools
     from agent_platform.agents.deepagents.skills_deepagent.agent_builder import async_create_skills_agent
+    from agent_platform.agents.deepagents.skills_deepagent.tools import create_publish_file_tool
 
 logger = get_logger(__name__)
 
@@ -74,6 +76,9 @@ async def graph(config: RunnableConfig):
     ) or config.get("metadata", {}).get("supabaseAccessToken")
 
     thread_id = config.get("configurable", {}).get("thread_id", "default")
+
+    # Get user_id from metadata (set by auth system)
+    user_id = config.get("metadata", {}).get("owner", "")
 
     # Get LangConnect URL
     langconnect_url = "http://langconnect:8080"
@@ -114,6 +119,20 @@ async def graph(config: RunnableConfig):
         run_code_tool, run_command_tool = create_sandbox_tools(thread_id)
         tools.append(run_code_tool)
         tools.append(run_command_tool)
+
+        # Add publish_file_to_user tool for agent-to-user file sharing
+        if user_id and supabase_token:
+            publish_tool = create_publish_file_tool(
+                thread_id=thread_id,
+                user_id=user_id,
+                langconnect_url=langconnect_url,
+                access_token=supabase_token,
+            )
+            tools.append(publish_tool)
+            logger.info("[SKILLS_DEEPAGENT] Added publish_file_to_user tool")
+        else:
+            logger.warning("[SKILLS_DEEPAGENT] publish_file_to_user tool not added: missing user_id or token")
+
         logger.info(f"[SKILLS_DEEPAGENT] Initialized sandbox with {len(skills)} skills")
     except Exception as e:
         logger.error(f"[SKILLS_DEEPAGENT] Failed to initialize sandbox: {e}")
@@ -249,6 +268,10 @@ async def graph(config: RunnableConfig):
         runnable_config=config,
         include_general_purpose_agent=cfg.include_general_purpose_agent,
         pre_model_hook=trimming_hook,
+        # File attachment processing parameters
+        thread_id=thread_id,
+        langconnect_url=langconnect_url,
+        access_token=supabase_token,
     )
 
     return agent
