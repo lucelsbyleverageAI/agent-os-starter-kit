@@ -163,7 +163,7 @@ export function PdfViewer({ data, numPages, onLoadSuccess }: PdfViewerProps) {
       cancelled = true;
     };
     // Only data as dependency - onLoadSuccess is stored in ref
-    // eslint-disable-next-line react-hooks/exhaustive-deps
+     
   }, [data]);
 
   if (loading) {

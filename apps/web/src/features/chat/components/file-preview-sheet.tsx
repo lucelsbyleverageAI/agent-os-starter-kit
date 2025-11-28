@@ -1,6 +1,7 @@
 "use client";
 
 import React, { useEffect, useState, useCallback, useMemo, useRef } from "react";
+import dynamic from "next/dynamic";
 import {
   Sheet,
   SheetContent,
@@ -15,6 +16,21 @@ import { MarkdownText } from "@/components/ui/markdown-text";
 import { Prism as SyntaxHighlighter } from "react-syntax-highlighter";
 import { oneDark } from "react-syntax-highlighter/dist/esm/styles/prism";
 import { cn } from "@/lib/utils";
+import { SpreadsheetGrid } from "./spreadsheet-grid";
+import { type SpreadsheetSheet as SpreadsheetSheetType, type SpreadsheetData } from "../types/spreadsheet";
+
+// Dynamically import Univer spreadsheet to avoid SSR issues and reduce initial bundle
+const UniverSpreadsheet = dynamic(
+  () => import("./univer-spreadsheet").then((mod) => mod.UniverSpreadsheet),
+  {
+    ssr: false,
+    loading: () => (
+      <div className="flex items-center justify-center h-full">
+        <Loader2 className="h-8 w-8 animate-spin text-muted-foreground" />
+      </div>
+    ),
+  }
+);
 
 // Types
 interface FilePreviewSheetProps {
@@ -31,20 +47,15 @@ interface FilePreviewSheetProps {
   } | null;
 }
 
-interface WorkbookSheet {
-  name: string;
-  data: string[][];
-}
-
 interface PreviewState {
   loading: boolean;
   error: string | null;
   content: string | null;
   objectUrl: string | null;
-  tableData: string[][] | null;
   htmlContent: string | null;
-  workbookSheets: WorkbookSheet[] | null;
-  activeSheet: number;
+  spreadsheetSheets: SpreadsheetSheetType[] | null;
+  activeSheetIndex: number;
+  excelData: ArrayBuffer | null;
 }
 
 // Language mapping for syntax highlighting
@@ -149,7 +160,7 @@ function SheetTabs({
   activeIndex,
   onSelect,
 }: {
-  sheets: WorkbookSheet[];
+  sheets: SpreadsheetSheetType[];
   activeIndex: number;
   onSelect: (index: number) => void;
 }) {
@@ -175,61 +186,6 @@ function SheetTabs({
   );
 }
 
-// Enhanced table component for CSV/Excel preview
-function DataTable({ data }: { data: string[][] }) {
-  if (!data || data.length === 0) return null;
-
-  const headers = data[0];
-  const rows = data.slice(1);
-
-  return (
-    <div className="overflow-auto max-h-[calc(100vh-280px)]">
-      <table className="w-full border-collapse text-sm">
-        <thead className="bg-muted/80 sticky top-0 z-10">
-          <tr>
-            {/* Row number header */}
-            <th className="border border-border p-2 text-center font-medium text-muted-foreground bg-muted w-12 sticky left-0">
-              #
-            </th>
-            {headers.map((header, i) => (
-              <th
-                key={i}
-                className="border border-border p-2 text-left font-medium text-foreground min-w-[100px]"
-              >
-                {header || `Column ${i + 1}`}
-              </th>
-            ))}
-          </tr>
-        </thead>
-        <tbody>
-          {rows.map((row, rowIndex) => (
-            <tr
-              key={rowIndex}
-              className={cn(
-                "hover:bg-primary/5 transition-colors",
-                rowIndex % 2 === 0 ? "bg-background" : "bg-muted/20"
-              )}
-            >
-              {/* Row number */}
-              <td className="border border-border p-2 text-center text-xs text-muted-foreground bg-muted/50 sticky left-0 font-mono">
-                {rowIndex + 1}
-              </td>
-              {row.map((cell, cellIndex) => (
-                <td
-                  key={cellIndex}
-                  className="border border-border p-2 text-foreground"
-                >
-                  {cell}
-                </td>
-              ))}
-            </tr>
-          ))}
-        </tbody>
-      </table>
-    </div>
-  );
-}
-
 export function FilePreviewSheet({
   open,
   onOpenChange,
@@ -240,10 +196,10 @@ export function FilePreviewSheet({
     error: null,
     content: null,
     objectUrl: null,
-    tableData: null,
     htmlContent: null,
-    workbookSheets: null,
-    activeSheet: 0,
+    spreadsheetSheets: null,
+    activeSheetIndex: 0,
+    excelData: null,
   });
 
   const docxContainerRef = useRef<HTMLDivElement>(null);
@@ -275,16 +231,16 @@ export function FilePreviewSheet({
       error: null,
       content: null,
       objectUrl: null,
-      tableData: null,
       htmlContent: null,
-      workbookSheets: null,
-      activeSheet: 0,
+      spreadsheetSheets: null,
+      activeSheetIndex: 0,
+      excelData: null,
     });
   }, [file?.storage_path]);
 
   // Fetch file content when sheet opens
   useEffect(() => {
-    if (!open || !file || previewState.content || previewState.objectUrl || previewState.tableData || previewState.htmlContent || previewState.workbookSheets) {
+    if (!open || !file || previewState.content || previewState.objectUrl || previewState.htmlContent || previewState.spreadsheetSheets || previewState.excelData) {
       return;
     }
 
@@ -326,32 +282,29 @@ export function FilePreviewSheet({
           }));
         } else if (isCSV(ext, file.mime_type)) {
           const text = await blob.text();
-          const tableData = parseCSV(text);
+          const cells = parseCSV(text);
+          const rowCount = cells.length;
+          const colCount = cells.reduce((max, row) => Math.max(max, row.length), 0);
+
+          const spreadsheetData: SpreadsheetData = {
+            cells,
+            merges: [],
+            colCount,
+            rowCount,
+          };
+
           setPreviewState((prev) => ({
             ...prev,
             loading: false,
-            tableData,
+            spreadsheetSheets: [{ name: "Sheet1", data: spreadsheetData }],
           }));
         } else if (isExcel(ext)) {
-          // Dynamic import for xlsx to reduce bundle size
-          const XLSX = await import("xlsx");
+          // Store raw ArrayBuffer for Univer to process
           const arrayBuffer = await blob.arrayBuffer();
-          const workbook = XLSX.read(arrayBuffer, { type: "array" });
-
-          // Parse all sheets
-          const sheets: WorkbookSheet[] = workbook.SheetNames.map((name) => ({
-            name,
-            data: XLSX.utils.sheet_to_json(workbook.Sheets[name], {
-              header: 1,
-            }) as string[][],
-          }));
-
           setPreviewState((prev) => ({
             ...prev,
             loading: false,
-            workbookSheets: sheets,
-            activeSheet: 0,
-            tableData: sheets[0]?.data || null,
+            excelData: arrayBuffer,
           }));
         } else if (isWord(ext)) {
           // Dynamic import for docx-preview for better Word rendering
@@ -445,7 +398,7 @@ export function FilePreviewSheet({
     };
 
     fetchFileContent();
-  }, [open, file, previewState.content, previewState.objectUrl, previewState.tableData, previewState.htmlContent, previewState.workbookSheets]);
+  }, [open, file, previewState.content, previewState.objectUrl, previewState.htmlContent, previewState.spreadsheetSheets, previewState.excelData]);
 
   // Download handler
   const handleDownload = useCallback(async () => {
@@ -482,15 +435,14 @@ export function FilePreviewSheet({
 
   // Sheet switching handler for Excel workbooks
   const handleSheetChange = useCallback((index: number) => {
-    if (!previewState.workbookSheets || index < 0 || index >= previewState.workbookSheets.length) {
+    if (!previewState.spreadsheetSheets || index < 0 || index >= previewState.spreadsheetSheets.length) {
       return;
     }
     setPreviewState((prev) => ({
       ...prev,
-      activeSheet: index,
-      tableData: prev.workbookSheets?.[index]?.data || null,
+      activeSheetIndex: index,
     }));
-  }, [previewState.workbookSheets]);
+  }, [previewState.spreadsheetSheets]);
 
   // Render preview content based on file type
   const renderPreviewContent = () => {
@@ -546,27 +498,25 @@ export function FilePreviewSheet({
       );
     }
 
-    // Excel table preview with sheet tabs
-    if (isExcel(ext) && previewState.workbookSheets && previewState.tableData) {
+    // Excel preview with Univer (full-featured spreadsheet viewer)
+    if (isExcel(ext) && previewState.excelData) {
       return (
-        <div className="flex flex-col h-full">
-          <div className="flex-1 p-4 overflow-auto">
-            <DataTable data={previewState.tableData} />
-          </div>
-          <SheetTabs
-            sheets={previewState.workbookSheets}
-            activeIndex={previewState.activeSheet}
-            onSelect={handleSheetChange}
-          />
+        <div className="h-[calc(100vh-180px)] min-h-[500px]">
+          <UniverSpreadsheet data={previewState.excelData} height="100%" />
         </div>
       );
     }
 
-    // CSV table preview
-    if (isCSV(ext, file.mime_type) && previewState.tableData) {
+    // CSV spreadsheet preview with SpreadsheetGrid (lightweight)
+    if (isCSV(ext, file.mime_type) && previewState.spreadsheetSheets) {
+      const activeSheet = previewState.spreadsheetSheets[previewState.activeSheetIndex];
+      if (!activeSheet) return null;
+
       return (
-        <div className="p-4">
-          <DataTable data={previewState.tableData} />
+        <div className="flex flex-col h-full">
+          <div className="flex-1 p-4 overflow-auto">
+            <SpreadsheetGrid data={activeSheet.data} />
+          </div>
         </div>
       );
     }
