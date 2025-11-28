@@ -114,23 +114,29 @@ interface ThreadProps {
 }
 
 // Inner component that uses file preview context for conditional rendering
+// Always renders ResizablePanelGroup to maintain stable DOM structure and prevent
+// StickToBottom from triggering unwanted scroll resets when preview opens/closes
 function ThreadContentWrapper({ children }: { children: React.ReactNode }) {
   const filePreview = useFilePreviewOptional();
   const isPreviewOpen = filePreview?.isOpen ?? false;
 
-  if (!isPreviewOpen) {
-    return <>{children}</>;
-  }
-
   return (
     <ResizablePanelGroup direction="horizontal" className="flex-1">
-      <ResizablePanel defaultSize={50} minSize={35} className="flex flex-col min-h-0">
+      <ResizablePanel
+        defaultSize={isPreviewOpen ? 50 : 100}
+        minSize={35}
+        className="flex flex-col min-h-0"
+      >
         {children}
       </ResizablePanel>
-      <ResizableHandle withHandle />
-      <ResizablePanel defaultSize={50} minSize={30} maxSize={65}>
-        <FilePreviewPanel />
-      </ResizablePanel>
+      {isPreviewOpen && (
+        <>
+          <ResizableHandle withHandle />
+          <ResizablePanel defaultSize={50} minSize={30} maxSize={65}>
+            <FilePreviewPanel />
+          </ResizablePanel>
+        </>
+      )}
     </ResizablePanelGroup>
   );
 }
