@@ -13,6 +13,13 @@ import { Button } from "@/components/ui/button";
 import { Checkpoint, Message } from "@langchain/langgraph-sdk";
 import { AssistantMessage } from "@/features/chat/components/thread/messages/ai";
 import { HumanMessage } from "@/features/chat/components/thread/messages/human";
+import {
+  ResizablePanelGroup,
+  ResizablePanel,
+  ResizableHandle,
+} from "@/components/ui/resizable";
+import { FilePreviewProvider, useFilePreviewOptional } from "../../context/file-preview-context";
+import { FilePreviewPanel } from "../file-preview-panel";
 
 import {
   ArrowDown,
@@ -104,6 +111,28 @@ function ScrollToBottom(props: { className?: string }) {
 interface ThreadProps {
   historyOpen?: boolean;
   configOpen?: boolean;
+}
+
+// Inner component that uses file preview context for conditional rendering
+function ThreadContentWrapper({ children }: { children: React.ReactNode }) {
+  const filePreview = useFilePreviewOptional();
+  const isPreviewOpen = filePreview?.isOpen ?? false;
+
+  if (!isPreviewOpen) {
+    return <>{children}</>;
+  }
+
+  return (
+    <ResizablePanelGroup direction="horizontal" className="flex-1">
+      <ResizablePanel defaultSize={50} minSize={35} className="flex flex-col min-h-0">
+        {children}
+      </ResizablePanel>
+      <ResizableHandle withHandle />
+      <ResizablePanel defaultSize={50} minSize={30} maxSize={65}>
+        <FilePreviewPanel />
+      </ResizablePanel>
+    </ResizablePanelGroup>
+  );
 }
 
 export function Thread({ historyOpen = false, configOpen = false }: ThreadProps) {
@@ -712,23 +741,25 @@ export function Thread({ historyOpen = false, configOpen = false }: ThreadProps)
   const shouldShowLoading = threadId && !hasMessages && !showingCachedMessages;
 
   return (
-    <>
-      <div className="flex flex-1 min-h-0 w-full overflow-hidden">
-        {/* Deep Agent Workspace Sidebar - Left Side */}
-        {(() => {
-          
-          return isDeepAgent && (
-            <TasksFilesSidebar
-              todos={workspaceData.todos}
-              files={workspaceData.files}
-              onFileClick={setSelectedFile}
-              collapsed={workspaceSidebarCollapsed}
-              onToggleCollapse={toggleWorkspaceSidebar}
-            />
-          );
-        })()}
+    <FilePreviewProvider>
+      <>
+        <div className="flex flex-1 min-h-0 w-full overflow-hidden">
+          {/* Deep Agent Workspace Sidebar - Left Side */}
+          {(() => {
 
-        <StickToBottom className="flex flex-1 min-h-0 flex-col overflow-hidden">
+            return isDeepAgent && (
+              <TasksFilesSidebar
+                todos={workspaceData.todos}
+                files={workspaceData.files}
+                onFileClick={setSelectedFile}
+                collapsed={workspaceSidebarCollapsed}
+                onToggleCollapse={toggleWorkspaceSidebar}
+              />
+            );
+          })()}
+
+          <ThreadContentWrapper>
+            <StickToBottom className="flex flex-1 min-h-0 flex-col overflow-hidden">
           <div className={cn(
             "flex flex-1 min-h-0 flex-col",
             !hasMessages && !shouldShowLoading && "items-center justify-center"
@@ -882,17 +913,19 @@ export function Thread({ historyOpen = false, configOpen = false }: ThreadProps)
               </>
             )}
           </div>
-        </StickToBottom>
+            </StickToBottom>
+          </ThreadContentWrapper>
 
-      </div>
+        </div>
 
-      {/* File View Dialog */}
-      {selectedFile && (
-        <FileViewDialog
-          file={selectedFile}
-          onClose={() => setSelectedFile(null)}
-        />
-      )}
-    </>
+        {/* File View Dialog */}
+        {selectedFile && (
+          <FileViewDialog
+            file={selectedFile}
+            onClose={() => setSelectedFile(null)}
+          />
+        )}
+      </>
+    </FilePreviewProvider>
   );
 }
