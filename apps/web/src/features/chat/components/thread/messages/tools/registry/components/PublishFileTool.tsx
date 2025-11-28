@@ -162,6 +162,21 @@ export function PublishFileTool({
     }
   }, [fileData]);
 
+  // Handler to open preview - must be before any conditional returns (Rules of Hooks)
+  const handleOpenPreview = useCallback(() => {
+    if (fileData && filePreview) {
+      filePreview.openPreview({
+        display_name: fileData.display_name,
+        filename: fileData.filename,
+        file_type: fileData.file_type,
+        mime_type: fileData.mime_type,
+        storage_path: fileData.storage_path,
+        file_size: fileData.file_size,
+        description: fileData.description,
+      });
+    }
+  }, [fileData, filePreview]);
+
   const FileIcon = fileData ? getFileIcon(fileData.mime_type) : File;
 
   // Loading state
@@ -235,21 +250,6 @@ export function PublishFileTool({
       </Card>
     );
   }
-
-  // Handler to open preview
-  const handleOpenPreview = useCallback(() => {
-    if (fileData && filePreview) {
-      filePreview.openPreview({
-        display_name: fileData.display_name,
-        filename: fileData.filename,
-        file_type: fileData.file_type,
-        mime_type: fileData.mime_type,
-        storage_path: fileData.storage_path,
-        file_size: fileData.file_size,
-        description: fileData.description,
-      });
-    }
-  }, [fileData, filePreview]);
 
   // Success state with file card
   return (
