@@ -1,6 +1,7 @@
 "use client";
 
 import React, { useEffect, useState, useCallback, useMemo, useRef } from "react";
+import dynamic from "next/dynamic";
 import { Button } from "@/components/ui/button";
 import { ScrollArea } from "@/components/ui/scroll-area";
 import { Download, Loader2, FileText, AlertCircle, X } from "lucide-react";
@@ -9,6 +10,19 @@ import { Prism as SyntaxHighlighter } from "react-syntax-highlighter";
 import { oneDark } from "react-syntax-highlighter/dist/esm/styles/prism";
 import { cn } from "@/lib/utils";
 import { useFilePreview, type FilePreviewFile } from "../context/file-preview-context";
+
+// Dynamically import PDF viewer to avoid SSR issues with react-pdf
+const PdfViewer = dynamic(
+  () => import("./pdf-viewer").then((mod) => mod.PdfViewer),
+  {
+    ssr: false,
+    loading: () => (
+      <div className="flex items-center justify-center h-full">
+        <Loader2 className="h-8 w-8 animate-spin text-muted-foreground" />
+      </div>
+    ),
+  }
+);
 
 // Types
 interface WorkbookSheet {
@@ -25,6 +39,8 @@ interface PreviewState {
   htmlContent: string | null;
   workbookSheets: WorkbookSheet[] | null;
   activeSheet: number;
+  pdfData: ArrayBuffer | null;
+  pdfNumPages: number | null;
 }
 
 // Language mapping for syntax highlighting
@@ -91,8 +107,8 @@ function isImage(mimeType: string | undefined): boolean {
   return mimeType?.startsWith("image/") ?? false;
 }
 
-function isPDF(mimeType: string | undefined): boolean {
-  return mimeType === "application/pdf";
+function isPDF(mimeType: string | undefined, ext?: string): boolean {
+  return mimeType === "application/pdf" || ext === "pdf";
 }
 
 function isMarkdown(ext: string): boolean {
@@ -222,6 +238,8 @@ export function FilePreviewPanel() {
     htmlContent: null,
     workbookSheets: null,
     activeSheet: 0,
+    pdfData: null,
+    pdfNumPages: null,
   });
 
   const docxContainerRef = useRef<HTMLDivElement>(null);
@@ -257,16 +275,27 @@ export function FilePreviewPanel() {
       htmlContent: null,
       workbookSheets: null,
       activeSheet: 0,
+      pdfData: null,
+      pdfNumPages: null,
     });
   }, [file?.storage_path]);
 
   // Fetch file content when panel mounts or file changes
   useEffect(() => {
-    if (!file || previewState.content || previewState.objectUrl || previewState.tableData || previewState.htmlContent || previewState.workbookSheets) {
+    if (!file || previewState.content || previewState.objectUrl || previewState.tableData || previewState.htmlContent || previewState.workbookSheets || previewState.pdfData) {
       return;
     }
 
     const fetchFileContent = async () => {
+      const ext = getFileExtension(file.filename);
+      console.log("[PDF Preview] Starting fetch for file:", {
+        filename: file.filename,
+        mime_type: file.mime_type,
+        file_type: file.file_type,
+        storage_path: file.storage_path,
+        ext: ext,
+      });
+      console.log("[PDF Preview] isPDF check result:", isPDF(file.mime_type, ext));
       setPreviewState((prev) => ({ ...prev, loading: true, error: null }));
 
       try {
@@ -285,7 +314,6 @@ export function FilePreviewPanel() {
         }
 
         const blob = await response.blob();
-        const ext = getFileExtension(file.filename);
 
         // Handle different file types
         if (isImage(file.mime_type)) {
@@ -295,12 +323,14 @@ export function FilePreviewPanel() {
             loading: false,
             objectUrl: url,
           }));
-        } else if (isPDF(file.mime_type)) {
-          const url = URL.createObjectURL(blob);
+        } else if (isPDF(file.mime_type, ext)) {
+          console.log("[PDF Preview] Detected PDF file, mime_type:", file.mime_type, "ext:", ext);
+          const arrayBuffer = await blob.arrayBuffer();
+          console.log("[PDF Preview] ArrayBuffer created, size:", arrayBuffer.byteLength);
           setPreviewState((prev) => ({
             ...prev,
             loading: false,
-            objectUrl: url,
+            pdfData: arrayBuffer,
           }));
         } else if (isCSV(ext, file.mime_type)) {
           const text = await blob.text();
@@ -422,7 +452,7 @@ export function FilePreviewPanel() {
     };
 
     fetchFileContent();
-  }, [file, previewState.content, previewState.objectUrl, previewState.tableData, previewState.htmlContent, previewState.workbookSheets]);
+  }, [file, previewState.content, previewState.objectUrl, previewState.tableData, previewState.htmlContent, previewState.workbookSheets, previewState.pdfData]);
 
   // Download handler
   const handleDownload = useCallback(async () => {
@@ -469,6 +499,11 @@ export function FilePreviewPanel() {
     }));
   }, [previewState.workbookSheets]);
 
+  // Memoized callback for PDF load success to prevent re-renders
+  const handlePdfLoadSuccess = useCallback((numPages: number) => {
+    setPreviewState((prev) => ({ ...prev, pdfNumPages: numPages }));
+  }, []);
+
   // Render preview content based on file type
   const renderPreviewContent = () => {
     if (!file) return null;
@@ -513,12 +548,14 @@ export function FilePreviewPanel() {
     }
 
     // PDF preview
-    if (isPDF(file.mime_type) && previewState.objectUrl) {
+    console.log("[PDF Preview] Render check - isPDF:", isPDF(file.mime_type, ext), "pdfData exists:", !!previewState.pdfData, "mime_type:", file.mime_type, "ext:", ext);
+    if (isPDF(file.mime_type, ext) && previewState.pdfData) {
+      console.log("[PDF Preview] Rendering PdfViewer component");
       return (
-        <iframe
-          src={previewState.objectUrl}
-          className="w-full h-full border-0 rounded-lg"
-          title={file.display_name}
+        <PdfViewer
+          data={previewState.pdfData}
+          numPages={previewState.pdfNumPages}
+          onLoadSuccess={handlePdfLoadSuccess}
         />
       );
     }
