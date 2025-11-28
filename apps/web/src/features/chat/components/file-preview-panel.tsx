@@ -4,7 +4,7 @@ import React, { useEffect, useState, useCallback, useMemo, useRef } from "react"
 import dynamic from "next/dynamic";
 import { Button } from "@/components/ui/button";
 import { ScrollArea } from "@/components/ui/scroll-area";
-import { Download, Loader2, FileText, AlertCircle, X } from "lucide-react";
+import { Download, Loader2, FileText, AlertCircle, X, Copy, Check } from "lucide-react";
 import { MarkdownText } from "@/components/ui/markdown-text";
 import { Prism as SyntaxHighlighter } from "react-syntax-highlighter";
 import { oneDark } from "react-syntax-highlighter/dist/esm/styles/prism";
@@ -249,6 +249,7 @@ export function FilePreviewPanel() {
   });
 
   const docxContainerRef = useRef<HTMLDivElement>(null);
+  const [copied, setCopied] = useState(false);
 
   const fileExtension = useMemo(() => {
     return file ? getFileExtension(file.filename) : "";
@@ -502,6 +503,19 @@ export function FilePreviewPanel() {
     }
   }, [file]);
 
+  // Copy handler for raw content
+  const handleCopy = useCallback(async () => {
+    if (!previewState.content) return;
+
+    try {
+      await navigator.clipboard.writeText(previewState.content);
+      setCopied(true);
+      setTimeout(() => setCopied(false), 2000);
+    } catch (error) {
+      console.error("Copy error:", error);
+    }
+  }, [previewState.content]);
+
   // Sheet switching handler for Excel workbooks
   const handleSheetChange = useCallback((index: number) => {
     if (!previewState.workbookSheets || index < 0 || index >= previewState.workbookSheets.length) {
@@ -657,6 +671,10 @@ export function FilePreviewPanel() {
                   minHeight: "500px",
                 }}
                 showLineNumbers
+                wrapLongLines
+                lineProps={{
+                  style: { whiteSpace: 'pre-wrap', wordBreak: 'break-word' }
+                }}
               >
                 {previewState.content || ""}
               </SyntaxHighlighter>
@@ -666,13 +684,56 @@ export function FilePreviewPanel() {
       );
     }
 
-    // Markdown preview
+    // Markdown preview with tabs
     if (isMarkdown(ext) && previewState.content) {
       return (
-        <div className="p-6">
-          <MarkdownText className="prose prose-sm max-w-none dark:prose-invert">
-            {previewState.content}
-          </MarkdownText>
+        <div className="flex flex-col h-[calc(100vh-120px)]">
+          <Tabs defaultValue="preview" className="flex flex-col flex-1 min-h-0">
+            <div className="px-4 pt-4 pb-2 flex-shrink-0">
+              <TabsList variant="branded">
+                <TabsTrigger value="preview">Preview</TabsTrigger>
+                <TabsTrigger value="raw">Raw</TabsTrigger>
+              </TabsList>
+            </div>
+            <TabsContent
+              value="preview"
+              className={cn(
+                "flex-1 min-h-0 m-0 px-4 pb-4 data-[state=active]:block",
+                scrollbarClasses.y
+              )}
+            >
+              <div className="p-6 bg-background border border-border h-full">
+                <MarkdownText className="prose prose-sm max-w-none dark:prose-invert">
+                  {previewState.content}
+                </MarkdownText>
+              </div>
+            </TabsContent>
+            <TabsContent
+              value="raw"
+              className={cn(
+                "flex-1 min-h-0 m-0 data-[state=active]:block",
+                scrollbarClasses.y
+              )}
+            >
+              <SyntaxHighlighter
+                language="markdown"
+                style={oneDark}
+                customStyle={{
+                  margin: 0,
+                  borderRadius: 0,
+                  fontSize: "0.875rem",
+                  minHeight: "500px",
+                }}
+                showLineNumbers
+                wrapLongLines
+                lineProps={{
+                  style: { whiteSpace: 'pre-wrap', wordBreak: 'break-word' }
+                }}
+              >
+                {previewState.content}
+              </SyntaxHighlighter>
+            </TabsContent>
+          </Tabs>
         </div>
       );
     }
@@ -698,9 +759,25 @@ export function FilePreviewPanel() {
     // Plain text preview
     if (isText(ext) && previewState.content) {
       return (
-        <pre className="p-4 bg-muted rounded-lg overflow-auto text-sm font-mono whitespace-pre-wrap text-foreground">
-          {previewState.content}
-        </pre>
+        <div className={cn("h-[calc(100vh-120px)]", scrollbarClasses.y)}>
+          <SyntaxHighlighter
+            language="text"
+            style={oneDark}
+            customStyle={{
+              margin: 0,
+              borderRadius: 0,
+              fontSize: "0.875rem",
+              minHeight: "100%",
+            }}
+            showLineNumbers
+            wrapLongLines
+            lineProps={{
+              style: { whiteSpace: 'pre-wrap', wordBreak: 'break-word' }
+            }}
+          >
+            {previewState.content}
+          </SyntaxHighlighter>
+        </div>
       );
     }
 
@@ -776,6 +853,25 @@ export function FilePreviewPanel() {
               <Download className="h-4 w-4 mr-2" />
               Download
             </Button>
+            {(isHTML(fileExtension) || isMarkdown(fileExtension) || isText(fileExtension)) && previewState.content && (
+              <Button
+                variant="outline"
+                size="sm"
+                onClick={handleCopy}
+              >
+                {copied ? (
+                  <>
+                    <Check className="h-4 w-4 mr-2" />
+                    Copied
+                  </>
+                ) : (
+                  <>
+                    <Copy className="h-4 w-4 mr-2" />
+                    Copy
+                  </>
+                )}
+              </Button>
+            )}
             <Button
               variant="ghost"
               size="icon"
