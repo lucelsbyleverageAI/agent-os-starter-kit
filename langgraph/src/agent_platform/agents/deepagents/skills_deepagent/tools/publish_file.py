@@ -105,12 +105,10 @@ def create_publish_file_tool(
                     "Sandbox not initialized for this thread"
                 )
 
-            # Read file content from sandbox
+            # Read file content from sandbox as bytes (critical for binary files like docx, xlsx, pdf)
+            # Convert bytearray to bytes for httpx multipart upload compatibility
             try:
-                file_content = sandbox.files.read(file_path)
-                # Handle both string and bytes returns
-                if isinstance(file_content, str):
-                    file_content = file_content.encode('utf-8')
+                file_content = bytes(sandbox.files.read(file_path, format="bytes"))
             except Exception as e:
                 return _error_response(
                     tool_call_id,
