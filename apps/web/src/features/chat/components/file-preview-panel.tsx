@@ -9,6 +9,8 @@ import { MarkdownText } from "@/components/ui/markdown-text";
 import { Prism as SyntaxHighlighter } from "react-syntax-highlighter";
 import { oneDark } from "react-syntax-highlighter/dist/esm/styles/prism";
 import { cn } from "@/lib/utils";
+import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
+import { scrollbarClasses } from "@/lib/scrollbar-styles";
 import { useFilePreview, type FilePreviewFile } from "../context/file-preview-context";
 
 // Dynamically import PDF viewer to avoid SSR issues with react-pdf
@@ -137,6 +139,10 @@ function isPowerPoint(ext: string): boolean {
 
 function isCode(ext: string): boolean {
   return ext in LANGUAGE_MAP;
+}
+
+function isHTML(ext: string): boolean {
+  return ["html", "htm"].includes(ext);
 }
 
 // Sheet tabs component for Excel workbooks
@@ -423,6 +429,15 @@ export function FilePreviewPanel() {
             loading: false,
             htmlContent: tempContainer.innerHTML,
           }));
+        } else if (isHTML(ext)) {
+          // HTML files - store content for both raw and preview display
+          const text = await blob.text();
+          setPreviewState((prev) => ({
+            ...prev,
+            loading: false,
+            content: text, // For raw syntax highlighting
+            htmlContent: text, // For iframe preview
+          }));
         } else if (
           isMarkdown(ext) ||
           isText(ext) ||
@@ -593,6 +608,61 @@ export function FilePreviewPanel() {
           className="docx-preview-container overflow-auto h-full bg-[#f3f4f6]"
           dangerouslySetInnerHTML={{ __html: previewState.htmlContent }}
         />
+      );
+    }
+
+    // HTML preview with tabs
+    if (isHTML(ext) && previewState.htmlContent) {
+      return (
+        <div className="flex flex-col h-[calc(100vh-120px)]">
+          <Tabs defaultValue="preview" className="flex flex-col flex-1 min-h-0">
+            <div className="px-4 pt-4 pb-2 flex-shrink-0">
+              <TabsList variant="branded">
+                <TabsTrigger value="preview">Preview</TabsTrigger>
+                <TabsTrigger value="raw">Raw</TabsTrigger>
+              </TabsList>
+            </div>
+            <TabsContent
+              value="preview"
+              className="flex-1 min-h-0 m-0 px-4 pb-4 data-[state=active]:flex data-[state=active]:flex-col"
+            >
+              <iframe
+                sandbox="allow-same-origin"
+                srcDoc={`
+                  <style>
+                    ::-webkit-scrollbar { width: 6px; height: 6px; }
+                    ::-webkit-scrollbar-thumb { border-radius: 9999px; background: #d1d5db; }
+                    ::-webkit-scrollbar-track { background: transparent; }
+                  </style>
+                  ${previewState.htmlContent}
+                `}
+                className="w-full flex-1 min-h-[500px] border border-border bg-white"
+                title="HTML Preview"
+              />
+            </TabsContent>
+            <TabsContent
+              value="raw"
+              className={cn(
+                "flex-1 min-h-0 m-0 data-[state=active]:block",
+                scrollbarClasses.y
+              )}
+            >
+              <SyntaxHighlighter
+                language="html"
+                style={oneDark}
+                customStyle={{
+                  margin: 0,
+                  borderRadius: 0,
+                  fontSize: "0.875rem",
+                  minHeight: "500px",
+                }}
+                showLineNumbers
+              >
+                {previewState.content || ""}
+              </SyntaxHighlighter>
+            </TabsContent>
+          </Tabs>
+        </div>
       );
     }
 
