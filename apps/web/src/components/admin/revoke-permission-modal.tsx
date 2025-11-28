@@ -12,9 +12,9 @@ import {
 import { Button } from "@/components/ui/button";
 import { RadioGroup, RadioGroupItem } from "@/components/ui/radio-group";
 import { Label } from "@/components/ui/label";
-import { PublicGraphPermission, PublicAssistantPermission, PublicCollectionPermission } from "@/types/public-permissions";
+import { PublicGraphPermission, PublicAssistantPermission, PublicCollectionPermission, PublicSkillPermission } from "@/types/public-permissions";
 
-type Permission = PublicGraphPermission | PublicAssistantPermission | PublicCollectionPermission;
+type Permission = PublicGraphPermission | PublicAssistantPermission | PublicCollectionPermission | PublicSkillPermission;
 type RevokeMode = 'revoke_all' | 'future_only';
 type ActionType = 'revoke' | 're_invoke' | 'revoke_all';
 
@@ -44,8 +44,10 @@ export const RevokePermissionModal = ({
       return item.graph_display_name || item.graph_id;
     } else if ('assistant_id' in item) {
       return item.assistant_display_name || item.assistant_id;
-    } else {
+    } else if ('collection_id' in item) {
       return item.collection_display_name || item.collection_id;
+    } else {
+      return item.skill_display_name || item.skill_id;
     }
   };
 

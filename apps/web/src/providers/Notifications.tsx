@@ -113,6 +113,17 @@ export const NotificationsProvider: React.FC<{ children: ReactNode }> = ({
             }
           }
 
+          // Skills cache invalidation (dispatch event)
+          if (notification.resource_type === 'skill' && typeof window !== 'undefined') {
+            try {
+              window.dispatchEvent(new CustomEvent('skills-cache-invalidated', {
+                detail: { skillId: notification.resource_id, type: 'permission_granted' }
+              }));
+            } catch (_error) {
+              // Ignore event dispatch errors
+            }
+          }
+
           // Give backend a moment to write grants and bump cache versions, then refresh
           setTimeout(async () => {
             try {

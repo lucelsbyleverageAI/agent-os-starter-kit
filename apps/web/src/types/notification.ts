@@ -4,7 +4,7 @@
 
 export type NotificationStatus = "pending" | "accepted" | "rejected" | "expired";
 
-export type NotificationType = "graph_share" | "assistant_share" | "collection_share";
+export type NotificationType = "graph_share" | "assistant_share" | "collection_share" | "skill_share";
 
 export interface NotificationInfo {
   id: string;

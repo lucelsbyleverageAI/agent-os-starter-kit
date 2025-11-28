@@ -14,13 +14,14 @@ import { Card, CardContent } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { useNotifications } from "@/hooks/use-notifications";
 import { NotificationInfo, NotificationType } from "@/types/notification";
-import { 
-  User, 
-  FileIcon, 
-  BrainIcon, 
-  Check, 
-  X, 
-  Bell
+import {
+  User,
+  FileIcon,
+  BrainIcon,
+  Check,
+  X,
+  Bell,
+  Sparkles
 } from "lucide-react";
 import { notify } from "@/utils/toast";
 import { notificationMessages } from "@/utils/toast-messages";
@@ -29,12 +30,14 @@ const NOTIFICATION_TYPE_ICONS: Record<NotificationType, React.ReactNode> = {
   graph_share: <BrainIcon className="h-5 w-5" />,
   assistant_share: <User className="h-5 w-5" />,
   collection_share: <FileIcon className="h-5 w-5" />,
+  skill_share: <Sparkles className="h-5 w-5" />,
 };
 
 const NOTIFICATION_TYPE_LABELS: Record<NotificationType, string> = {
   graph_share: "Graph Access",
   assistant_share: "Assistant Share",
   collection_share: "Collection Share",
+  skill_share: "Skill Share",
 };
 
 /**

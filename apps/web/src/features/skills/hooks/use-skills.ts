@@ -242,6 +242,8 @@ export function useSkills() {
         const skill: Skill = await response.json();
         clearCache();
         await fetchSkills(true);
+        // Notify other hook instances to refresh
+        window.dispatchEvent(new CustomEvent('skills-cache-invalidated'));
         toast.success(`Skill "${skill.name}" uploaded successfully`);
         return skill;
       } catch (err) {
@@ -286,6 +288,8 @@ export function useSkills() {
         const skill: Skill = await response.json();
         clearCache();
         await fetchSkills(true);
+        // Notify other hook instances to refresh
+        window.dispatchEvent(new CustomEvent('skills-cache-invalidated'));
         toast.success(`Skill "${skill.name}" updated successfully`);
         return skill;
       } catch (err) {
@@ -319,6 +323,8 @@ export function useSkills() {
 
         clearCache();
         await fetchSkills(true);
+        // Notify other hook instances to refresh
+        window.dispatchEvent(new CustomEvent('skills-cache-invalidated'));
         toast.success("Skill deleted successfully");
         return true;
       } catch (err) {
@@ -401,6 +407,43 @@ export function useSkills() {
     [accessToken, getHeaders]
   );
 
+  // Download a skill zip file
+  const downloadSkill = useCallback(
+    async (skill: { id: string; name: string }): Promise<boolean> => {
+      if (!accessToken) {
+        toast.error("Not authenticated");
+        return false;
+      }
+
+      try {
+        const response = await fetch(`/api/langconnect/skills/${skill.id}/download`, {
+          headers: getHeaders(),
+        });
+
+        if (!response.ok) {
+          throw new Error("Failed to get download URL");
+        }
+
+        const { download_url } = await response.json();
+
+        // Create a temporary link and trigger download
+        const link = document.createElement("a");
+        link.href = download_url;
+        link.download = `${skill.name}.zip`;
+        document.body.appendChild(link);
+        link.click();
+        document.body.removeChild(link);
+
+        return true;
+      } catch (err) {
+        const message = err instanceof Error ? err.message : "Unknown error";
+        toast.error(`Failed to download skill: ${message}`);
+        return false;
+      }
+    },
+    [accessToken, getHeaders]
+  );
+
   // Revoke a user's permission
   const revokePermission = useCallback(
     async (skillId: string, userId: string): Promise<boolean> => {
@@ -442,6 +485,21 @@ export function useSkills() {
     }
   }, [accessToken, fetchSkills]);
 
+  // Listen for cache invalidation events (e.g., when a skill_share notification is accepted)
+  useEffect(() => {
+    const handleCacheInvalidation = () => {
+      clearCache();
+      fetchSkills(true);
+    };
+
+    if (typeof window !== 'undefined') {
+      window.addEventListener('skills-cache-invalidated', handleCacheInvalidation);
+      return () => {
+        window.removeEventListener('skills-cache-invalidated', handleCacheInvalidation);
+      };
+    }
+  }, [clearCache, fetchSkills]);
+
   return {
     skills,
     isLoading,
@@ -452,6 +510,7 @@ export function useSkills() {
     uploadSkill,
     updateSkill,
     deleteSkill,
+    downloadSkill,
     shareSkill,
     getSkillPermissions,
     revokePermission,
