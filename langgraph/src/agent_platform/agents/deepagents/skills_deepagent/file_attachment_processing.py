@@ -35,19 +35,50 @@ def _extract_xml_field(content: str, field_name: str) -> Optional[str]:
     return match.group(1).strip() if match else None
 
 
-def _download_from_storage(
-    storage_path: str,
-    bucket: str,
+def _fetch_signed_urls(
+    storage_paths: List[str],
     langconnect_url: str,
     access_token: str,
-) -> bytes:
-    """Download a file from Supabase Storage via LangConnect.
+) -> Dict[str, str]:
+    """Fetch signed URLs for multiple storage paths from LangConnect.
+
+    Uses the batch-signed-urls endpoint which generates pre-authenticated
+    Supabase Storage URLs. This is the same pattern used by skills download
+    and image preprocessing.
 
     Args:
-        storage_path: Path within the bucket (e.g., "user_id/timestamp_filename.xlsx")
-        bucket: Storage bucket name (e.g., "chat-uploads")
+        storage_paths: List of storage paths (e.g., ["user_id/timestamp_file.xlsx"])
         langconnect_url: LangConnect API URL
         access_token: User's access token for authentication
+
+    Returns:
+        Dict mapping storage_path -> signed_url
+
+    Raises:
+        Exception if API call fails
+    """
+    url = f"{langconnect_url}/agent-filesystem/storage/batch-signed-urls"
+    headers = {
+        "Authorization": f"Bearer {access_token}",
+        "Content-Type": "application/json",
+    }
+    payload = {
+        "storage_paths": storage_paths,
+        "expiry_seconds": 1800,  # 30 minutes
+    }
+
+    with httpx.Client(timeout=30.0) as client:
+        response = client.post(url, json=payload, headers=headers)
+        response.raise_for_status()
+        data = response.json()
+        return data.get("signed_urls", {})
+
+
+def _download_from_signed_url(signed_url: str) -> bytes:
+    """Download a file directly from a signed URL.
+
+    Args:
+        signed_url: Pre-authenticated Supabase Storage URL
 
     Returns:
         File content as bytes
@@ -55,18 +86,8 @@ def _download_from_storage(
     Raises:
         Exception if download fails
     """
-    # Use the thread-file endpoint which supports both buckets
-    url = f"{langconnect_url}/storage/thread-file"
-    params = {
-        "storage_path": storage_path,
-        "bucket": bucket,
-    }
-    headers = {
-        "Authorization": f"Bearer {access_token}",
-    }
-
     with httpx.Client(timeout=60.0) as client:
-        response = client.get(url, params=params, headers=headers)
+        response = client.get(signed_url)
         response.raise_for_status()
         return response.content
 
@@ -235,36 +256,70 @@ def extract_file_attachments_to_sandbox(
 
     files_written = 0
 
-    # Process binary uploads (images and documents)
+    # Process binary uploads (images and documents) using signed URL pattern
+    # This follows the same approach as skills download (fetch_skill_zip)
     if has_binary_uploads and access_token:
         binary_uploads = _parse_binary_uploads(message_content)
 
-        for upload in binary_uploads:
+        if binary_uploads:
+            # Step 1: Collect all storage paths and batch fetch signed URLs
+            storage_paths = [upload['storage_path'] for upload in binary_uploads]
+            logger.info(
+                "[SKILLS_FILE_ATTACH] Fetching signed URLs for %d files: %s",
+                len(storage_paths),
+                storage_paths
+            )
+
             try:
-                # Download binary from storage
-                file_data = _download_from_storage(
-                    storage_path=upload['storage_path'],
-                    bucket='chat-uploads',
+                signed_urls = _fetch_signed_urls(
+                    storage_paths=storage_paths,
                     langconnect_url=langconnect_url,
                     access_token=access_token,
                 )
-
-                # Write to sandbox
-                sandbox.files.write(upload['sandbox_path'], file_data)
                 logger.info(
-                    "[SKILLS_FILE_ATTACH] Wrote %s to %s (%d bytes)",
-                    upload['file_name'],
-                    upload['sandbox_path'],
-                    len(file_data)
+                    "[SKILLS_FILE_ATTACH] Got %d signed URLs",
+                    len(signed_urls)
                 )
-                files_written += 1
-
             except Exception as e:
                 logger.error(
-                    "[SKILLS_FILE_ATTACH] Failed to transfer %s: %s",
-                    upload['file_name'],
+                    "[SKILLS_FILE_ATTACH] Failed to fetch signed URLs: %s",
                     str(e)
                 )
+                signed_urls = {}
+
+            # Step 2: Download from signed URLs and write to sandbox
+            for upload in binary_uploads:
+                storage_path = upload['storage_path']
+                signed_url = signed_urls.get(storage_path)
+
+                if not signed_url:
+                    logger.warning(
+                        "[SKILLS_FILE_ATTACH] No signed URL for %s - skipping",
+                        upload['file_name']
+                    )
+                    continue
+
+                try:
+                    # Download directly from signed URL (no auth needed)
+                    file_data = _download_from_signed_url(signed_url)
+
+                    # Write to sandbox
+                    sandbox.files.write(upload['sandbox_path'], file_data)
+                    logger.info(
+                        "[SKILLS_FILE_ATTACH] Wrote %s to %s (%d bytes)",
+                        upload['file_name'],
+                        upload['sandbox_path'],
+                        len(file_data)
+                    )
+                    files_written += 1
+
+                except Exception as e:
+                    logger.error(
+                        "[SKILLS_FILE_ATTACH] Failed to transfer %s: %s",
+                        upload['file_name'],
+                        str(e)
+                    )
+
     elif has_binary_uploads and not access_token:
         logger.warning(
             "[SKILLS_FILE_ATTACH] Binary uploads found but no access token - cannot download from storage"

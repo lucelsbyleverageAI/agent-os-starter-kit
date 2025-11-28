@@ -29,7 +29,10 @@ interface PublishedFileData {
 }
 
 // Helper to get appropriate icon for file type
-function getFileIcon(mimeType: string) {
+function getFileIcon(mimeType: string | undefined) {
+  if (!mimeType) {
+    return File;
+  }
   if (mimeType.startsWith('image/')) {
     return FileImage;
   }
