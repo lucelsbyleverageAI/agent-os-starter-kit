@@ -14,7 +14,7 @@ import {
 } from "lucide-react";
 import { MinimalistBadge } from "@/components/ui/minimalist-badge";
 import { cn } from "@/lib/utils";
-import { FilePreviewSheet } from "@/features/chat/components/file-preview-sheet";
+import { useFilePreviewOptional } from "@/features/chat/context/file-preview-context";
 
 interface PublishedFileData {
   display_name: string;
@@ -89,7 +89,7 @@ export function PublishFileTool({
   onRetry
 }: ToolComponentProps) {
   const [isDownloading, setIsDownloading] = useState(false);
-  const [previewOpen, setPreviewOpen] = useState(false);
+  const filePreview = useFilePreviewOptional();
 
   // Parse tool result
   let fileData: PublishedFileData | null = null;
@@ -236,13 +236,27 @@ export function PublishFileTool({
     );
   }
 
+  // Handler to open preview
+  const handleOpenPreview = useCallback(() => {
+    if (fileData && filePreview) {
+      filePreview.openPreview({
+        display_name: fileData.display_name,
+        filename: fileData.filename,
+        file_type: fileData.file_type,
+        mime_type: fileData.mime_type,
+        storage_path: fileData.storage_path,
+        file_size: fileData.file_size,
+        description: fileData.description,
+      });
+    }
+  }, [fileData, filePreview]);
+
   // Success state with file card
   return (
-    <>
-      <Card
-        className="w-full overflow-hidden py-0 gap-0 cursor-pointer hover:bg-accent/50 transition-colors"
-        onClick={() => setPreviewOpen(true)}
-      >
+    <Card
+      className="w-full overflow-hidden py-0 gap-0 cursor-pointer hover:bg-accent/50 transition-colors"
+      onClick={handleOpenPreview}
+    >
         <div className="py-5 px-3">
           <div className="flex items-center gap-3">
             {/* File Icon */}
@@ -306,22 +320,6 @@ export function PublishFileTool({
             </Button>
           </div>
         </div>
-      </Card>
-
-      {/* Preview Sheet */}
-      <FilePreviewSheet
-        open={previewOpen}
-        onOpenChange={setPreviewOpen}
-        file={fileData ? {
-          display_name: fileData.display_name,
-          filename: fileData.filename,
-          file_type: fileData.file_type,
-          mime_type: fileData.mime_type,
-          storage_path: fileData.storage_path,
-          file_size: fileData.file_size,
-          description: fileData.description,
-        } : null}
-      />
-    </>
+    </Card>
   );
 }
