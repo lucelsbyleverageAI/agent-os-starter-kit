@@ -1,6 +1,6 @@
 "use client";
 
-import React, { useEffect, useState, useCallback, useMemo } from "react";
+import React, { useEffect, useState, useCallback, useMemo, useRef } from "react";
 import {
   Sheet,
   SheetContent,
@@ -14,6 +14,7 @@ import { Download, Loader2, FileText, AlertCircle } from "lucide-react";
 import { MarkdownText } from "@/components/ui/markdown-text";
 import { Prism as SyntaxHighlighter } from "react-syntax-highlighter";
 import { oneDark } from "react-syntax-highlighter/dist/esm/styles/prism";
+import { cn } from "@/lib/utils";
 
 // Types
 interface FilePreviewSheetProps {
@@ -30,6 +31,11 @@ interface FilePreviewSheetProps {
   } | null;
 }
 
+interface WorkbookSheet {
+  name: string;
+  data: string[][];
+}
+
 interface PreviewState {
   loading: boolean;
   error: string | null;
@@ -37,6 +43,8 @@ interface PreviewState {
   objectUrl: string | null;
   tableData: string[][] | null;
   htmlContent: string | null;
+  workbookSheets: WorkbookSheet[] | null;
+  activeSheet: number;
 }
 
 // Language mapping for syntax highlighting
@@ -135,7 +143,39 @@ function isCode(ext: string): boolean {
   return ext in LANGUAGE_MAP;
 }
 
-// Table component for CSV/Excel preview
+// Sheet tabs component for Excel workbooks
+function SheetTabs({
+  sheets,
+  activeIndex,
+  onSelect,
+}: {
+  sheets: WorkbookSheet[];
+  activeIndex: number;
+  onSelect: (index: number) => void;
+}) {
+  if (sheets.length <= 1) return null;
+
+  return (
+    <div className="flex gap-0.5 border-t bg-muted/30 px-2 py-1 overflow-x-auto">
+      {sheets.map((sheet, i) => (
+        <button
+          key={i}
+          onClick={() => onSelect(i)}
+          className={cn(
+            "px-3 py-1.5 text-xs font-medium rounded-md transition-all whitespace-nowrap",
+            i === activeIndex
+              ? "bg-background text-foreground shadow-sm border border-border"
+              : "text-muted-foreground hover:text-foreground hover:bg-background/50"
+          )}
+        >
+          {sheet.name}
+        </button>
+      ))}
+    </div>
+  );
+}
+
+// Enhanced table component for CSV/Excel preview
 function DataTable({ data }: { data: string[][] }) {
   if (!data || data.length === 0) return null;
 
@@ -143,27 +183,41 @@ function DataTable({ data }: { data: string[][] }) {
   const rows = data.slice(1);
 
   return (
-    <div className="overflow-auto">
+    <div className="overflow-auto max-h-[calc(100vh-280px)]">
       <table className="w-full border-collapse text-sm">
-        <thead className="bg-muted sticky top-0">
+        <thead className="bg-muted/80 sticky top-0 z-10">
           <tr>
+            {/* Row number header */}
+            <th className="border border-border p-2 text-center font-medium text-muted-foreground bg-muted w-12 sticky left-0">
+              #
+            </th>
             {headers.map((header, i) => (
               <th
                 key={i}
-                className="border border-border p-2 text-left font-medium text-foreground"
+                className="border border-border p-2 text-left font-medium text-foreground min-w-[100px]"
               >
-                {header}
+                {header || `Column ${i + 1}`}
               </th>
             ))}
           </tr>
         </thead>
         <tbody>
           {rows.map((row, rowIndex) => (
-            <tr key={rowIndex} className="hover:bg-muted/50">
+            <tr
+              key={rowIndex}
+              className={cn(
+                "hover:bg-primary/5 transition-colors",
+                rowIndex % 2 === 0 ? "bg-background" : "bg-muted/20"
+              )}
+            >
+              {/* Row number */}
+              <td className="border border-border p-2 text-center text-xs text-muted-foreground bg-muted/50 sticky left-0 font-mono">
+                {rowIndex + 1}
+              </td>
               {row.map((cell, cellIndex) => (
                 <td
                   key={cellIndex}
-                  className="border border-border p-2 text-muted-foreground"
+                  className="border border-border p-2 text-foreground"
                 >
                   {cell}
                 </td>
@@ -188,7 +242,11 @@ export function FilePreviewSheet({
     objectUrl: null,
     tableData: null,
     htmlContent: null,
+    workbookSheets: null,
+    activeSheet: 0,
   });
+
+  const docxContainerRef = useRef<HTMLDivElement>(null);
 
   const fileExtension = useMemo(() => {
     return file ? getFileExtension(file.filename) : "";
@@ -219,12 +277,14 @@ export function FilePreviewSheet({
       objectUrl: null,
       tableData: null,
       htmlContent: null,
+      workbookSheets: null,
+      activeSheet: 0,
     });
   }, [file?.storage_path]);
 
   // Fetch file content when sheet opens
   useEffect(() => {
-    if (!open || !file || previewState.content || previewState.objectUrl || previewState.tableData || previewState.htmlContent) {
+    if (!open || !file || previewState.content || previewState.objectUrl || previewState.tableData || previewState.htmlContent || previewState.workbookSheets) {
       return;
     }
 
@@ -277,25 +337,84 @@ export function FilePreviewSheet({
           const XLSX = await import("xlsx");
           const arrayBuffer = await blob.arrayBuffer();
           const workbook = XLSX.read(arrayBuffer, { type: "array" });
-          const firstSheetName = workbook.SheetNames[0];
-          const firstSheet = workbook.Sheets[firstSheetName];
-          const jsonData = XLSX.utils.sheet_to_json(firstSheet, {
-            header: 1,
-          }) as string[][];
+
+          // Parse all sheets
+          const sheets: WorkbookSheet[] = workbook.SheetNames.map((name) => ({
+            name,
+            data: XLSX.utils.sheet_to_json(workbook.Sheets[name], {
+              header: 1,
+            }) as string[][],
+          }));
+
           setPreviewState((prev) => ({
             ...prev,
             loading: false,
-            tableData: jsonData,
+            workbookSheets: sheets,
+            activeSheet: 0,
+            tableData: sheets[0]?.data || null,
           }));
         } else if (isWord(ext)) {
-          // Dynamic import for mammoth to reduce bundle size
-          const mammoth = await import("mammoth");
+          // Dynamic import for docx-preview for better Word rendering
+          const docxPreview = await import("docx-preview");
           const arrayBuffer = await blob.arrayBuffer();
-          const result = await mammoth.convertToHtml({ arrayBuffer });
+
+          // Create a temporary container to render the document
+          const tempContainer = document.createElement("div");
+          await docxPreview.renderAsync(arrayBuffer, tempContainer, undefined, {
+            className: "docx-preview",
+            inWrapper: false,
+            ignoreWidth: true,
+            ignoreHeight: false,
+            ignoreFonts: false,
+            breakPages: true,
+            useBase64URL: true,
+          });
+
+          // Style each section via JavaScript (inline styles override library styles)
+          // Note: Using concrete color values because CSS variables don't work in JS inline styles
+          const sections = tempContainer.querySelectorAll("section.docx-preview");
+          const totalPages = sections.length;
+          sections.forEach((section, index) => {
+            const el = section as HTMLElement;
+            el.style.backgroundColor = "white";
+            el.style.border = "1px solid #e5e7eb";
+            el.style.boxShadow = "0 1px 3px 0 rgb(0 0 0 / 0.1)";
+            el.style.marginBottom = "12px";
+            el.style.position = "relative";
+
+            // Add page number
+            const pageNumber = document.createElement("div");
+            pageNumber.textContent = `Page ${index + 1} of ${totalPages}`;
+            pageNumber.style.cssText = `
+              position: absolute;
+              bottom: 12px;
+              left: 50%;
+              transform: translateX(-50%);
+              font-size: 12px;
+              color: #6b7280;
+              background: rgba(255,255,255,0.9);
+              padding: 4px 12px;
+              border-radius: 9999px;
+            `;
+            el.appendChild(pageNumber);
+          });
+
+          // Wrap all content in our own styled container
+          const wrapper = document.createElement("div");
+          wrapper.style.cssText = `
+            background: #f3f4f6;
+            padding: 12px;
+            min-height: 100%;
+          `;
+          while (tempContainer.firstChild) {
+            wrapper.appendChild(tempContainer.firstChild);
+          }
+          tempContainer.appendChild(wrapper);
+
           setPreviewState((prev) => ({
             ...prev,
             loading: false,
-            htmlContent: result.value,
+            htmlContent: tempContainer.innerHTML,
           }));
         } else if (
           isMarkdown(ext) ||
@@ -326,7 +445,7 @@ export function FilePreviewSheet({
     };
 
     fetchFileContent();
-  }, [open, file, previewState.content, previewState.objectUrl, previewState.tableData, previewState.htmlContent]);
+  }, [open, file, previewState.content, previewState.objectUrl, previewState.tableData, previewState.htmlContent, previewState.workbookSheets]);
 
   // Download handler
   const handleDownload = useCallback(async () => {
@@ -360,6 +479,18 @@ export function FilePreviewSheet({
       console.error("Download error:", error);
     }
   }, [file]);
+
+  // Sheet switching handler for Excel workbooks
+  const handleSheetChange = useCallback((index: number) => {
+    if (!previewState.workbookSheets || index < 0 || index >= previewState.workbookSheets.length) {
+      return;
+    }
+    setPreviewState((prev) => ({
+      ...prev,
+      activeSheet: index,
+      tableData: prev.workbookSheets?.[index]?.data || null,
+    }));
+  }, [previewState.workbookSheets]);
 
   // Render preview content based on file type
   const renderPreviewContent = () => {
@@ -415,8 +546,24 @@ export function FilePreviewSheet({
       );
     }
 
-    // CSV/Excel table preview
-    if ((isCSV(ext, file.mime_type) || isExcel(ext)) && previewState.tableData) {
+    // Excel table preview with sheet tabs
+    if (isExcel(ext) && previewState.workbookSheets && previewState.tableData) {
+      return (
+        <div className="flex flex-col h-full">
+          <div className="flex-1 p-4 overflow-auto">
+            <DataTable data={previewState.tableData} />
+          </div>
+          <SheetTabs
+            sheets={previewState.workbookSheets}
+            activeIndex={previewState.activeSheet}
+            onSelect={handleSheetChange}
+          />
+        </div>
+      );
+    }
+
+    // CSV table preview
+    if (isCSV(ext, file.mime_type) && previewState.tableData) {
       return (
         <div className="p-4">
           <DataTable data={previewState.tableData} />
@@ -424,15 +571,14 @@ export function FilePreviewSheet({
       );
     }
 
-    // Word document preview
+    // Word document preview (using docx-preview)
     if (isWord(ext) && previewState.htmlContent) {
       return (
-        <div className="p-6">
-          <div
-            className="prose prose-sm max-w-none dark:prose-invert"
-            dangerouslySetInnerHTML={{ __html: previewState.htmlContent }}
-          />
-        </div>
+        <div
+          ref={docxContainerRef}
+          className="docx-preview-container overflow-auto h-full bg-[#f3f4f6]"
+          dangerouslySetInnerHTML={{ __html: previewState.htmlContent }}
+        />
       );
     }
 
@@ -528,20 +674,16 @@ export function FilePreviewSheet({
       >
         {/* Header */}
         <SheetHeader className="p-4 pb-3 border-b flex-shrink-0">
-          <div className="flex items-start justify-between gap-4 pr-8">
+          <div className="flex items-center justify-between gap-4 pr-8">
             <div className="min-w-0 flex-1">
-              <SheetTitle className="truncate">{file?.display_name}</SheetTitle>
-              <SheetDescription className="mt-1">
-                {file?.filename} &middot; {file ? formatFileSize(file.file_size) : ""}
-                {file?.description && (
-                  <>
-                    <br />
-                    <span className="text-muted-foreground">
-                      {file.description}
-                    </span>
-                  </>
-                )}
-              </SheetDescription>
+              <SheetTitle className="truncate">
+                {file?.display_name} {file && `(${formatFileSize(file.file_size)})`}
+              </SheetTitle>
+              {file?.description && (
+                <SheetDescription className="mt-1">
+                  {file.description}
+                </SheetDescription>
+              )}
             </div>
             <Button
               variant="outline"
