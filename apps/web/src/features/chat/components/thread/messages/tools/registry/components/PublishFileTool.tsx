@@ -11,10 +11,10 @@ import {
   CheckCircle,
   Loader2,
   AlertCircle,
-  ExternalLink
 } from "lucide-react";
 import { MinimalistBadge } from "@/components/ui/minimalist-badge";
 import { cn } from "@/lib/utils";
+import { FilePreviewSheet } from "@/features/chat/components/file-preview-sheet";
 
 interface PublishedFileData {
   display_name: string;
@@ -89,6 +89,7 @@ export function PublishFileTool({
   onRetry
 }: ToolComponentProps) {
   const [isDownloading, setIsDownloading] = useState(false);
+  const [previewOpen, setPreviewOpen] = useState(false);
 
   // Parse tool result
   let fileData: PublishedFileData | null = null;
@@ -101,7 +102,7 @@ export function PublishFileTool({
       // The tool returns a JSON string with the file data
       const parsed = JSON.parse(content);
       fileData = parsed;
-    } catch (e) {
+    } catch {
       // Tool might return a simple message, try to extract from args
       try {
         fileData = {
@@ -237,67 +238,90 @@ export function PublishFileTool({
 
   // Success state with file card
   return (
-    <Card className="w-full overflow-hidden py-0 gap-0">
-      <div className="py-5 px-3">
-        <div className="flex items-center gap-3">
-          {/* File Icon */}
-          <div className={cn(
-            "w-9 h-9 rounded-lg flex items-center justify-center flex-shrink-0",
-            "bg-primary/10"
-          )}>
-            <FileIcon className="w-5 h-5 text-primary" />
-          </div>
+    <>
+      <Card
+        className="w-full overflow-hidden py-0 gap-0 cursor-pointer hover:bg-accent/50 transition-colors"
+        onClick={() => setPreviewOpen(true)}
+      >
+        <div className="py-5 px-3">
+          <div className="flex items-center gap-3">
+            {/* File Icon */}
+            <div className={cn(
+              "w-9 h-9 rounded-lg flex items-center justify-center flex-shrink-0",
+              "bg-primary/10"
+            )}>
+              <FileIcon className="w-5 h-5 text-primary" />
+            </div>
 
-          {/* File Info */}
-          <div className="flex-1 min-w-0">
-            <div className="flex items-center gap-2">
-              <h3 className="text-sm font-medium text-foreground truncate">
-                {fileData.display_name}
-              </h3>
-              {fileData.file_type && (
-                <span className={cn(
-                  "text-xs font-medium px-2 py-0.5 rounded-full uppercase",
-                  getFileTypeBadgeClass(fileData.file_type)
-                )}>
-                  {fileData.file_type.replace('.', '')}
-                </span>
-              )}
-              {fileData.file_size > 0 && (
-                <span className="text-xs text-muted-foreground">
-                  ({formatFileSize(fileData.file_size)})
-                </span>
+            {/* File Info */}
+            <div className="flex-1 min-w-0">
+              <div className="flex items-center gap-2">
+                <h3 className="text-sm font-medium text-foreground truncate">
+                  {fileData.display_name}
+                </h3>
+                {fileData.file_type && (
+                  <span className={cn(
+                    "text-xs font-medium px-2 py-0.5 rounded-full uppercase",
+                    getFileTypeBadgeClass(fileData.file_type)
+                  )}>
+                    {fileData.file_type.replace('.', '')}
+                  </span>
+                )}
+                {fileData.file_size > 0 && (
+                  <span className="text-xs text-muted-foreground">
+                    ({formatFileSize(fileData.file_size)})
+                  </span>
+                )}
+              </div>
+
+              {fileData.description && (
+                <p className="text-xs text-muted-foreground line-clamp-1">
+                  {fileData.description}
+                </p>
               )}
             </div>
 
-            {fileData.description && (
-              <p className="text-xs text-muted-foreground line-clamp-1">
-                {fileData.description}
-              </p>
-            )}
+            {/* Download Button */}
+            <Button
+              onClick={(e) => {
+                e.stopPropagation(); // Prevent card click
+                handleDownload();
+              }}
+              disabled={isDownloading || !fileData.storage_path}
+              variant="default"
+              size="sm"
+              className="flex-shrink-0 h-8 text-xs"
+            >
+              {isDownloading ? (
+                <>
+                  <Loader2 className="w-3.5 h-3.5 mr-1.5 animate-spin" />
+                  Downloading...
+                </>
+              ) : (
+                <>
+                  <DownloadIcon className="w-3.5 h-3.5 mr-1.5" />
+                  Download
+                </>
+              )}
+            </Button>
           </div>
-
-          {/* Download Button */}
-          <Button
-            onClick={handleDownload}
-            disabled={isDownloading || !fileData.storage_path}
-            variant="default"
-            size="sm"
-            className="flex-shrink-0 h-8 text-xs"
-          >
-            {isDownloading ? (
-              <>
-                <Loader2 className="w-3.5 h-3.5 mr-1.5 animate-spin" />
-                Downloading...
-              </>
-            ) : (
-              <>
-                <DownloadIcon className="w-3.5 h-3.5 mr-1.5" />
-                Download
-              </>
-            )}
-          </Button>
         </div>
-      </div>
-    </Card>
+      </Card>
+
+      {/* Preview Sheet */}
+      <FilePreviewSheet
+        open={previewOpen}
+        onOpenChange={setPreviewOpen}
+        file={fileData ? {
+          display_name: fileData.display_name,
+          filename: fileData.filename,
+          file_type: fileData.file_type,
+          mime_type: fileData.mime_type,
+          storage_path: fileData.storage_path,
+          file_size: fileData.file_size,
+          description: fileData.description,
+        } : null}
+      />
+    </>
   );
 }
