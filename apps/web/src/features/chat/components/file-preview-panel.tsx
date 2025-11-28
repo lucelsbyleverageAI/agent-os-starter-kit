@@ -382,6 +382,72 @@ export function FilePreviewPanel() {
             loading: false,
             htmlContent: tempContainer.innerHTML,
           }));
+        } else if (isPowerPoint(ext)) {
+          // Dynamic import for pptx-preview for PowerPoint rendering
+          const pptxPreview = await import("pptx-preview");
+          const arrayBuffer = await blob.arrayBuffer();
+
+          // Create a temporary container to render the presentation
+          const tempContainer = document.createElement("div");
+
+          // Initialize pptx-preview
+          const previewer = pptxPreview.init(tempContainer, {
+            width: 800,
+            height: 600,
+          });
+
+          await previewer.preview(arrayBuffer);
+
+          // Style each slide via JavaScript (similar to Word pages)
+          const allChildren = tempContainer.children;
+          const totalSlides = allChildren.length;
+
+          Array.from(allChildren).forEach((child, index) => {
+            const el = child as HTMLElement;
+            el.style.backgroundColor = "white";
+            el.style.border = "1px solid #e5e7eb";
+            el.style.boxShadow = "0 1px 3px 0 rgb(0 0 0 / 0.1)";
+            el.style.marginBottom = "12px";
+            el.style.position = "relative";
+            el.style.display = "block";
+
+            // Add slide number
+            const slideNumber = document.createElement("div");
+            slideNumber.textContent = `Slide ${index + 1} of ${totalSlides}`;
+            slideNumber.style.cssText = `
+              position: absolute;
+              bottom: 12px;
+              left: 50%;
+              transform: translateX(-50%);
+              font-size: 12px;
+              color: #6b7280;
+              background: rgba(255,255,255,0.9);
+              padding: 4px 12px;
+              border-radius: 9999px;
+              z-index: 10;
+            `;
+            el.appendChild(slideNumber);
+          });
+
+          // Wrap all content in our own styled container
+          const wrapper = document.createElement("div");
+          wrapper.style.cssText = `
+            background: #f3f4f6;
+            padding: 12px;
+            min-height: 100%;
+            width: fit-content;
+            min-width: 100%;
+          `;
+          while (tempContainer.firstChild) {
+            wrapper.appendChild(tempContainer.firstChild);
+          }
+          tempContainer.appendChild(wrapper);
+
+          setPreviewState((prev) => ({
+            ...prev,
+            loading: false,
+            htmlContent: tempContainer.innerHTML,
+          }));
         } else if (isHTML(ext)) {
           // HTML files - store content for both raw and preview display
           const text = await blob.text();
@@ -730,7 +796,20 @@ export function FilePreviewPanel() {
       );
     }
 
-    // PowerPoint and other unsupported formats
+    // PowerPoint preview (using pptx-preview)
+    if (isPowerPoint(ext) && previewState.htmlContent) {
+      return (
+        <div
+          className={cn(
+            "pptx-preview-container h-full bg-[#f3f4f6]",
+            scrollbarClasses.both
+          )}
+          dangerouslySetInnerHTML={{ __html: previewState.htmlContent }}
+        />
+      );
+    }
+
+    // PowerPoint fallback (if preview not available)
     if (isPowerPoint(ext)) {
       return (
         <div className="flex flex-col items-center justify-center h-full gap-4 text-center p-8">
@@ -740,7 +819,7 @@ export function FilePreviewPanel() {
               PowerPoint Preview Not Available
             </h3>
             <p className="text-sm text-muted-foreground">
-              PowerPoint files cannot be previewed in the browser.
+              Unable to preview this PowerPoint file.
               <br />
               Please download the file to view it.
             </p>

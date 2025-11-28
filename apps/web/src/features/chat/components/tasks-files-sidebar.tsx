@@ -4,7 +4,6 @@ import React, { useMemo, useCallback } from "react";
 import {
   ChevronLeft,
   ChevronRight,
-  FileText,
   CheckCircle,
   Circle,
   Clock,
@@ -12,18 +11,23 @@ import {
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { ScrollArea } from "@/components/ui/scroll-area";
 import { Button } from "@/components/ui/button";
-import { TodoItem, FileItem } from "@/types/deep-agent";
+import { TodoItem, FileItem, PublishedFile } from "@/types/deep-agent";
+import { useFilePreviewOptional } from "@/features/chat/context/file-preview-context";
+import { BrandedFileIcon } from "@/components/ui/branded-file-icon";
 
 interface TasksFilesSidebarProps {
   todos: TodoItem[];
   files: Record<string, string>;
+  publishedFiles: PublishedFile[];
   onFileClick: (file: FileItem) => void;
   collapsed: boolean;
   onToggleCollapse: () => void;
 }
 
 export const TasksFilesSidebar = React.memo<TasksFilesSidebarProps>(
-  ({ todos, files, onFileClick, collapsed, onToggleCollapse }) => {
+  ({ todos, files, publishedFiles, onFileClick, collapsed, onToggleCollapse }) => {
+    const filePreview = useFilePreviewOptional();
+
     const getStatusIcon = useCallback((status: TodoItem["status"]) => {
       switch (status) {
         case "completed":
@@ -42,6 +46,24 @@ export const TasksFilesSidebar = React.memo<TasksFilesSidebarProps>(
         completed: todos.filter((t) => t.status === "completed"),
       };
     }, [todos]);
+
+    // Handler for published file clicks - opens preview panel
+    const handlePublishedFileClick = useCallback((file: PublishedFile) => {
+      if (filePreview) {
+        filePreview.openPreview({
+          display_name: file.display_name,
+          filename: file.filename,
+          file_type: file.file_type,
+          mime_type: file.mime_type,
+          storage_path: file.storage_path,
+          file_size: file.file_size,
+          description: file.description,
+        });
+      }
+    }, [filePreview]);
+
+    // Calculate total files count for tab
+    const totalFilesCount = Object.keys(files).length + publishedFiles.length;
 
     if (collapsed) {
       return (
@@ -88,12 +110,12 @@ export const TasksFilesSidebar = React.memo<TasksFilesSidebarProps>(
         </div>
         
         <Tabs defaultValue="tasks" className="flex flex-col flex-1 overflow-hidden">
-          <TabsList className="mx-4 mt-4 grid w-auto grid-cols-2 bg-muted">
-            <TabsTrigger value="tasks" className="text-sm">
+          <TabsList variant="branded" className="mx-4 mt-4">
+            <TabsTrigger value="tasks">
               Tasks ({todos.length})
             </TabsTrigger>
-            <TabsTrigger value="files" className="text-sm">
-              Files ({Object.keys(files).length})
+            <TabsTrigger value="files">
+              Files ({totalFilesCount})
             </TabsTrigger>
           </TabsList>
 
@@ -168,33 +190,74 @@ export const TasksFilesSidebar = React.memo<TasksFilesSidebarProps>(
 
           <TabsContent value="files" className="flex-1 p-0 overflow-hidden">
             <ScrollArea className="h-full">
-              {Object.keys(files).length === 0 ? (
+              {totalFilesCount === 0 ? (
                 <div className="p-8 text-center text-muted-foreground">
                   <p className="text-sm">No files yet</p>
                 </div>
               ) : (
-                <div className="p-4 space-y-1">
-                  {Object.keys(files).map((filePath) => (
-                    <div key={filePath} className="group">
-                      <div
-                        className="flex items-center gap-3 p-2 rounded-md cursor-pointer hover:bg-muted/50 transition-colors"
-                        onClick={() =>
-                          onFileClick({ path: filePath, content: files[filePath] })
-                        }
-                        style={{ maxWidth: 'calc(20rem - 2rem)' }}
-                      >
-                        <FileText size={16} className="text-muted-foreground flex-shrink-0" />
-                        <div className="flex-1 min-w-0" style={{ maxWidth: 'calc(100% - 28px)' }}>
-                          <p 
-                            className="text-sm leading-tight break-all" 
-                            title={filePath}
+                <div className="p-4 space-y-4">
+                  {/* Published Files Section (prioritized - show first) */}
+                  {publishedFiles.length > 0 && (
+                    <div className="space-y-2">
+                      <h3 className="text-xs font-semibold text-muted-foreground uppercase tracking-wide">
+                        Published Files
+                      </h3>
+                      {publishedFiles.map((file) => (
+                          <div
+                            key={file.storage_path}
+                            className="flex items-center gap-3 p-2 rounded-md cursor-pointer hover:bg-muted/50 transition-colors"
+                            onClick={() => handlePublishedFileClick(file)}
                           >
-                            {filePath}
-                          </p>
-                        </div>
-                      </div>
+                            <BrandedFileIcon extension={file.file_type} size={20} className="flex-shrink-0" />
+                            <div className="flex-1 min-w-0">
+                              <span className="text-sm font-medium leading-normal truncate block">
+                                {file.display_name}
+                              </span>
+                              {file.description && (
+                                <span className="text-xs text-muted-foreground leading-normal truncate block">
+                                  {file.description}
+                                </span>
+                              )}
+                            </div>
+                          </div>
+                      ))}
                     </div>
-                  ))}
+                  )}
+
+                  {/* Legacy Working Files Section */}
+                  {Object.keys(files).length > 0 && (
+                    <div className="space-y-2">
+                      {publishedFiles.length > 0 && (
+                        <h3 className="text-xs font-semibold text-muted-foreground uppercase tracking-wide">
+                          Working Files
+                        </h3>
+                      )}
+                      {Object.keys(files).map((filePath) => {
+                        const fileExt = filePath.split('.').pop() || '';
+                        return (
+                        <div key={filePath} className="group">
+                          <div
+                            className="flex items-center gap-3 p-2 rounded-md cursor-pointer hover:bg-muted/50 transition-colors"
+                            onClick={() =>
+                              onFileClick({ path: filePath, content: files[filePath] })
+                            }
+                            style={{ maxWidth: 'calc(20rem - 2rem)' }}
+                          >
+                            <BrandedFileIcon extension={fileExt} size={16} className="flex-shrink-0" />
+                            <div className="flex-1 min-w-0" style={{ maxWidth: 'calc(100% - 28px)' }}>
+                              <p
+                                className="text-sm leading-tight break-all"
+                                title={filePath}
+                              >
+                                {filePath}
+                              </p>
+                            </div>
+                          </div>
+                        </div>
+                        );
+                      })}
+                    </div>
+                  )}
                 </div>
               )}
             </ScrollArea>

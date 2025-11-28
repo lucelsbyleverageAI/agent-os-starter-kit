@@ -22,6 +22,21 @@ import { logger } from "@/components/agent-inbox/utils/logger";
 import { useAuthContext } from "@/providers/Auth";
 import { fetchWithAuth } from "@/lib/auth/fetch-with-auth";
 
+/**
+ * Strips XML upload tags from text content.
+ * These tags are used for backend processing but should not appear in thread names.
+ */
+function stripUploadXmlTags(text: string): string {
+  let cleaned = text;
+  // Remove <UserUploadedImage...>...</UserUploadedImage> blocks
+  cleaned = cleaned.replace(/<UserUploadedImage[^>]*>[\s\S]*?<\/UserUploadedImage>/g, '');
+  // Remove <UserUploadedDocument...>...</UserUploadedDocument> blocks
+  cleaned = cleaned.replace(/<UserUploadedDocument[^>]*>[\s\S]*?<\/UserUploadedDocument>/g, '');
+  // Remove <UserUploadedAttachment>...</UserUploadedAttachment> blocks
+  cleaned = cleaned.replace(/<UserUploadedAttachment>[\s\S]*?<\/UserUploadedAttachment>/g, '');
+  return cleaned.trim();
+}
+
 type ThreadContentType<
   ThreadValues extends Record<string, any> = Record<string, any>,
 > = {
@@ -427,12 +442,13 @@ function ThreadsProviderInternal<
     try {
       // Touch mirror to mark activity before sending/resuming
       try {
-        const contentTexts = response
-          .flatMap(r => r.args)
-          .filter((c: any) => c?.type === 'text')
-          .map((c: any) => c.text)
-          .join(' ')
-          .slice(0, 80);
+        const contentTexts = stripUploadXmlTags(
+          response
+            .flatMap(r => r.args)
+            .filter((c: any) => c?.type === 'text')
+            .map((c: any) => c.text)
+            .join(' ')
+        ).slice(0, 80);
         fetchWithAuth('/api/langconnect/agents/mirror/threads/touch', {
           method: 'POST',
           headers: {

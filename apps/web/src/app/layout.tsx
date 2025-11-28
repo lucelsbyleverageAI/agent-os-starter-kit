@@ -10,6 +10,7 @@ import { NuqsAdapter } from "nuqs/adapters/next/app";
 // import { MCPProvider } from "@/providers/MCP";
 import { Toaster } from "@/components/ui/sonner";
 import { ClientDebugTools } from "@/components/ClientDebugTools";
+import { FluentIconsInit } from "@/components/fluent-icons-init";
 
 const inter = Inter({ subsets: ["latin"] });
 
@@ -44,6 +45,7 @@ export default function RootLayout({
                 <UserRoleProvider>
                   <AgentsProvider>
                     {/* <MCPProvider> */}
+                      <FluentIconsInit />
                       {children}
                       <Toaster />
                       <ClientDebugTools />

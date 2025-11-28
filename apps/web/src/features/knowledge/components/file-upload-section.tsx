@@ -8,48 +8,24 @@ import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
 import { toast } from "sonner";
 import { cn } from "@/lib/utils";
 import { getScrollbarClasses } from "@/lib/scrollbar-styles";
-import { MinimalistBadge } from "@/components/ui/minimalist-badge";
 import {
   Upload,
   X,
-  FileText,
-  File,
-  Video,
-  FileArchive,
-  FileSpreadsheet,
   AlertCircle,
   Info,
-  Image as ImageIcon
 } from "lucide-react";
-import { 
-  UPLOAD_LIMITS, 
-  UPLOAD_MESSAGES, 
-  formatFileSize, 
-  bytesToMB 
+import {
+  UPLOAD_LIMITS,
+  UPLOAD_MESSAGES,
+  formatFileSize,
+  bytesToMB
 } from "../constants/upload-limits";
+import { BrandedFileIcon } from "@/components/ui/branded-file-icon";
 
 interface FileUploadSectionProps {
   files: File[];
   onFilesChange: (files: File[]) => void;
 }
-
-// File type detection
-const getFileIcon = (file: File) => {
-  const type = file.type.toLowerCase();
-  const name = file.name.toLowerCase();
-
-  if (type.startsWith('image/')) return ImageIcon;
-  if (type.startsWith('video/')) return Video;
-  if (type.includes('pdf')) return FileText;
-  if (type.includes('word') || name.endsWith('.docx') || name.endsWith('.doc')) return FileText;
-  if (type.includes('presentation') || name.endsWith('.pptx') || name.endsWith('.ppt')) return FileText;
-  if (type.includes('spreadsheet') || name.endsWith('.xlsx') || name.endsWith('.xls') || name.endsWith('.csv')) return FileSpreadsheet;
-  if (type.includes('zip') || type.includes('archive')) return FileArchive;
-
-  return File;
-};
-
-// File size formatting is now imported from upload-limits
 
 // Validation types
 interface ValidationResult {
@@ -315,9 +291,9 @@ interface FileCardProps {
 }
 
 function FileCard({ file, onRemove }: FileCardProps) {
-  const FileIcon = getFileIcon(file);
+  const fileExt = file.name.split('.').pop() || '';
   const fileSize = formatFileSize(file.size);
-  
+
   return (
     <Card className="transition-all hover:shadow-sm !py-1">
       <CardContent className="!px-3 !py-1.5">
@@ -325,10 +301,7 @@ function FileCard({ file, onRemove }: FileCardProps) {
           <div className="flex items-center space-x-2 flex-1 min-w-0">
             {/* File Icon */}
             <div className="flex-shrink-0">
-              <MinimalistBadge 
-                icon={FileIcon} 
-                tooltip={`${file.type || 'Unknown type'} file`}
-              />
+              <BrandedFileIcon extension={fileExt} size={20} />
             </div>
 
             {/* File Info */}

@@ -1,20 +1,17 @@
-import React, { useState, useCallback } from "react";
+import React, { useState, useCallback, useEffect, useRef } from "react";
 import { ToolComponentProps } from "../../types";
 import { Card } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import {
   Download as DownloadIcon,
-  FileText,
-  FileSpreadsheet,
-  FileImage,
-  File,
   CheckCircle,
   Loader2,
   AlertCircle,
 } from "lucide-react";
 import { MinimalistBadge } from "@/components/ui/minimalist-badge";
-import { cn } from "@/lib/utils";
 import { useFilePreviewOptional } from "@/features/chat/context/file-preview-context";
+import { formatFileSize } from "@/lib/file-utils";
+import { BrandedFileIcon } from "@/components/ui/branded-file-icon";
 
 interface PublishedFileData {
   display_name: string;
@@ -26,59 +23,6 @@ interface PublishedFileData {
   storage_path: string;
   sandbox_path: string;
   published_at: string;
-}
-
-// Helper to get appropriate icon for file type
-function getFileIcon(mimeType: string | undefined) {
-  if (!mimeType) {
-    return File;
-  }
-  if (mimeType.startsWith('image/')) {
-    return FileImage;
-  }
-  if (mimeType.includes('spreadsheet') || mimeType.includes('excel') || mimeType === 'text/csv') {
-    return FileSpreadsheet;
-  }
-  if (mimeType.includes('document') || mimeType.includes('word') || mimeType === 'application/pdf') {
-    return FileText;
-  }
-  return File;
-}
-
-// Helper to format file size
-function formatFileSize(bytes: number): string {
-  if (bytes === 0) return '0 B';
-  const k = 1024;
-  const sizes = ['B', 'KB', 'MB', 'GB'];
-  const i = Math.floor(Math.log(bytes) / Math.log(k));
-  return parseFloat((bytes / Math.pow(k, i)).toFixed(1)) + ' ' + sizes[i];
-}
-
-// Helper to get file extension badge color
-function getFileTypeBadgeClass(fileType: string): string {
-  const ext = fileType.toLowerCase().replace('.', '');
-  switch (ext) {
-    case 'pdf':
-      return 'bg-red-100 text-red-700 dark:bg-red-900/30 dark:text-red-300';
-    case 'docx':
-    case 'doc':
-      return 'bg-blue-100 text-blue-700 dark:bg-blue-900/30 dark:text-blue-300';
-    case 'xlsx':
-    case 'xls':
-    case 'csv':
-      return 'bg-green-100 text-green-700 dark:bg-green-900/30 dark:text-green-300';
-    case 'pptx':
-    case 'ppt':
-      return 'bg-orange-100 text-orange-700 dark:bg-orange-900/30 dark:text-orange-300';
-    case 'png':
-    case 'jpg':
-    case 'jpeg':
-    case 'gif':
-    case 'webp':
-      return 'bg-purple-100 text-purple-700 dark:bg-purple-900/30 dark:text-purple-300';
-    default:
-      return 'bg-gray-100 text-gray-700 dark:bg-gray-800 dark:text-gray-300';
-  }
 }
 
 export function PublishFileTool({
@@ -177,7 +121,26 @@ export function PublishFileTool({
     }
   }, [fileData, filePreview]);
 
-  const FileIcon = fileData ? getFileIcon(fileData.mime_type) : File;
+  // Track if we observed a loading/streaming state (meaning tool ran during this session)
+  const wasLoadingRef = useRef(false);
+  // Track if we've already auto-opened the preview for this tool call
+  const hasAutoOpenedRef = useRef(false);
+
+  // Track if we ever saw a loading state
+  useEffect(() => {
+    if (state === "loading" || streaming) {
+      wasLoadingRef.current = true;
+    }
+  }, [state, streaming]);
+
+  // Auto-open preview when tool completes successfully (only if we saw loading first)
+  useEffect(() => {
+    if (state === "completed" && fileData && filePreview &&
+        !hasAutoOpenedRef.current && wasLoadingRef.current) {
+      hasAutoOpenedRef.current = true;
+      handleOpenPreview();
+    }
+  }, [state, fileData, filePreview, handleOpenPreview]);
 
   // Loading state
   if (state === "loading" || streaming) {
@@ -260,12 +223,7 @@ export function PublishFileTool({
         <div className="py-5 px-3">
           <div className="flex items-center gap-3">
             {/* File Icon */}
-            <div className={cn(
-              "w-9 h-9 rounded-lg flex items-center justify-center flex-shrink-0",
-              "bg-primary/10"
-            )}>
-              <FileIcon className="w-5 h-5 text-primary" />
-            </div>
+            <BrandedFileIcon extension={fileData.file_type} size={24} className="flex-shrink-0" />
 
             {/* File Info */}
             <div className="flex-1 min-w-0">
@@ -273,14 +231,6 @@ export function PublishFileTool({
                 <h3 className="text-sm font-medium text-foreground truncate">
                   {fileData.display_name}
                 </h3>
-                {fileData.file_type && (
-                  <span className={cn(
-                    "text-xs font-medium px-2 py-0.5 rounded-full uppercase",
-                    getFileTypeBadgeClass(fileData.file_type)
-                  )}>
-                    {fileData.file_type.replace('.', '')}
-                  </span>
-                )}
                 {fileData.file_size > 0 && (
                   <span className="text-xs text-muted-foreground">
                     ({formatFileSize(fileData.file_size)})
