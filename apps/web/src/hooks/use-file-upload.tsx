@@ -27,7 +27,8 @@ export const SUPPORTED_FILE_TYPES = {
     "application/vnd.openxmlformats-officedocument.presentationml.presentation", // .pptx
     "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet", // .xlsx
     "text/plain",
-    "text/markdown"
+    "text/markdown",
+    "text/csv", // .csv
   ]
 };
 

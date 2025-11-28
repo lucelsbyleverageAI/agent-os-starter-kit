@@ -98,46 +98,38 @@ async def graph(config: RunnableConfig):
         ]
 
     # Get sandbox configuration
-    sandbox_timeout = 600
+    # Note: sandbox_timeout max is 3600 (1 hour) for E2B hobby tier
+    sandbox_timeout = 3600  # Default to max for hobby tier
     sandbox_pip_packages = []
     if cfg.sandbox_config:
-        sandbox_timeout = cfg.sandbox_config.timeout_seconds
+        # Clamp timeout to max 3600 for hobby tier
+        sandbox_timeout = min(cfg.sandbox_config.timeout_seconds, 3600)
         sandbox_pip_packages = cfg.sandbox_config.pip_packages
 
-    # ALWAYS initialize sandbox for skills_deepagent (it's the core of this agent type)
-    # The sandbox is required for all file operations
-    try:
-        await get_or_create_sandbox(
+    # NOTE: Sandbox is now initialized at RUNTIME by the file_attachment_node
+    # This enables reading state.sandbox_id for reconnection to existing sandboxes
+    # The sandbox tools below use get_sandbox(thread_id) to access the sandbox
+    # which will be populated by the file_attachment_node before tools are called
+
+    # Add sandbox tools (they will access sandbox via get_sandbox(thread_id) at runtime)
+    run_code_tool, run_command_tool = create_sandbox_tools(thread_id)
+    tools.append(run_code_tool)
+    tools.append(run_command_tool)
+
+    # Add publish_file_to_user tool for agent-to-user file sharing
+    if user_id and supabase_token:
+        publish_tool = create_publish_file_tool(
             thread_id=thread_id,
-            skills=skills,
+            user_id=user_id,
             langconnect_url=langconnect_url,
             access_token=supabase_token,
-            pip_packages=sandbox_pip_packages,
-            timeout=sandbox_timeout
         )
-        # Add both sandbox tools: run_code and run_command
-        run_code_tool, run_command_tool = create_sandbox_tools(thread_id)
-        tools.append(run_code_tool)
-        tools.append(run_command_tool)
+        tools.append(publish_tool)
+        logger.info("[SKILLS_DEEPAGENT] Added publish_file_to_user tool")
+    else:
+        logger.warning("[SKILLS_DEEPAGENT] publish_file_to_user tool not added: missing user_id or token")
 
-        # Add publish_file_to_user tool for agent-to-user file sharing
-        if user_id and supabase_token:
-            publish_tool = create_publish_file_tool(
-                thread_id=thread_id,
-                user_id=user_id,
-                langconnect_url=langconnect_url,
-                access_token=supabase_token,
-            )
-            tools.append(publish_tool)
-            logger.info("[SKILLS_DEEPAGENT] Added publish_file_to_user tool")
-        else:
-            logger.warning("[SKILLS_DEEPAGENT] publish_file_to_user tool not added: missing user_id or token")
-
-        logger.info(f"[SKILLS_DEEPAGENT] Initialized sandbox with {len(skills)} skills")
-    except Exception as e:
-        logger.error(f"[SKILLS_DEEPAGENT] Failed to initialize sandbox: {e}")
-        # For skills_deepagent, sandbox is required - raise the error
-        raise RuntimeError(f"Sandbox initialization failed: {e}. Sandbox is required for skills_deepagent.")
+    logger.info(f"[SKILLS_DEEPAGENT] Configured sandbox tools (sandbox init deferred to runtime)")
 
     # Note: write_todos is added by agent_builder, not here
 
@@ -268,10 +260,14 @@ async def graph(config: RunnableConfig):
         runnable_config=config,
         include_general_purpose_agent=cfg.include_general_purpose_agent,
         pre_model_hook=trimming_hook,
-        # File attachment processing parameters
+        # File attachment processing parameters (also handles sandbox init)
         thread_id=thread_id,
         langconnect_url=langconnect_url,
         access_token=supabase_token,
+        # Sandbox initialization parameters (used by file_attachment_node)
+        skills=skills,
+        sandbox_pip_packages=sandbox_pip_packages,
+        sandbox_timeout=sandbox_timeout,
     )
 
     return agent

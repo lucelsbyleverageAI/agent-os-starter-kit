@@ -264,7 +264,8 @@ export function ChatComposer({
                 "application/vnd.openxmlformats-officedocument.presentationml.presentation",
                 "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
                 "text/plain",
-                "text/markdown"
+                "text/markdown",
+                "text/csv",
               ].join(",")}
               className="hidden"
             />

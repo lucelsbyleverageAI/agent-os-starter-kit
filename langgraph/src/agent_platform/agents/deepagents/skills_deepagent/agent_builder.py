@@ -51,6 +51,10 @@ def skills_agent_builder(
     thread_id: Optional[str] = None,
     langconnect_url: str = "http://langconnect:8080",
     access_token: Optional[str] = None,
+    # Sandbox initialization parameters
+    skills: Optional[List[dict]] = None,
+    sandbox_pip_packages: Optional[List[str]] = None,
+    sandbox_timeout: int = 3600,
 ):
     """Build a Skills DeepAgent with sandbox-only filesystem.
 
@@ -70,6 +74,9 @@ def skills_agent_builder(
         thread_id: Thread ID for sandbox file attachment processing
         langconnect_url: LangConnect URL for storage downloads
         access_token: User access token for storage downloads
+        skills: List of skill references to upload to sandbox
+        sandbox_pip_packages: Additional pip packages to install in sandbox
+        sandbox_timeout: Sandbox timeout in seconds (max 3600 for hobby tier)
     """
     has_subagents = (subagents and len(subagents) > 0) or include_general_purpose_agent
 
@@ -140,13 +147,18 @@ def skills_agent_builder(
         all_tools = built_in_tools + list(tools)
 
     # Create custom file attachment processor for skills_deepagent
-    # This downloads binaries from storage and writes to sandbox
+    # This handles BOTH sandbox initialization AND file attachment processing
+    # Sandbox init is deferred to runtime to enable reading state.sandbox_id for reconnection
     file_attachment_processor = None
     if thread_id:
         file_attachment_processor = create_file_attachment_node(
             thread_id=thread_id,
             langconnect_url=langconnect_url,
             access_token=access_token,
+            # Sandbox initialization parameters
+            skills=skills,
+            sandbox_pip_packages=sandbox_pip_packages,
+            sandbox_timeout=sandbox_timeout,
         )
 
     return custom_create_react_agent(
@@ -177,6 +189,10 @@ def async_create_skills_agent(
     thread_id: Optional[str] = None,
     langconnect_url: str = "http://langconnect:8080",
     access_token: Optional[str] = None,
+    # Sandbox initialization parameters
+    skills: Optional[List[dict]] = None,
+    sandbox_pip_packages: Optional[List[str]] = None,
+    sandbox_timeout: int = 3600,
 ):
     """Create an async Skills DeepAgent."""
     return skills_agent_builder(
@@ -195,6 +211,9 @@ def async_create_skills_agent(
         thread_id=thread_id,
         langconnect_url=langconnect_url,
         access_token=access_token,
+        skills=skills,
+        sandbox_pip_packages=sandbox_pip_packages,
+        sandbox_timeout=sandbox_timeout,
     )
 
 
@@ -213,6 +232,10 @@ def create_skills_agent(
     thread_id: Optional[str] = None,
     langconnect_url: str = "http://langconnect:8080",
     access_token: Optional[str] = None,
+    # Sandbox initialization parameters
+    skills: Optional[List[dict]] = None,
+    sandbox_pip_packages: Optional[List[str]] = None,
+    sandbox_timeout: int = 3600,
 ):
     """Create a sync Skills DeepAgent."""
     return skills_agent_builder(
@@ -231,4 +254,7 @@ def create_skills_agent(
         thread_id=thread_id,
         langconnect_url=langconnect_url,
         access_token=access_token,
+        skills=skills,
+        sandbox_pip_packages=sandbox_pip_packages,
+        sandbox_timeout=sandbox_timeout,
     )

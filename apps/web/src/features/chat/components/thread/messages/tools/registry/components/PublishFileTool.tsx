@@ -127,13 +127,14 @@ export function PublishFileTool({
 
     setIsDownloading(true);
     try {
-      // Build download URL
+      // Build download URL using on-demand signed URL endpoint
       const params = new URLSearchParams({
-        storage_path: fileData.storage_path,
+        path: fileData.storage_path,
         bucket: 'agent-outputs',
+        filename: fileData.filename,
       });
 
-      const response = await fetch(`/api/langconnect/storage/thread-file?${params.toString()}`);
+      const response = await fetch(`/api/langconnect/storage/download?${params.toString()}`);
 
       if (!response.ok) {
         throw new Error('Download failed');
@@ -236,21 +237,21 @@ export function PublishFileTool({
 
   // Success state with file card
   return (
-    <Card className="w-full overflow-hidden">
-      <div className="p-4">
-        <div className="flex items-start gap-4">
+    <Card className="w-full overflow-hidden py-0 gap-0">
+      <div className="py-5 px-3">
+        <div className="flex items-center gap-3">
           {/* File Icon */}
           <div className={cn(
-            "w-12 h-12 rounded-lg flex items-center justify-center flex-shrink-0",
+            "w-9 h-9 rounded-lg flex items-center justify-center flex-shrink-0",
             "bg-primary/10"
           )}>
-            <FileIcon className="w-6 h-6 text-primary" />
+            <FileIcon className="w-5 h-5 text-primary" />
           </div>
 
           {/* File Info */}
           <div className="flex-1 min-w-0">
-            <div className="flex items-center gap-2 mb-1">
-              <h3 className="font-medium text-foreground truncate">
+            <div className="flex items-center gap-2">
+              <h3 className="text-sm font-medium text-foreground truncate">
                 {fileData.display_name}
               </h3>
               {fileData.file_type && (
@@ -261,23 +262,18 @@ export function PublishFileTool({
                   {fileData.file_type.replace('.', '')}
                 </span>
               )}
+              {fileData.file_size > 0 && (
+                <span className="text-xs text-muted-foreground">
+                  ({formatFileSize(fileData.file_size)})
+                </span>
+              )}
             </div>
 
             {fileData.description && (
-              <p className="text-sm text-muted-foreground mb-2 line-clamp-2">
+              <p className="text-xs text-muted-foreground line-clamp-1">
                 {fileData.description}
               </p>
             )}
-
-            <div className="flex items-center gap-3 text-xs text-muted-foreground">
-              <span>{fileData.filename}</span>
-              {fileData.file_size > 0 && (
-                <>
-                  <span className="text-border">|</span>
-                  <span>{formatFileSize(fileData.file_size)}</span>
-                </>
-              )}
-            </div>
           </div>
 
           {/* Download Button */}
@@ -286,16 +282,16 @@ export function PublishFileTool({
             disabled={isDownloading || !fileData.storage_path}
             variant="default"
             size="sm"
-            className="flex-shrink-0"
+            className="flex-shrink-0 h-8 text-xs"
           >
             {isDownloading ? (
               <>
-                <Loader2 className="w-4 h-4 mr-2 animate-spin" />
+                <Loader2 className="w-3.5 h-3.5 mr-1.5 animate-spin" />
                 Downloading...
               </>
             ) : (
               <>
-                <DownloadIcon className="w-4 h-4 mr-2" />
+                <DownloadIcon className="w-3.5 h-3.5 mr-1.5" />
                 Download
               </>
             )}
