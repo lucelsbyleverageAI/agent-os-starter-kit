@@ -20,10 +20,10 @@ from agent_platform.sentry import get_logger
 
 try:
     from .state import SkillsDeepAgentState
-    from .sandbox_tools import get_sandbox
+    from .sandbox_tools import get_sandbox, get_or_create_sandbox
 except ImportError:
     from agent_platform.agents.deepagents.skills_deepagent.state import SkillsDeepAgentState
-    from agent_platform.agents.deepagents.skills_deepagent.sandbox_tools import get_sandbox
+    from agent_platform.agents.deepagents.skills_deepagent.sandbox_tools import get_sandbox, get_or_create_sandbox
 
 logger = get_logger(__name__)
 
@@ -360,22 +360,155 @@ def create_file_attachment_node(
     thread_id: str,
     langconnect_url: str = "http://langconnect:8080",
     access_token: Optional[str] = None,
+    skills: Optional[List[Dict[str, Any]]] = None,
+    sandbox_pip_packages: Optional[List[str]] = None,
+    sandbox_timeout: int = 3600,
 ):
-    """Create a file attachment processing node bound to a specific thread.
+    """Create a file attachment processing node that also initializes sandbox.
+
+    This node runs first in the graph and handles:
+    1. Sandbox initialization (with reconnection support via state.sandbox_id)
+    2. File attachment extraction to sandbox
 
     Args:
-        thread_id: Thread identifier for sandbox lookup
-        langconnect_url: LangConnect API URL for storage downloads
+        thread_id: Thread identifier for sandbox
+        langconnect_url: LangConnect API URL for storage/skill downloads
         access_token: User's access token for authentication
+        skills: List of skill references to upload to sandbox
+        sandbox_pip_packages: Additional pip packages to install
+        sandbox_timeout: Sandbox timeout in seconds (max 3600 for hobby tier)
 
     Returns a function that can be used as a LangGraph node.
     """
-    def file_attachment_node(state: SkillsDeepAgentState) -> Command:
-        return extract_file_attachments_to_sandbox(
-            state,
-            thread_id,
-            langconnect_url,
-            access_token,
+
+    async def file_attachment_node(state: SkillsDeepAgentState) -> Command:
+        """Initialize sandbox and process file attachments.
+
+        This is an async function because get_or_create_sandbox is async.
+        Returns Command with sandbox_id update for state persistence.
+        """
+        # 1. Initialize sandbox (with reconnection support)
+        # Read existing sandbox_id from state for reconnection
+        existing_sandbox_id = state.get("sandbox_id")
+
+        if existing_sandbox_id:
+            logger.info(
+                "[SKILLS_FILE_ATTACH] Found existing sandbox_id in state: %s",
+                existing_sandbox_id
+            )
+        else:
+            logger.info("[SKILLS_FILE_ATTACH] No existing sandbox_id in state, will create new sandbox")
+
+        try:
+            # get_or_create_sandbox now returns (sandbox, sandbox_id)
+            # It will try to reconnect if existing_sandbox_id is provided
+            sandbox, sandbox_id = await get_or_create_sandbox(
+                thread_id=thread_id,
+                skills=skills or [],
+                langconnect_url=langconnect_url,
+                access_token=access_token,
+                pip_packages=sandbox_pip_packages,
+                timeout=sandbox_timeout,
+                existing_sandbox_id=existing_sandbox_id,
+            )
+            logger.info(
+                "[SKILLS_FILE_ATTACH] Sandbox ready: %s (reconnected=%s)",
+                sandbox_id,
+                sandbox_id == existing_sandbox_id
+            )
+        except Exception as e:
+            logger.error("[SKILLS_FILE_ATTACH] Failed to initialize sandbox: %s", e)
+            raise RuntimeError(f"Sandbox initialization failed: {e}")
+
+        # 2. Process file attachments (rest of the original logic)
+        # Now that sandbox is initialized, process attachments
+        messages = state.get("messages", [])
+        files_written = 0
+
+        if messages:
+            latest_message = messages[-1]
+
+            if isinstance(latest_message, HumanMessage):
+                # Collect all text content from the message
+                message_texts = []
+
+                if isinstance(latest_message.content, str):
+                    message_texts.append(latest_message.content)
+                elif isinstance(latest_message.content, list):
+                    for content_item in latest_message.content:
+                        if isinstance(content_item, dict) and content_item.get('type') == 'text':
+                            message_texts.append(content_item.get('text', ''))
+
+                message_content = '\n'.join(message_texts)
+
+                # Check for upload markers
+                has_binary_uploads = '<UserUploadedImage' in message_content or '<UserUploadedDocument' in message_content
+                has_legacy_attachments = '<UserUploadedAttachment>' in message_content
+
+                if has_binary_uploads or has_legacy_attachments:
+                    # Ensure user_uploads directory exists
+                    try:
+                        sandbox.files.make_dir("/sandbox/user_uploads")
+                    except Exception:
+                        pass
+
+                    # Process binary uploads
+                    if has_binary_uploads and access_token:
+                        binary_uploads = _parse_binary_uploads(message_content)
+                        if binary_uploads:
+                            storage_paths = [upload['storage_path'] for upload in binary_uploads]
+                            try:
+                                signed_urls = _fetch_signed_urls(
+                                    storage_paths=storage_paths,
+                                    langconnect_url=langconnect_url,
+                                    access_token=access_token,
+                                )
+                            except Exception as e:
+                                logger.error("[SKILLS_FILE_ATTACH] Failed to fetch signed URLs: %s", e)
+                                signed_urls = {}
+
+                            for upload in binary_uploads:
+                                signed_url = signed_urls.get(upload['storage_path'])
+                                if signed_url:
+                                    try:
+                                        file_data = _download_from_signed_url(signed_url)
+                                        sandbox.files.write(upload['sandbox_path'], file_data)
+                                        logger.info(
+                                            "[SKILLS_FILE_ATTACH] Wrote %s to %s (%d bytes)",
+                                            upload['file_name'],
+                                            upload['sandbox_path'],
+                                            len(file_data)
+                                        )
+                                        files_written += 1
+                                    except Exception as e:
+                                        logger.error(
+                                            "[SKILLS_FILE_ATTACH] Failed to transfer %s: %s",
+                                            upload['file_name'],
+                                            str(e)
+                                        )
+
+                    # Process legacy attachments
+                    if has_legacy_attachments:
+                        legacy_attachments = _parse_legacy_attachments(message_content)
+                        for attachment in legacy_attachments:
+                            try:
+                                markdown_file_name = f"{attachment['file_name']}.md"
+                                sandbox_path = f"/sandbox/user_uploads/{markdown_file_name}"
+                                sandbox.files.write(sandbox_path, attachment['content'].encode('utf-8'))
+                                files_written += 1
+                            except Exception as e:
+                                logger.error(
+                                    "[SKILLS_FILE_ATTACH] Failed to write legacy attachment: %s",
+                                    str(e)
+                                )
+
+        logger.info(
+            "[SKILLS_FILE_ATTACH] Completed: sandbox_id=%s, files_written=%d",
+            sandbox_id,
+            files_written
         )
+
+        # Return sandbox_id in state for persistence across requests
+        return Command(update={"sandbox_id": sandbox_id})
 
     return file_attachment_node

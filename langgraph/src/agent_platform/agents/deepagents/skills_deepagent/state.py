@@ -77,6 +77,8 @@ class SkillsDeepAgentState(AgentState):
         messages: Conversation history (inherited from AgentState)
         todos: Task tracking list
         published_files: Files published by the agent for user download
+        sandbox_id: E2B sandbox ID for reconnection/resume across requests
     """
     todos: NotRequired[list[Todo]]
     published_files: Annotated[NotRequired[List[PublishedFile]], published_files_reducer]
+    sandbox_id: NotRequired[str]  # E2B sandbox ID for lifecycle management
