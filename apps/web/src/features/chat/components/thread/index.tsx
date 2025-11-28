@@ -69,6 +69,21 @@ function getUserFirstName(user: any): string {
   return firstName.charAt(0).toUpperCase() + firstName.slice(1).toLowerCase();
 }
 
+/**
+ * Strips XML upload tags from text content.
+ * These tags are used for backend processing but should not appear in thread names.
+ */
+function stripUploadXmlTags(text: string): string {
+  let cleaned = text;
+  // Remove <UserUploadedImage...>...</UserUploadedImage> blocks
+  cleaned = cleaned.replace(/<UserUploadedImage[^>]*>[\s\S]*?<\/UserUploadedImage>/g, '');
+  // Remove <UserUploadedDocument...>...</UserUploadedDocument> blocks
+  cleaned = cleaned.replace(/<UserUploadedDocument[^>]*>[\s\S]*?<\/UserUploadedDocument>/g, '');
+  // Remove <UserUploadedAttachment>...</UserUploadedAttachment> blocks
+  cleaned = cleaned.replace(/<UserUploadedAttachment>[\s\S]*?<\/UserUploadedAttachment>/g, '');
+  return cleaned.trim();
+}
+
 function StickyToBottomContent(props: {
   content: ReactNode;
   className?: string;
@@ -643,12 +658,13 @@ export function Thread({ historyOpen = false, configOpen = false }: ThreadProps)
       const graphId = currentAgent?.graph_id;
 
 
-      // Extract first human message content for naming
-      const nameIfAbsent = (newHumanMessage.content as any[])
-        .filter((c) => c?.type === 'text')
-        .map((c) => c.text)
-        .join(' ')
-        .slice(0, 80);
+      // Extract first human message content for naming (strip XML upload tags)
+      const nameIfAbsent = stripUploadXmlTags(
+        (newHumanMessage.content as any[])
+          .filter((c) => c?.type === 'text')
+          .map((c) => c.text)
+          .join(' ')
+      ).slice(0, 80);
 
       if (currentThreadId && session?.accessToken) {
         // Existing thread - touch immediately
@@ -757,6 +773,7 @@ export function Thread({ historyOpen = false, configOpen = false }: ThreadProps)
               <TasksFilesSidebar
                 todos={workspaceData.todos}
                 files={workspaceData.files}
+                publishedFiles={workspaceData.publishedFiles}
                 onFileClick={setSelectedFile}
                 collapsed={workspaceSidebarCollapsed}
                 onToggleCollapse={toggleWorkspaceSidebar}

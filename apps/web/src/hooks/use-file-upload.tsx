@@ -460,8 +460,6 @@ ${extractedContent || 'No content extracted'}
 
       // Start polling with storage data
       startJobPollingWithStorage(data.job_id, attachmentId, storageData);
-
-      toast.info(`Processing ${file.name}...`);
     } catch (error) {
       console.error('Error processing document:', error);
 

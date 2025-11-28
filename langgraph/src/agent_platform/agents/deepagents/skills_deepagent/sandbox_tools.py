@@ -207,17 +207,29 @@ async def get_or_create_sandbox(
         log.info(f"[sandbox] Using cached sandbox {sandbox_id} for thread {thread_id}")
         return cached_sandbox, sandbox_id
 
-    # 3. Create new sandbox
+    # 3. Create new sandbox with auto-pause enabled
+    # Auto-pause preserves sandbox state (filesystem + memory) when timeout expires
+    # instead of killing the sandbox. This allows resuming later with Sandbox.connect()
     # Get custom template ID (if set) - uses pre-built template with document processing libraries
     template_id = os.environ.get("E2B_TEMPLATE_ID")
 
-    # Create new sandbox (with custom template if configured)
+    # Create new sandbox with auto_pause=True (with custom template if configured)
+    # Using beta_create for auto-pause feature (preserves state on timeout)
     if template_id:
-        log.info(f"[sandbox] Creating sandbox with custom template: {template_id}")
-        sandbox = Sandbox(template=template_id, timeout=timeout, api_key=e2b_api_key)
+        log.info(f"[sandbox] Creating sandbox with custom template: {template_id} (auto_pause=True)")
+        sandbox = Sandbox.beta_create(
+            template=template_id,
+            timeout=timeout,
+            auto_pause=True,
+            api_key=e2b_api_key
+        )
     else:
-        log.info("[sandbox] Creating sandbox with default E2B code-interpreter template")
-        sandbox = Sandbox(timeout=timeout, api_key=e2b_api_key)
+        log.info("[sandbox] Creating sandbox with default E2B code-interpreter template (auto_pause=True)")
+        sandbox = Sandbox.beta_create(
+            timeout=timeout,
+            auto_pause=True,
+            api_key=e2b_api_key
+        )
 
     new_sandbox_id = sandbox.sandbox_id
     log.info(f"[sandbox] Created new sandbox {new_sandbox_id} for thread {thread_id}")
