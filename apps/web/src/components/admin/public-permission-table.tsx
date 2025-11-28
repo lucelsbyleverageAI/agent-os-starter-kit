@@ -9,16 +9,16 @@ import {
   TableRow,
 } from "@/components/ui/table";
 import { Button } from "@/components/ui/button";
-import { PublicGraphPermission, PublicAssistantPermission, PublicCollectionPermission } from "@/types/public-permissions";
+import { PublicGraphPermission, PublicAssistantPermission, PublicCollectionPermission, PublicSkillPermission } from "@/types/public-permissions";
 import { Badge } from "@/components/ui/badge";
 
-type Permission = PublicGraphPermission | PublicAssistantPermission | PublicCollectionPermission;
+type Permission = PublicGraphPermission | PublicAssistantPermission | PublicCollectionPermission | PublicSkillPermission;
 
 interface PublicPermissionTableProps<T extends Permission> {
   data: T[];
   onRevoke: (item: T, action?: 'revoke' | 're_invoke' | 'revoke_all') => void;
   isLoading: boolean;
-  type: 'graph' | 'assistant' | 'collection';
+  type: 'graph' | 'assistant' | 'collection' | 'skill';
 }
 
 export const PublicPermissionTable = <T extends Permission>({
@@ -49,6 +49,13 @@ export const PublicPermissionTable = <T extends Permission>({
             <div className="flex flex-col">
               <span className="font-medium">{item.collection_display_name || 'N/A'}</span>
               <span className="text-sm text-muted-foreground">{item.collection_id}</span>
+            </div>
+          );
+        } else if ('skill_id' in item) {
+          return (
+            <div className="flex flex-col">
+              <span className="font-medium">{item.skill_display_name || 'N/A'}</span>
+              <span className="text-sm text-muted-foreground">{item.skill_id}</span>
             </div>
           );
         }
@@ -155,8 +162,17 @@ export const PublicPermissionTable = <T extends Permission>({
     }
   };
 
+  const getHeaderLabel = () => {
+    switch (type) {
+      case 'graph': return 'Graph';
+      case 'assistant': return 'Assistant';
+      case 'collection': return 'Collection';
+      case 'skill': return 'Skill';
+    }
+  };
+
   const headers = [
-    { key: "id", label: type === 'graph' ? "Graph" : type === 'assistant' ? "Assistant" : "Collection" },
+    { key: "id", label: getHeaderLabel() },
     { key: "permission_level", label: "Permission Level" },
     { key: "created_by", label: "Created By" },
     { key: "created_at", label: "Created At" },
@@ -197,9 +213,11 @@ export const PublicPermissionTable = <T extends Permission>({
             key = `graph-${item.id}-${item.graph_id}`;
           } else if ('assistant_id' in item) {
             key = `assistant-${item.id}-${item.assistant_id}`;
-          } else {
-            // Must be collection since we have a union of exactly these three types
+          } else if ('collection_id' in item) {
             key = `collection-${item.id}-${item.collection_id}`;
+          } else {
+            // Must be skill since we have a union of exactly these four types
+            key = `skill-${item.id}-${(item as PublicSkillPermission).skill_id}`;
           }
           
           return (

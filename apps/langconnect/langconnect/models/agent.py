@@ -350,6 +350,7 @@ class NotificationType(str, Enum):
     GRAPH_SHARE = "graph_share"
     ASSISTANT_SHARE = "assistant_share"
     COLLECTION_SHARE = "collection_share"
+    SKILL_SHARE = "skill_share"
 
 
 class NotificationInfo(BaseModel):

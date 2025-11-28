@@ -17,6 +17,7 @@ from langconnect.config import SUPABASE_URL, SUPABASE_PUBLIC_URL, SUPABASE_KEY
 from langconnect.database.connection import get_db_connection
 from langconnect.database.skill_permissions import SkillPermissionsManager
 from langconnect.database.user_roles import UserRoleManager
+from langconnect.database.notifications import NotificationManager
 from langconnect.models.skill import (
     SkillResponse,
     SkillListResponse,
@@ -574,8 +575,9 @@ async def share_skill(
     actor: Annotated[AuthenticatedActor, Depends(resolve_user_or_service)] = None,
 ):
     """
-    Share a skill with users.
+    Share a skill with users by creating notifications.
 
+    Permissions are granted when the recipient accepts the notification.
     Requires owner permission.
     """
     permissions_manager = SkillPermissionsManager(actor.identity)
@@ -587,7 +589,8 @@ async def share_skill(
     if not skill:
         raise HTTPException(status_code=404, detail="Skill not found")
 
-    shared_with = []
+    # Create notifications for each user (like collections)
+    notification_manager = NotificationManager()
     errors = []
 
     for user_perm in request.users:
@@ -602,34 +605,31 @@ async def share_skill(
                     errors.append(f"User not found: {user_perm.user_id}")
                     continue
 
-            await permissions_manager.grant_permission(
-                skill_id,
-                user_perm.user_id,
-                user_perm.permission_level.value
+            # Create notification with skill metadata
+            await notification_manager.create_notification(
+                recipient_user_id=user_perm.user_id,
+                notification_type="skill_share",
+                resource_id=str(skill_id),
+                resource_type="skill",
+                permission_level=user_perm.permission_level.value,
+                sender_user_id=actor.identity,
+                sender_display_name=actor.identity,  # TODO: Get actual display name
+                resource_name=skill["name"],
+                resource_description=skill.get("description")
             )
 
-            # Get the created permission
-            perms = await permissions_manager.get_skill_permissions(skill_id)
-            for perm in perms:
-                if perm["user_id"] == user_perm.user_id:
-                    shared_with.append(SkillPermissionResponse(
-                        id=str(perm["id"]),
-                        skill_id=str(perm["skill_id"]),
-                        user_id=perm["user_id"],
-                        permission_level=SkillPermissionLevel(perm["permission_level"]),
-                        granted_by=perm["granted_by"],
-                        created_at=perm["created_at"],
-                        updated_at=perm["updated_at"],
-                        user_email=perm.get("user_email"),
-                        user_display_name=perm.get("user_display_name")
-                    ))
-                    break
+            log.info(
+                f"User '{actor.identity}' created skill share notification "
+                f"for user '{user_perm.user_id}' on skill '{skill_id}'"
+            )
+
         except Exception as e:
             errors.append(f"Failed to share with {user_perm.user_id}: {str(e)}")
 
+    # Return successful response - permissions will be created when notifications are accepted
     return SkillShareResponse(
         success=len(errors) == 0,
-        shared_with=shared_with,
+        shared_with=[],  # No immediate permissions - created when notifications are accepted
         errors=errors
     )
 

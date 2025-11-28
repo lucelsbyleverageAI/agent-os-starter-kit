@@ -13,6 +13,7 @@ interface SkillsGalleryProps {
   onUpdate?: (skill: Skill) => void;
   onDelete?: (skill: Skill) => void;
   onShare?: (skill: Skill) => void;
+  onDownload?: (skill: Skill) => void;
 }
 
 export function SkillsGallery({
@@ -21,6 +22,7 @@ export function SkillsGallery({
   onUpdate,
   onDelete,
   onShare,
+  onDownload,
 }: SkillsGalleryProps) {
   const [searchTerm, setSearchTerm] = useState("");
   const [currentPage, setCurrentPage] = useState(1);
@@ -91,6 +93,7 @@ export function SkillsGallery({
               onUpdate={onUpdate}
               onDelete={onDelete}
               onShare={onShare}
+              onDownload={onDownload}
             />
           ))}
 

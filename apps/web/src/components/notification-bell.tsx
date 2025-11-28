@@ -1,7 +1,7 @@
 "use client";
 
 import React, { useState } from "react";
-import { Bell, Check, X, User, FileIcon, BrainIcon } from "lucide-react";
+import { Bell, Check, X, User, FileIcon, BrainIcon, Sparkles } from "lucide-react";
 import { useNotifications } from "@/hooks/use-notifications";
 import { TooltipIconButton } from "@/components/ui/tooltip-icon-button";
 import { Badge } from "@/components/ui/badge";
@@ -23,12 +23,14 @@ const NOTIFICATION_TYPE_ICONS: Record<NotificationType, React.ReactNode> = {
   graph_share: <BrainIcon className="h-4 w-4" />,
   assistant_share: <User className="h-4 w-4" />,
   collection_share: <FileIcon className="h-4 w-4" />,
+  skill_share: <Sparkles className="h-4 w-4" />,
 };
 
 const NOTIFICATION_TYPE_LABELS: Record<NotificationType, string> = {
   graph_share: "Graph Access",
   assistant_share: "Assistant Share",
   collection_share: "Collection Share",
+  skill_share: "Skill Share",
 };
 
 interface NotificationItemProps {

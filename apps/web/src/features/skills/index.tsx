@@ -5,6 +5,7 @@ import { useSkills } from "./hooks/use-skills";
 import { SkillsGallery } from "./components/skills-gallery";
 import { UploadSkillDialog } from "./components/upload-skill-dialog";
 import { DeleteSkillDialog } from "./components/delete-skill-dialog";
+import { ManageSkillAccessDialog } from "./components/manage-skill-access-dialog";
 import type { Skill } from "@/types/skill";
 
 export { useSkills } from "./hooks/use-skills";
@@ -12,6 +13,7 @@ export { SkillCard, SkillCardLoading } from "./components/skill-card";
 export { SkillsGallery } from "./components/skills-gallery";
 export { UploadSkillDialog } from "./components/upload-skill-dialog";
 export { DeleteSkillDialog } from "./components/delete-skill-dialog";
+export { ManageSkillAccessDialog } from "./components/manage-skill-access-dialog";
 
 export default function SkillsInterface() {
   const {
@@ -21,11 +23,13 @@ export default function SkillsInterface() {
     uploadSkill,
     updateSkill,
     deleteSkill,
+    downloadSkill,
   } = useSkills();
 
   // Dialog state
   const [showUploadDialog, setShowUploadDialog] = useState(false);
   const [showDeleteDialog, setShowDeleteDialog] = useState(false);
+  const [showManageAccessDialog, setShowManageAccessDialog] = useState(false);
   const [selectedSkill, setSelectedSkill] = useState<Skill | null>(null);
   const [uploadMode, setUploadMode] = useState<"create" | "update">("create");
 
@@ -47,9 +51,9 @@ export default function SkillsInterface() {
     setShowDeleteDialog(true);
   };
 
-  const handleShareClick = (skill: Skill) => {
-    // TODO: Implement share dialog
-    console.log("Share skill:", skill);
+  const handleManageAccessClick = (skill: Skill) => {
+    setSelectedSkill(skill);
+    setShowManageAccessDialog(true);
   };
 
   const handleUpload = async (file: File) => {
@@ -64,6 +68,10 @@ export default function SkillsInterface() {
     return await deleteSkill(skill.id);
   };
 
+  const handleDownload = async (skill: Skill) => {
+    await downloadSkill(skill);
+  };
+
   return (
     <>
       <SkillsGallery
@@ -71,7 +79,8 @@ export default function SkillsInterface() {
         isLoading={isLoading}
         onUpdate={handleUpdateClick}
         onDelete={handleDeleteClick}
-        onShare={handleShareClick}
+        onShare={handleManageAccessClick}
+        onDownload={handleDownload}
       />
 
       <UploadSkillDialog
@@ -89,6 +98,14 @@ export default function SkillsInterface() {
         skill={selectedSkill}
         onConfirm={handleDelete}
       />
+
+      {selectedSkill && (
+        <ManageSkillAccessDialog
+          open={showManageAccessDialog}
+          onOpenChange={setShowManageAccessDialog}
+          skill={selectedSkill}
+        />
+      )}
     </>
   );
 }

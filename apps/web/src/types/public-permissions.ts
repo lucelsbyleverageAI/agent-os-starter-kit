@@ -21,4 +21,9 @@ export interface PublicAssistantPermission extends PublicPermission {
 export interface PublicCollectionPermission extends PublicPermission {
   collection_id: string;
   collection_display_name?: string; // To be enriched on the frontend
+}
+
+export interface PublicSkillPermission extends PublicPermission {
+  skill_id: string;
+  skill_display_name?: string; // To be enriched on the frontend
 } 

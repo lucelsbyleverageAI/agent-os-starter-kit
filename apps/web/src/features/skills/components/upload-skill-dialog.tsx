@@ -109,7 +109,7 @@ export function UploadSkillDialog({
   return (
     <Dialog open={open} onOpenChange={handleClose}>
       <DialogContent className="max-w-lg">
-        <DialogHeader>
+        <DialogHeader className="pb-4">
           <DialogTitle>
             {mode === "create" ? "Upload Skill" : `Update "${skillName}"`}
           </DialogTitle>
@@ -156,11 +156,11 @@ export function UploadSkillDialog({
               </div>
             ) : (
               <div className="space-y-2">
-                <Upload className="mx-auto h-8 w-8 text-muted-foreground" />
+                <Upload className="mx-auto h-12 w-12 mb-4 text-muted-foreground" />
                 <div>
-                  <p className="font-medium">
+                  <h3 className="font-medium text-foreground">
                     {isDragActive ? "Drop the file here" : "Drop a zip file or click to browse"}
-                  </p>
+                  </h3>
                   <p className="text-sm text-muted-foreground">
                     ZIP file containing SKILL.md at the root
                   </p>
@@ -242,7 +242,7 @@ export function UploadSkillDialog({
           )}
         </div>
 
-        <DialogFooter>
+        <DialogFooter className="pt-6 mt-6 border-t">
           <Button variant="outline" onClick={handleClose} disabled={isUploading}>
             Cancel
           </Button>
