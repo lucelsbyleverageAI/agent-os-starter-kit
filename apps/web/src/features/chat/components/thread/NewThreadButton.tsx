@@ -2,6 +2,7 @@ import { useCallback, useLayoutEffect, useState, useEffect } from "react";
 import { useQueryState } from "nuqs";
 import { TooltipIconButton } from "@/components/ui/tooltip-icon-button";
 import { SquarePen } from "lucide-react";
+import { useFilePreviewOptional } from "@/features/chat/context/file-preview-context";
 
 interface NewThreadButtonProps {
   hasMessages: boolean;
@@ -10,10 +11,12 @@ interface NewThreadButtonProps {
 export function NewThreadButton({ hasMessages }: NewThreadButtonProps) {
   const [_, setThreadId] = useQueryState("threadId");
   const [isMac, setIsMac] = useState<boolean | null>(null);
+  const filePreview = useFilePreviewOptional();
 
   const handleNewThread = useCallback(() => {
+    filePreview?.closePreview();
     setThreadId(null);
-  }, [setThreadId]);
+  }, [setThreadId, filePreview]);
 
   // Detect OS only on client side to avoid hydration mismatch
   useEffect(() => {

@@ -225,6 +225,7 @@ async def _get_agents(
     post_model_hook: Optional[Callable] = None,
     config: Optional[RunnableConfig] = None,
     include_general_purpose: bool = True,
+    main_agent_skills: Optional[List[dict]] = None,
 ):
     """Build sub-agent instances for skills deepagent.
 
@@ -270,9 +271,10 @@ async def _get_agents(
         gp_combined_hook = _create_combined_hook(gp_trimming_hook, image_preprocessor)
 
         # Build enhanced prompt for general-purpose agent
-        # Note: general-purpose agent has no allocated skills, so skills=None
-        gp_enhanced_prompt = build_subagent_system_prompt(GENERAL_PURPOSE_SUBAGENT_PROMPT, skills=None)
-        logger.info("[SKILLS_SUB_AGENT] prompt_enhanced agent=general-purpose skills_count=0")
+        # General-purpose agent inherits the main agent's skills
+        gp_enhanced_prompt = build_subagent_system_prompt(GENERAL_PURPOSE_SUBAGENT_PROMPT, skills=main_agent_skills)
+        gp_skills_count = len(main_agent_skills) if main_agent_skills else 0
+        logger.info("[SKILLS_SUB_AGENT] prompt_enhanced agent=general-purpose skills_count=%s", gp_skills_count)
 
         # Include tools from parent (which includes execute_in_sandbox)
         gp_tools = list(all_builtin_tools) + list(tools)
@@ -418,6 +420,7 @@ def _create_task_tool(
     post_model_hook: Optional[Callable] = None,
     config: Optional[RunnableConfig] = None,
     include_general_purpose: bool = True,
+    main_agent_skills: Optional[List[dict]] = None,
 ):
     """Create async task tool for delegating to sub-agents."""
     other_agents_string = _get_subagent_description(subagents)
@@ -454,6 +457,7 @@ Available agents:
             post_model_hook,
             config,
             include_general_purpose,
+            main_agent_skills,
         )
         if subagent_type not in agents:
             return f"Error: invoked agent of type {subagent_type}, the only allowed types are {[f'`{k}`' for k in agents]}"
@@ -485,6 +489,7 @@ def _create_sync_task_tool(
     post_model_hook: Optional[Callable] = None,
     config: Optional[RunnableConfig] = None,
     include_general_purpose: bool = True,
+    main_agent_skills: Optional[List[dict]] = None,
 ):
     """Create sync task tool for delegating to sub-agents."""
     import asyncio
@@ -500,14 +505,14 @@ def _create_sync_task_tool(
         agents = asyncio.run(
             _get_agents(
                 tools, instructions, subagents, model, state_schema,
-                post_model_hook, config, include_general_purpose,
+                post_model_hook, config, include_general_purpose, main_agent_skills,
             )
         )
     else:
         agents = asyncio.run(
             _get_agents(
                 tools, instructions, subagents, model, state_schema,
-                post_model_hook, config, include_general_purpose,
+                post_model_hook, config, include_general_purpose, main_agent_skills,
             )
         )
 

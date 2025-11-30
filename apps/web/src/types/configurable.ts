@@ -132,3 +132,12 @@ export type ConfigurableFieldSkillsMetadata = {
     }>;
   };
 };
+
+export type ConfigurableFieldSandboxConfigMetadata = {
+  label: string;
+  type: "sandbox_config";
+  default?: {
+    timeout_seconds?: number;
+    pip_packages?: string[];
+  };
+};

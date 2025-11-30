@@ -2,6 +2,7 @@ import {
   ConfigurableFieldAgentsMetadata,
   ConfigurableFieldMCPMetadata,
   ConfigurableFieldRAGMetadata,
+  ConfigurableFieldSandboxConfigMetadata,
   ConfigurableFieldSkillsMetadata,
   ConfigurableFieldUIMetadata,
 } from "@/types/configurable";
@@ -32,6 +33,7 @@ const lastExtractedByAssistantId = new Map<
     ragConfigurations: ConfigurableFieldRAGMetadata[];
     agentsConfigurations: ConfigurableFieldAgentsMetadata[];
     skillsConfigurations: ConfigurableFieldSkillsMetadata[];
+    sandboxConfigurations: ConfigurableFieldSandboxConfigMetadata[];
     supportedConfigs: string[];
     inputSchema: GraphSchema["input_schema"] | null;
     inputMode: InputMode;
@@ -68,6 +70,9 @@ export function useAgentConfig() {
   const [skillsConfigurations, setSkillsConfigurations] = useState<
     ConfigurableFieldSkillsMetadata[]
   >([]);
+  const [sandboxConfigurations, setSandboxConfigurations] = useState<
+    ConfigurableFieldSandboxConfigMetadata[]
+  >([]);
 
   const [supportedConfigs, setSupportedConfigs] = useState<string[]>([]);
   const [loading, setLoading] = useState(false);
@@ -82,6 +87,7 @@ export function useAgentConfig() {
     setRagConfigurations([]);
     setAgentsConfigurations([]);
     setSkillsConfigurations([]);
+    setSandboxConfigurations([]);
     // Do not modify loading here to avoid transient empty UI while not loading
     setInputSchema(null);
     setInputMode('loading');
@@ -111,6 +117,7 @@ export function useAgentConfig() {
             setRagConfigurations(cached.ragConfigurations);
             setAgentsConfigurations(cached.agentsConfigurations);
             setSkillsConfigurations(cached.skillsConfigurations);
+            setSandboxConfigurations(cached.sandboxConfigurations);
             setSupportedConfigs(cached.supportedConfigs);
             setInputSchema(cached.inputSchema);
             setInputMode(cached.inputMode);
@@ -231,7 +238,7 @@ export function useAgentConfig() {
         };
 
         // Extract config fields using the agent with full config
-        const { configFields, toolConfig, ragConfig, agentsConfig, skillsConfig } =
+        const { configFields, toolConfig, ragConfig, agentsConfig, skillsConfig, sandboxConfig } =
           extractConfigurationsFromAgent({
             agent: agentWithFullConfig,
             schema: schema.config_schema,
@@ -295,6 +302,11 @@ export function useAgentConfig() {
           setSkillsConfigurations(skillsConfig);
           supportedConfigs.push("skills");
         }
+        if (sandboxConfig.length) {
+          setDefaultConfig(`${agentId}:sandbox`, sandboxConfig);
+          setSandboxConfigurations(sandboxConfig);
+          supportedConfigs.push("sandbox");
+        }
         setSupportedConfigs(supportedConfigs);
         // debug logs removed
 
@@ -320,6 +332,7 @@ export function useAgentConfig() {
           configurations: configFields,
           toolConfigurations: toolConfig,
           ragConfigurations: ragConfig,
+          sandboxConfigurations: sandboxConfig,
           agentsConfigurations: agentsConfig,
           skillsConfigurations: skillsConfig,
           supportedConfigs,
@@ -333,6 +346,7 @@ export function useAgentConfig() {
           ragConfig,
           agentsConfig,
           skillsConfig,
+          sandboxConfig,
         );
 
         // Prefer saved sub-agents from backend config when available
@@ -455,7 +469,7 @@ export function useAgentConfig() {
         }
 
         // Extract config fields using empty config (since this is a template)
-        const { configFields, toolConfig, ragConfig, agentsConfig, skillsConfig } =
+        const { configFields, toolConfig, ragConfig, agentsConfig, skillsConfig, sandboxConfig } =
           extractConfigurationsFromAgent({
             agent: { config: {} } as any,
             schema: schema.config_schema,
@@ -507,6 +521,11 @@ export function useAgentConfig() {
           setSkillsConfigurations(skillsConfig);
           supportedConfigs.push("skills");
         }
+        if (sandboxConfig.length) {
+          setDefaultConfig(`${tempKey}:sandbox`, sandboxConfig);
+          setSandboxConfigurations(sandboxConfig);
+          supportedConfigs.push("sandbox");
+        }
         setSupportedConfigs(supportedConfigs);
 
         const configurableDefaults = getConfigurableDefaults(
@@ -515,6 +534,7 @@ export function useAgentConfig() {
           ragConfig,
           agentsConfig,
           skillsConfig,
+          sandboxConfig,
         );
 
         return {
@@ -547,6 +567,7 @@ export function useAgentConfig() {
     ragConfigurations,
     agentsConfigurations,
     skillsConfigurations,
+    sandboxConfigurations,
     supportedConfigs,
 
     loading,
