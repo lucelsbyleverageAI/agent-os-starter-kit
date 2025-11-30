@@ -1,6 +1,6 @@
 "use client";
 
-import React, { createContext, useContext, useState, useCallback, ReactNode } from "react";
+import React, { createContext, useContext, useState, useCallback, useEffect, useRef, ReactNode } from "react";
 
 // Types
 export interface FilePreviewFile {
@@ -22,8 +22,14 @@ interface FilePreviewContextValue {
 
 const FilePreviewContext = createContext<FilePreviewContextValue | null>(null);
 
-export function FilePreviewProvider({ children }: { children: ReactNode }) {
+interface FilePreviewProviderProps {
+  children: ReactNode;
+  threadId?: string | null;
+}
+
+export function FilePreviewProvider({ children, threadId }: FilePreviewProviderProps) {
   const [file, setFile] = useState<FilePreviewFile | null>(null);
+  const prevThreadIdRef = useRef<string | null | undefined>(threadId);
 
   const openPreview = useCallback((newFile: FilePreviewFile) => {
     setFile(newFile);
@@ -32,6 +38,15 @@ export function FilePreviewProvider({ children }: { children: ReactNode }) {
   const closePreview = useCallback(() => {
     setFile(null);
   }, []);
+
+  // Close preview when threadId changes (user navigates to new/different thread)
+  useEffect(() => {
+    if (prevThreadIdRef.current !== threadId) {
+      console.log("[FilePreviewProvider] threadId changed from", prevThreadIdRef.current, "to", threadId, "- closing preview");
+      setFile(null);
+      prevThreadIdRef.current = threadId;
+    }
+  }, [threadId]);
 
   const value: FilePreviewContextValue = {
     file,

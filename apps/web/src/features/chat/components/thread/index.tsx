@@ -763,7 +763,7 @@ export function Thread({ historyOpen = false, configOpen = false }: ThreadProps)
   const shouldShowLoading = threadId && !hasMessages && !showingCachedMessages;
 
   return (
-    <FilePreviewProvider>
+    <FilePreviewProvider threadId={threadId}>
       <>
         <div className="flex flex-1 min-h-0 w-full overflow-hidden">
           {/* Deep Agent Workspace Sidebar - Left Side */}
