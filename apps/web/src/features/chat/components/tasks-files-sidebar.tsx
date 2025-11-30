@@ -209,12 +209,12 @@ export const TasksFilesSidebar = React.memo<TasksFilesSidebarProps>(
                             onClick={() => handlePublishedFileClick(file)}
                           >
                             <BrandedFileIcon extension={file.file_type} size={20} className="flex-shrink-0" />
-                            <div className="flex-1 min-w-0">
-                              <span className="text-sm font-medium leading-normal truncate block">
+                            <div className="flex-1 min-w-0 flex flex-col">
+                              <span className="text-sm font-medium leading-normal break-words">
                                 {file.display_name}
                               </span>
                               {file.description && (
-                                <span className="text-xs text-muted-foreground leading-normal truncate block">
+                                <span className="text-xs text-muted-foreground leading-normal break-words">
                                   {file.description}
                                 </span>
                               )}
