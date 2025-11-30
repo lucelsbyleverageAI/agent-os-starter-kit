@@ -45,3 +45,16 @@ RUN pip install --no-cache-dir \
     pyyaml \
     python-dateutil \
     tabulate
+
+# ============================================
+# Node.js Packages (for skills)
+# ============================================
+
+# Switch to root for global npm install
+USER root
+
+# docx - Create Word documents programmatically (used by docx skill)
+RUN npm install -g docx
+
+# Switch back to default user
+USER user

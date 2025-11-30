@@ -19,11 +19,9 @@ We provide two tools because:
 4. This avoids bash escaping issues (heredocs, quotes) that break with commands.run()
 """
 
-import io
 import logging
 import os
-import zipfile
-from typing import Any, Dict, List, Literal, Optional, Tuple, Union
+from typing import Any, Dict, List, Literal, Optional, Tuple
 
 import httpx
 from langchain_core.tools import tool
@@ -87,7 +85,15 @@ async def fetch_skill_zip(
 
 def extract_and_upload_skill(sandbox: Any, skill_name: str, zip_content: bytes):
     """
-    Extract skill zip and upload to sandbox.
+    Upload skill zip to sandbox and extract it there.
+
+    This approach uploads the zip as a single file and uses unzip in the sandbox,
+    which is much faster than uploading files individually (1 upload + 1 command
+    vs hundreds of API calls).
+
+    Handles both zip structures:
+    - Zip with wrapper dir (e.g., docx/SKILL.md) -> unwraps to skills/docx/SKILL.md
+    - Zip without wrapper (e.g., SKILL.md at root) -> extracts to skills/{skill_name}/SKILL.md
 
     Args:
         sandbox: E2B Sandbox instance
@@ -96,39 +102,53 @@ def extract_and_upload_skill(sandbox: Any, skill_name: str, zip_content: bytes):
     """
     try:
         skill_dir = f"/sandbox/skills/{skill_name}"
-        sandbox.files.make_dir(skill_dir)
+        zip_path = f"/sandbox/skills/{skill_name}.zip"
+        temp_dir = f"/sandbox/skills/_extract_{skill_name}"
 
-        with zipfile.ZipFile(io.BytesIO(zip_content), 'r') as zf:
-            for file_info in zf.infolist():
-                if file_info.is_dir():
-                    continue
+        # Clean up any existing directories to avoid mv nesting issues
+        sandbox.commands.run(f"rm -rf {skill_dir} {temp_dir}")
 
-                # Get file path relative to zip root
-                file_path = file_info.filename
-                # Remove any top-level directory if present
-                parts = file_path.split('/')
-                if len(parts) > 1 and parts[0] != 'SKILL.md':
-                    # Skip the first directory level if it's a wrapper
-                    file_path = '/'.join(parts[1:]) if parts[1:] else file_path
+        # Upload the zip file as a single file
+        sandbox.files.write(zip_path, zip_content)
+        log.info(f"Uploaded skill zip to {zip_path} ({len(zip_content)} bytes)")
 
-                if not file_path:
-                    continue
+        # Extract to temp directory first
+        sandbox.files.make_dir(temp_dir)
+        result = sandbox.commands.run(f"unzip -o {zip_path} -d {temp_dir}")
 
-                # Create full path in sandbox
-                full_path = f"{skill_dir}/{file_path}"
+        if result.exit_code != 0:
+            log.warning(f"unzip returned exit code {result.exit_code}: {result.stderr}")
 
-                # Create parent directories
-                parent_dir = '/'.join(full_path.split('/')[:-1])
-                try:
-                    sandbox.files.make_dir(parent_dir)
-                except Exception:
-                    pass  # Directory might already exist
+        # Remove __MACOSX folder (macOS artifact) if present - it interferes with wrapper detection
+        sandbox.commands.run(f"rm -rf {temp_dir}/__MACOSX")
 
-                # Upload file content
-                content = zf.read(file_info.filename)
-                sandbox.files.write(full_path, content)
+        # Check contents of temp dir to handle wrapper directories
+        result = sandbox.commands.run(f"ls -A {temp_dir}")
+        items = [i for i in result.stdout.strip().split('\n') if i] if result.stdout else []
 
-        log.info(f"Uploaded skill {skill_name} to {skill_dir}")
+        # If exactly one item and it's a directory, it's a wrapper - unwrap it
+        if len(items) == 1:
+            single_item = f"{temp_dir}/{items[0]}"
+            check_result = sandbox.commands.run(f"test -d {single_item} && echo 'is_dir'")
+            if 'is_dir' in (check_result.stdout or ''):
+                # Single directory wrapper - move it to be the skill dir
+                sandbox.commands.run(f"mv -T {single_item} {skill_dir}")
+                sandbox.commands.run(f"rmdir {temp_dir}")
+                log.info(f"Unwrapped nested directory for {skill_name}")
+            else:
+                # Single file at root - rename temp to skill dir
+                sandbox.commands.run(f"mv -T {temp_dir} {skill_dir}")
+        else:
+            # Multiple items at root - rename temp to skill dir
+            sandbox.commands.run(f"mv -T {temp_dir} {skill_dir}")
+
+        # Clean up the zip file
+        sandbox.commands.run(f"rm {zip_path}")
+
+        # Log the result
+        result = sandbox.commands.run(f"find {skill_dir} -type f | wc -l")
+        file_count = result.stdout.strip() if result.stdout else "?"
+        log.info(f"Extracted skill {skill_name} to {skill_dir} ({file_count} files)")
 
     except Exception as e:
         log.error(f"Failed to extract/upload skill {skill_name}: {e}")

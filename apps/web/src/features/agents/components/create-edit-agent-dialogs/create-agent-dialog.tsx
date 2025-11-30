@@ -24,6 +24,7 @@ import { FormProvider, useForm } from "react-hook-form";
 import { cn } from "@/lib/utils";
 import { getScrollbarClasses } from "@/lib/scrollbar-styles";
 import { logger } from "@/lib/logger";
+import { useSkills } from "@/features/skills/hooks/use-skills";
 
 interface CreateAgentDialogProps {
   agentId?: string;
@@ -64,10 +65,16 @@ function CreateAgentFormContent(props: {
     },
   });
 
-  // Track form dirty state
+  // Track form dirty state - only update parent when value actually changes
+  const { setFormIsDirty } = props;
+  const isDirty = form.formState.isDirty;
   useEffect(() => {
-    props.setFormIsDirty(form.formState.isDirty);
-  }, [form.formState.isDirty, props]);
+    setFormIsDirty(isDirty);
+  }, [isDirty, setFormIsDirty]);
+
+  // Fetch skills for auto-population
+  const { skills: availableSkills, isLoading: skillsLoading } = useSkills();
+  const skillsInitializedRef = useRef(false);
 
   const { createAgent } = useAgents();
   const { refreshAgents, invalidateAssistantListCache, invalidateAllAssistantCaches, addAgentToList } = useAgentsContext();
@@ -79,7 +86,46 @@ function CreateAgentFormContent(props: {
     ragConfigurations,
     agentsConfigurations,
     skillsConfigurations,
+    sandboxConfigurations,
   } = useAgentConfig();
+
+  // Auto-populate all skills as default when form and skills are ready
+  // This effect should only run ONCE when all conditions are met
+  // Use stable dependencies (lengths instead of arrays) to prevent unnecessary reruns
+  const skillsCount = availableSkills.length;
+  const hasSkillsConfig = skillsConfigurations && skillsConfigurations.length > 0;
+  useEffect(() => {
+    // Only run once - check this first
+    if (skillsInitializedRef.current) return;
+    // Wait for form to be ready (not loading)
+    if (loading) return;
+    // Wait for skills to load
+    if (skillsLoading || skillsCount === 0) return;
+    // Check if there's a skills configuration
+    if (!hasSkillsConfig) return;
+
+    // Mark as initialized IMMEDIATELY to prevent any re-runs
+    // This must happen before we check or modify form values
+    skillsInitializedRef.current = true;
+
+    const skillsLabel = skillsConfigurations[0].label;
+    const currentSkills = form.getValues(`config.${skillsLabel}`)?.skills;
+
+    // Only auto-populate if skills array is empty or undefined
+    if (currentSkills && currentSkills.length > 0) {
+      return;
+    }
+
+    // Set all skills as selected
+    const allSkillRefs = availableSkills.map((s) => ({
+      skill_id: s.id,
+      name: s.name,
+      description: s.description,
+    }));
+
+    form.setValue(`config.${skillsLabel}`, { skills: allSkillRefs }, { shouldDirty: false });
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [loading, skillsLoading, skillsCount, hasSkillsConfig]);
   const [submitting, setSubmitting] = useState(false);
 
   const handleSubmit = async (data: {
@@ -191,6 +237,7 @@ function CreateAgentFormContent(props: {
               ragConfigurations={ragConfigurations}
               agentsConfigurations={agentsConfigurations}
               skillsConfigurations={skillsConfigurations}
+              sandboxConfigurations={sandboxConfigurations}
               graphId={props.graphId}
             />
           </FormProvider>

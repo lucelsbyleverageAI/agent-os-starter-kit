@@ -120,6 +120,7 @@ def skills_agent_builder(
     # Create task tool if sub-agents available
     if has_subagents:
         # Pass execute_in_sandbox to sub-agents via tools
+        # Also pass main agent's skills so general-purpose sub-agent inherits them
         if not is_async:
             task_tool = _create_sync_task_tool(
                 list(tools) + built_in_tools,  # includes execute_in_sandbox
@@ -130,6 +131,7 @@ def skills_agent_builder(
                 post_model_hook,
                 runnable_config,
                 include_general_purpose_agent,
+                skills,  # Pass main agent's skills to sub-agents
             )
         else:
             task_tool = _create_task_tool(
@@ -141,6 +143,7 @@ def skills_agent_builder(
                 post_model_hook,
                 runnable_config,
                 include_general_purpose_agent,
+                skills,  # Pass main agent's skills to sub-agents
             )
         all_tools = built_in_tools + list(tools) + [task_tool]
     else:
