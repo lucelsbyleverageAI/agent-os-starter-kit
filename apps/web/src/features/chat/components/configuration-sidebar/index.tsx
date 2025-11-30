@@ -428,8 +428,8 @@ export const ConfigurationSidebar = forwardRef<
             defaultValue="general"
             className="flex flex-1 flex-col min-h-0"
           >
-            <div className="flex justify-center px-6 pt-4 pb-3 border-b">
-              <TabsList variant="branded" className="w-fit flex-shrink-0">
+            <div className={cn("flex justify-center px-6 pt-4 pb-3 border-b overflow-x-auto", ...getScrollbarClasses('x'))}>
+              <TabsList variant="branded" className="flex-shrink-0">
                 <TabsTrigger value="general">
                   General
                 </TabsTrigger>
@@ -803,6 +803,8 @@ export const ConfigurationSidebar = forwardRef<
                         id={skillsConfigurations[0].label}
                         label={skillsConfigurations[0].label}
                         agentId={agentId}
+                        value={store.configsByAgentId[`${agentId}:skills`]?.[skillsConfigurations[0].label] ?? { skills: [] }}
+                        setValue={(newValue) => store.updateConfig(`${agentId}:skills`, skillsConfigurations[0].label, newValue)}
                       />
                     )}
                   </ConfigSection>

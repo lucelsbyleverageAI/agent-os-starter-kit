@@ -250,14 +250,6 @@ export function FilePreviewPanel() {
 
     const fetchFileContent = async () => {
       const ext = getFileExtension(file.filename);
-      console.log("[PDF Preview] Starting fetch for file:", {
-        filename: file.filename,
-        mime_type: file.mime_type,
-        file_type: file.file_type,
-        storage_path: file.storage_path,
-        ext: ext,
-      });
-      console.log("[PDF Preview] isPDF check result:", isPDF(file.mime_type, ext));
       setPreviewState((prev) => ({ ...prev, loading: true, error: null }));
 
       try {
@@ -286,9 +278,7 @@ export function FilePreviewPanel() {
             objectUrl: url,
           }));
         } else if (isPDF(file.mime_type, ext)) {
-          console.log("[PDF Preview] Detected PDF file, mime_type:", file.mime_type, "ext:", ext);
           const arrayBuffer = await blob.arrayBuffer();
-          console.log("[PDF Preview] ArrayBuffer created, size:", arrayBuffer.byteLength);
           setPreviewState((prev) => ({
             ...prev,
             loading: false,
@@ -476,7 +466,6 @@ export function FilePreviewPanel() {
           }));
         }
       } catch (error) {
-        console.error("Error fetching file:", error);
         setPreviewState((prev) => ({
           ...prev,
           loading: false,
@@ -516,8 +505,8 @@ export function FilePreviewPanel() {
       a.click();
       document.body.removeChild(a);
       URL.revokeObjectURL(url);
-    } catch (error) {
-      console.error("Download error:", error);
+    } catch {
+      // Download failed silently
     }
   }, [file]);
 
@@ -529,8 +518,8 @@ export function FilePreviewPanel() {
       await navigator.clipboard.writeText(previewState.content);
       setCopied(true);
       setTimeout(() => setCopied(false), 2000);
-    } catch (error) {
-      console.error("Copy error:", error);
+    } catch {
+      // Copy failed silently
     }
   }, [previewState.content]);
 
@@ -594,9 +583,7 @@ export function FilePreviewPanel() {
     }
 
     // PDF preview
-    console.log("[PDF Preview] Render check - isPDF:", isPDF(file.mime_type, ext), "pdfData exists:", !!previewState.pdfData, "mime_type:", file.mime_type, "ext:", ext);
     if (isPDF(file.mime_type, ext) && previewState.pdfData) {
-      console.log("[PDF Preview] Rendering PdfViewer component");
       return (
         <PdfViewer
           data={previewState.pdfData}

@@ -42,7 +42,6 @@ export function FilePreviewProvider({ children, threadId }: FilePreviewProviderP
   // Close preview when threadId changes (user navigates to new/different thread)
   useEffect(() => {
     if (prevThreadIdRef.current !== threadId) {
-      console.log("[FilePreviewProvider] threadId changed from", prevThreadIdRef.current, "to", threadId, "- closing preview");
       setFile(null);
       prevThreadIdRef.current = threadId;
     }

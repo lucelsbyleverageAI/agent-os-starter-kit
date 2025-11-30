@@ -388,7 +388,6 @@ export function FilePreviewSheet({
           }));
         }
       } catch (error) {
-        console.error("Error fetching file:", error);
         setPreviewState((prev) => ({
           ...prev,
           loading: false,
@@ -428,8 +427,8 @@ export function FilePreviewSheet({
       a.click();
       document.body.removeChild(a);
       URL.revokeObjectURL(url);
-    } catch (error) {
-      console.error("Download error:", error);
+    } catch {
+      // Download failed silently
     }
   }, [file]);
 
