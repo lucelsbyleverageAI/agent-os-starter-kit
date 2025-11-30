@@ -97,6 +97,36 @@ async def graph(config: RunnableConfig):
             for s in cfg.skills_config.skills
         ]
 
+    # Extract sub-agents config early (needed for skill collection)
+    sub_agents_config = json.loads(cfg.model_dump_json()).get("sub_agents", [])
+
+    # Collect all subagent skills for sandbox upload
+    subagent_skills = []
+    if sub_agents_config:
+        for sub_agent in sub_agents_config:
+            sa_skills_config = sub_agent.get('skills_config') if isinstance(sub_agent, dict) else None
+            if sa_skills_config:
+                sa_skills_list = sa_skills_config.get('skills', []) if isinstance(sa_skills_config, dict) else []
+                for s in sa_skills_list:
+                    skill_dict = {
+                        "skill_id": s.get("skill_id") if isinstance(s, dict) else getattr(s, 'skill_id', None),
+                        "name": s.get("name") if isinstance(s, dict) else getattr(s, 'name', None),
+                        "description": s.get("description") if isinstance(s, dict) else getattr(s, 'description', None),
+                    }
+                    # Deduplicate by skill_id
+                    if skill_dict["skill_id"] and not any(
+                        existing['skill_id'] == skill_dict['skill_id']
+                        for existing in skills + subagent_skills
+                    ):
+                        subagent_skills.append(skill_dict)
+
+    # Combine main agent + subagent skills for sandbox upload
+    all_skills_for_sandbox = skills + subagent_skills
+    logger.info(
+        "[SKILLS_DEEPAGENT] Skills for sandbox: main=%d, subagent=%d, total=%d",
+        len(skills), len(subagent_skills), len(all_skills_for_sandbox)
+    )
+
     # Get sandbox configuration
     # Note: sandbox_timeout max is 3600 (1 hour) for E2B hobby tier
     sandbox_timeout = 3600  # Default to max for hobby tier
@@ -236,10 +266,8 @@ async def graph(config: RunnableConfig):
             model_info.display_name
         )
 
-    # Prepare sub-agents config
-    sub_agents_config = json.loads(cfg.model_dump_json()).get("sub_agents", [])
-
     # Determine if sub-agents are available (for prompt building)
+    # Note: sub_agents_config was extracted earlier for skill collection
     has_subagents = (sub_agents_config and len(sub_agents_config) > 0) or cfg.include_general_purpose_agent
 
     # Build system prompt with skills table and proper tool section
@@ -265,7 +293,7 @@ async def graph(config: RunnableConfig):
         langconnect_url=langconnect_url,
         access_token=supabase_token,
         # Sandbox initialization parameters (used by file_attachment_node)
-        skills=skills,
+        skills=all_skills_for_sandbox,  # All skills (main + subagents) for sandbox
         sandbox_pip_packages=sandbox_pip_packages,
         sandbox_timeout=sandbox_timeout,
     )
