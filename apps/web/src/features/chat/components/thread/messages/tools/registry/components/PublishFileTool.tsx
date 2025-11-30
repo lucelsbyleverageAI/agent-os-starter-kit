@@ -99,8 +99,8 @@ export function PublishFileTool({
         document.body.removeChild(a);
         URL.revokeObjectURL(url);
       }, 100);
-    } catch (error) {
-      console.error('Download error:', error);
+    } catch {
+      // Download failed silently
     } finally {
       setIsDownloading(false);
     }

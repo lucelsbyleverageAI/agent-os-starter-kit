@@ -3,25 +3,37 @@
  * Provides consistent custom webkit scrollbar styling
  */
 
-export const scrollbarStyles = [
-  "[&::-webkit-scrollbar]:w-1.5",
-  "[&::-webkit-scrollbar-thumb]:rounded-full", 
+export const scrollbarStylesBase = [
+  "[&::-webkit-scrollbar-thumb]:rounded-full",
   "[&::-webkit-scrollbar-thumb]:bg-gray-300",
   "[&::-webkit-scrollbar-track]:bg-transparent"
 ];
+
+export const scrollbarStylesVertical = [
+  "[&::-webkit-scrollbar]:w-1.5",
+  ...scrollbarStylesBase
+];
+
+export const scrollbarStylesHorizontal = [
+  "[&::-webkit-scrollbar]:h-1.5",
+  ...scrollbarStylesBase
+];
+
+// Legacy export for backwards compatibility
+export const scrollbarStyles = scrollbarStylesVertical;
 
 /**
  * Scrollbar utilities for different scroll directions
  */
 export const scrollbarClasses = {
   // Vertical scrolling with custom scrollbar
-  y: `overflow-y-auto ${scrollbarStyles.join(" ")}`,
-  
-  // Horizontal scrolling with custom scrollbar  
-  x: `overflow-x-auto ${scrollbarStyles.join(" ")}`,
-  
+  y: `overflow-y-auto ${scrollbarStylesVertical.join(" ")}`,
+
+  // Horizontal scrolling with custom scrollbar
+  x: `overflow-x-auto ${scrollbarStylesHorizontal.join(" ")}`,
+
   // Both directions with custom scrollbar
-  both: `overflow-auto ${scrollbarStyles.join(" ")}`,
+  both: `overflow-auto ${scrollbarStylesVertical.join(" ")} ${scrollbarStylesHorizontal.join(" ")}`,
   
   // Scroll with hidden scrollbar (for cases where you want scrolling but no visible scrollbar)
   hidden: "overflow-auto scrollbar-hide",
