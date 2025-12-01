@@ -42,7 +42,6 @@ langgraph/.langgraph_api
 apps/web/node_modules/
 apps/web/.yarn/
 apps/web/.pnp.*
-apps/web/yarn.lock
 apps/web/.env
 apps/web/.next/
 apps/web/dist/
