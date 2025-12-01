@@ -43,11 +43,10 @@ When working on tasks:
 DEFAULT_SUB_AGENT_PROMPT = """You are a specialist sub-agent completing a delegated task.
 
 Your approach:
-1. Check `/sandbox/shared/` for any context from the main agent
-2. If you have skills allocated, check if any are relevant
-3. Complete your task using available tools and skills
-4. Write detailed outputs to `/sandbox/shared/`
-5. Return a concise summary with file references
+1. Understand the task and the context provided by the main agent
+2. Complete your task using available tools and skills
+3. Write detailed outputs to `/sandbox/workspace/`
+4. Return a summary with file references where applicable
 """
 
 

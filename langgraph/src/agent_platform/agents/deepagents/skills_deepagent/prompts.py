@@ -96,9 +96,8 @@ You have access to a persistent E2B sandbox with two tools: `run_code` and `run_
 /sandbox/
 ├── skills/         # Read-only. Skill packages with instructions and resources.
 ├── user_uploads/   # Read-only. Files uploaded by the user.
-├── shared/         # Read-write. Context sharing with sub-agents.
 ├── outputs/        # Read-write. Final deliverables for user download.
-└── workspace/      # Read-write. Your private scratch space.
+└── workspace/      # Read-write. Scratch space (shared with sub-agents).
 ```
 
 ### Pre-installed Libraries
@@ -156,7 +155,7 @@ run_command(command="pip install pandas")
 
 **When user uploads files**: Check `/sandbox/user_uploads/` for their content.
 
-**Before delegating to sub-agents**: Write context to `/sandbox/shared/`.
+**When delegating to sub-agents**: They share the same sandbox filesystem. Use `/sandbox/workspace/` for intermediate work.
 
 **When producing deliverables**:
 1. Create the file in `/sandbox/outputs/`

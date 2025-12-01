@@ -2,6 +2,18 @@
 
 This directory contains the E2B sandbox template configuration for the Skills DeepAgent.
 
+## Pre-created Directory Structure
+
+The template pre-creates the sandbox directory structure to save ~1-2 seconds on first message:
+
+```
+/sandbox/
+├── skills/         # Skill packages (uploaded at runtime)
+├── user_uploads/   # User-uploaded files
+├── outputs/        # Final deliverables for user download
+└── workspace/      # Scratch space (shared with sub-agents)
+```
+
 ## Pre-installed Libraries
 
 ### Document Processing

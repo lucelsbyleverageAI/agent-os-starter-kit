@@ -19,6 +19,7 @@ We provide two tools because:
 4. This avoids bash escaping issues (heredocs, quotes) that break with commands.run()
 """
 
+import asyncio
 import logging
 import os
 from typing import Any, Dict, List, Literal, Optional, Tuple
@@ -32,23 +33,57 @@ log = logging.getLogger(__name__)
 # Global sandbox instances keyed by thread_id
 _sandboxes: Dict[str, Any] = {}
 
+# Global skill zip cache: skill_id -> bytes
+# This avoids re-downloading skills that were recently fetched
+_skill_cache: Dict[str, bytes] = {}
+
+# Packages pre-installed in the E2B template (e2b.Dockerfile)
+# Skip these during pip install to save ~5s on first message
+TEMPLATE_PREINSTALLED_PACKAGES = {
+    # Document Processing
+    "pypdf", "pdfplumber", "pymupdf", "fitz",
+    "python-docx", "docx",
+    "python-pptx", "pptx",
+    "openpyxl", "xlrd",
+    # Data Processing
+    "pandas", "numpy",
+    "beautifulsoup4", "bs4",
+    "lxml", "markdownify",
+    "pillow", "pil",
+    "chardet",
+    # Utilities
+    "requests", "httpx",
+    "pyyaml", "yaml",
+    "python-dateutil", "dateutil",
+    "tabulate",
+}
+
 
 async def fetch_skill_zip(
     skill_id: str,
     langconnect_url: str,
-    access_token: str
+    access_token: str,
+    use_cache: bool = True
 ) -> Optional[bytes]:
     """
-    Fetch skill zip file from LangConnect.
+    Fetch skill zip file from LangConnect, with optional caching.
 
     Args:
         skill_id: UUID of the skill
         langconnect_url: Base URL of LangConnect API
         access_token: Supabase access token
+        use_cache: Whether to use/populate the in-memory cache (default: True)
 
     Returns:
         Bytes of the skill zip file or None if fetch failed
     """
+    global _skill_cache
+
+    # Check cache first
+    if use_cache and skill_id in _skill_cache:
+        log.info(f"[skills:fetch] Using cached skill {skill_id} ({len(_skill_cache[skill_id])} bytes)")
+        return _skill_cache[skill_id]
+
     try:
         async with httpx.AsyncClient() as client:
             # Get signed download URL from LangConnect
@@ -68,15 +103,16 @@ async def fetch_skill_zip(
                 log.error(f"No download URL returned for skill {skill_id}")
                 return None
 
-            # Log the download URL to help debug DNS issues
-            log.info(f"[skills:fetch] Got download URL for skill {skill_id}: {download_url[:100]}...")
-
             # Download the zip file from Supabase storage
-            log.info(f"[skills:fetch] Downloading skill zip from signed URL...")
             zip_response = await client.get(download_url, timeout=60.0)
             zip_response.raise_for_status()
-            log.info(f"[skills:fetch] Successfully downloaded skill {skill_id} ({len(zip_response.content)} bytes)")
-            return zip_response.content
+            content = zip_response.content
+
+            # Cache the result
+            if use_cache:
+                _skill_cache[skill_id] = content
+
+            return content
 
     except Exception as e:
         log.error(f"Failed to fetch skill {skill_id}: {e}")
@@ -110,7 +146,6 @@ def extract_and_upload_skill(sandbox: Any, skill_name: str, zip_content: bytes):
 
         # Upload the zip file as a single file
         sandbox.files.write(zip_path, zip_content)
-        log.info(f"Uploaded skill zip to {zip_path} ({len(zip_content)} bytes)")
 
         # Extract to temp directory first
         sandbox.files.make_dir(temp_dir)
@@ -134,7 +169,6 @@ def extract_and_upload_skill(sandbox: Any, skill_name: str, zip_content: bytes):
                 # Single directory wrapper - move it to be the skill dir
                 sandbox.commands.run(f"mv -T {single_item} {skill_dir}")
                 sandbox.commands.run(f"rmdir {temp_dir}")
-                log.info(f"Unwrapped nested directory for {skill_name}")
             else:
                 # Single file at root - rename temp to skill dir
                 sandbox.commands.run(f"mv -T {temp_dir} {skill_dir}")
@@ -144,11 +178,6 @@ def extract_and_upload_skill(sandbox: Any, skill_name: str, zip_content: bytes):
 
         # Clean up the zip file
         sandbox.commands.run(f"rm {zip_path}")
-
-        # Log the result
-        result = sandbox.commands.run(f"find {skill_dir} -type f | wc -l")
-        file_count = result.stdout.strip() if result.stdout else "?"
-        log.info(f"Extracted skill {skill_name} to {skill_dir} ({file_count} files)")
 
     except Exception as e:
         log.error(f"Failed to extract/upload skill {skill_name}: {e}")
@@ -254,40 +283,53 @@ async def get_or_create_sandbox(
     new_sandbox_id = sandbox.sandbox_id
     log.info(f"[sandbox] Created new sandbox {new_sandbox_id} for thread {thread_id}")
 
-    # Create directory structure
-    sandbox.files.make_dir("/sandbox/skills")
-    sandbox.files.make_dir("/sandbox/user_uploads")  # User uploaded files
-    sandbox.files.make_dir("/sandbox/shared")
-    sandbox.files.make_dir("/sandbox/shared/research")
-    sandbox.files.make_dir("/sandbox/shared/drafts")
-    sandbox.files.make_dir("/sandbox/outputs")
-    sandbox.files.make_dir("/sandbox/workspace")
+    # NOTE: Directory structure is pre-created in the E2B template (e2b.Dockerfile)
+    # This saves ~1-2 seconds by avoiding multiple API calls on first message
+    # Directories: /sandbox/skills, /sandbox/user_uploads, /sandbox/outputs, /sandbox/workspace
 
-    # Upload skills
+    # Upload skills - fetch all in parallel for speed
     all_pip_requirements = set(pip_packages or [])
 
-    for skill in skills:
-        skill_id = skill.get("skill_id")
-        skill_name = skill.get("name")
+    # Filter valid skills
+    valid_skills = [
+        s for s in skills
+        if s.get("skill_id") and s.get("name")
+    ]
 
-        if not skill_id or not skill_name:
-            continue
+    if valid_skills:
+        # Parallel fetch all skill zips
+        log.info(f"[sandbox] Fetching {len(valid_skills)} skills in parallel...")
+        fetch_tasks = [
+            fetch_skill_zip(s["skill_id"], langconnect_url, access_token)
+            for s in valid_skills
+        ]
+        zip_contents = await asyncio.gather(*fetch_tasks)
 
-        # Fetch skill zip
-        zip_content = await fetch_skill_zip(skill_id, langconnect_url, access_token)
-        if zip_content:
-            extract_and_upload_skill(sandbox, skill_name, zip_content)
+        # Upload each skill (sequential - sandbox API doesn't parallelize well)
+        for skill, zip_content in zip(valid_skills, zip_contents):
+            if zip_content:
+                extract_and_upload_skill(sandbox, skill["name"], zip_content)
 
-            # Extract pip requirements from skill (if stored in skill reference)
-            pip_reqs = skill.get("pip_requirements")
-            if pip_reqs:
-                all_pip_requirements.update(pip_reqs)
+                # Extract pip requirements from skill (if stored in skill reference)
+                pip_reqs = skill.get("pip_requirements")
+                if pip_reqs:
+                    all_pip_requirements.update(pip_reqs)
 
-    # Install pip packages if specified
+    # Install pip packages if specified (skip pre-installed ones to save time)
     if all_pip_requirements:
-        packages_str = ' '.join(all_pip_requirements)
-        log.info(f"[sandbox] Installing pip packages: {packages_str}")
-        sandbox.commands.run(f"pip install {packages_str}")
+        # Filter out packages already in the template
+        packages_to_install = {
+            pkg for pkg in all_pip_requirements
+            if pkg.lower() not in TEMPLATE_PREINSTALLED_PACKAGES
+        }
+        skipped = all_pip_requirements - packages_to_install
+        if skipped:
+            log.info(f"[sandbox] Skipping pre-installed packages: {', '.join(sorted(skipped))}")
+
+        if packages_to_install:
+            packages_str = ' '.join(packages_to_install)
+            log.info(f"[sandbox] Installing pip packages: {packages_str}")
+            sandbox.commands.run(f"pip install {packages_str}")
 
     _sandboxes[thread_id] = sandbox
     log.info(f"[sandbox] Initialized sandbox {new_sandbox_id} for thread {thread_id} with {len(skills)} skills")

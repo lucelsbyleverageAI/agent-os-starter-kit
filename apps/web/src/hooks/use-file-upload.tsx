@@ -11,6 +11,35 @@ export const MAX_FILE_SIZE = 10 * 1024 * 1024;
 // Maximum total size for all attachments in chat (50MB)
 export const MAX_TOTAL_ATTACHMENTS_SIZE = 50 * 1024 * 1024;
 
+// Maximum words to include in document preview (10,000 words ≈ 40k chars ≈ 10k tokens)
+export const MAX_PREVIEW_WORDS = 10000;
+
+/**
+ * Truncates text to a maximum number of words.
+ * Returns the truncated text and metadata about truncation.
+ */
+function truncateToWords(
+  text: string,
+  maxWords: number
+): { text: string; truncated: boolean; totalWords: number } {
+  if (!text) {
+    return { text: '', truncated: false, totalWords: 0 };
+  }
+
+  const words = text.split(/\s+/).filter(w => w.length > 0);
+  const totalWords = words.length;
+
+  if (totalWords <= maxWords) {
+    return { text, truncated: false, totalWords };
+  }
+
+  return {
+    text: words.slice(0, maxWords).join(' '),
+    truncated: true,
+    totalWords
+  };
+}
+
 // Expanded supported file types
 export const SUPPORTED_FILE_TYPES = {
   // Images (handled synchronously)
@@ -169,9 +198,9 @@ export function useFileUpload({
           
           if (processedAttachment) {
             // Try to get content from either result_data or output_data
-            const extractedContent = jobData.result_data?.content || jobData.output_data?.content;
-            
-            if (!extractedContent) {
+            const fullContent = jobData.result_data?.content || jobData.output_data?.content;
+
+            if (!fullContent) {
               // Set error state
               setProcessingAttachments(prev => prev.map(att => {
                 if (att.id === attachmentId) {
@@ -185,7 +214,14 @@ export function useFileUpload({
               }));
               return;
             }
-            
+
+            // Truncate content to prevent context window bloat
+            const { text: previewText, truncated, totalWords } = truncateToWords(fullContent, MAX_PREVIEW_WORDS);
+            const truncationNotice = truncated
+              ? `\n\n[CONTENT TRUNCATED - ${totalWords.toLocaleString()} words total]`
+              : '';
+            const content = previewText + truncationNotice;
+
             // Create a content block for the processed document
             const newBlock: Base64ContentBlock = {
               type: "text",
@@ -193,7 +229,7 @@ export function useFileUpload({
 <FileType>${processedAttachment.file.type}</FileType>
 <FileName>${processedAttachment.file.name}</FileName>
 <Content>
-${extractedContent}
+${content}
 </Content>
 </UserUploadedAttachment>`,
               metadata: {
@@ -274,7 +310,18 @@ ${extractedContent}
 
           if (processedAttachment) {
             // Try to get content from either result_data or output_data
-            const extractedContent = jobData.result_data?.content || jobData.output_data?.content;
+            const fullContent = jobData.result_data?.content || jobData.output_data?.content || '';
+
+            // Truncate content to prevent context window bloat
+            const { text: previewText, truncated, totalWords } = truncateToWords(fullContent, MAX_PREVIEW_WORDS);
+
+            // Build truncation notice if content was truncated
+            const sandboxPath = `/sandbox/user_uploads/${processedAttachment.file.name}`;
+            const truncationNotice = truncated
+              ? `\n\n[CONTENT TRUNCATED - ${totalWords.toLocaleString()} words total. Full file available at: ${sandboxPath}]`
+              : '';
+
+            const preview = previewText + truncationNotice;
 
             // Create content block with new XML format including storage path
             let xmlContent: string;
@@ -285,18 +332,23 @@ ${extractedContent}
 <FileName>${processedAttachment.file.name}</FileName>
 <FileType>${processedAttachment.file.type}</FileType>
 <StoragePath>${storageData.storage_path}</StoragePath>
-<SandboxPath>/sandbox/user_uploads/${processedAttachment.file.name}</SandboxPath>
+<SandboxPath>${sandboxPath}</SandboxPath>
 <Preview>
-${extractedContent || 'No preview available'}
+${preview || 'No preview available'}
 </Preview>
 </UserUploadedDocument>`;
             } else {
-              // Fallback to old format if storage upload failed
+              // Fallback to old format if storage upload failed (no sandbox path available)
+              const legacyTruncationNotice = truncated
+                ? `\n\n[CONTENT TRUNCATED - ${totalWords.toLocaleString()} words total]`
+                : '';
+              const legacyContent = previewText + legacyTruncationNotice;
+
               xmlContent = `<UserUploadedAttachment>
 <FileType>${processedAttachment.file.type}</FileType>
 <FileName>${processedAttachment.file.name}</FileName>
 <Content>
-${extractedContent || 'No content extracted'}
+${legacyContent || 'No content extracted'}
 </Content>
 </UserUploadedAttachment>`;
             }

@@ -9,6 +9,7 @@ import {
   ConfigFieldAgents,
   ConfigFieldRAG,
   ConfigFieldTool,
+  ConfigFieldSandboxConfig,
 } from "@/features/chat/components/configuration-sidebar/config-field";
 import { ConfigFieldSkills } from "@/features/chat/components/configuration-sidebar/config-field-skills";
 import { ConfigSection } from "@/features/chat/components/configuration-sidebar/config-section";
@@ -158,6 +159,7 @@ export const ConfigurationSidebar = forwardRef<
     ragConfigurations,
     agentsConfigurations,
     skillsConfigurations,
+    sandboxConfigurations,
     loading,
     supportedConfigs,
   } = useAgentConfig();
@@ -428,7 +430,7 @@ export const ConfigurationSidebar = forwardRef<
             defaultValue="general"
             className="flex flex-1 flex-col min-h-0"
           >
-            <div className={cn("flex justify-center px-6 pt-4 pb-3 border-b overflow-x-auto", ...getScrollbarClasses('x'))}>
+            <div className={cn("flex justify-start px-6 pt-4 pb-3 border-b overflow-x-auto", ...getScrollbarClasses('x'))}>
               <TabsList variant="branded" className="flex-shrink-0">
                 <TabsTrigger value="general">
                   General
@@ -616,6 +618,20 @@ export const ConfigurationSidebar = forwardRef<
                     });
                   })()}
                 </ConfigSection>
+
+                {/* Sandbox Configuration */}
+                {agentId && supportedConfigs.includes("sandbox") && sandboxConfigurations[0]?.label && (
+                  <ConfigSection title="Sandbox Settings">
+                    <ConfigFieldSandboxConfig
+                      id={sandboxConfigurations[0].label}
+                      label="Sandbox Settings"
+                      description="Configure the E2B sandbox environment"
+                      agentId={agentId}
+                      value={store.configsByAgentId[`${agentId}:sandbox`]?.[sandboxConfigurations[0].label]}
+                      setValue={(newValue) => store.updateConfig(`${agentId}:sandbox`, sandboxConfigurations[0].label, newValue)}
+                    />
+                  </ConfigSection>
+                )}
               </TabsContent>
 
               {supportedConfigs.includes("tools") && (
