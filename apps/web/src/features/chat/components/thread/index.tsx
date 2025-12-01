@@ -19,7 +19,9 @@ import {
   ResizableHandle,
 } from "@/components/ui/resizable";
 import { FilePreviewProvider, useFilePreviewOptional } from "../../context/file-preview-context";
+import { SubAgentPreviewProvider, useSubAgentPreviewOptional } from "../../context/subagent-preview-context";
 import { FilePreviewPanel } from "../file-preview-panel";
+import { SubAgentPreviewPanel } from "../subagent-preview-panel";
 
 import {
   ArrowDown,
@@ -128,12 +130,16 @@ interface ThreadProps {
   configOpen?: boolean;
 }
 
-// Inner component that uses file preview context for conditional rendering
+// Inner component that uses preview contexts for conditional rendering
 // Always renders ResizablePanelGroup to maintain stable DOM structure and prevent
 // StickToBottom from triggering unwanted scroll resets when preview opens/closes
 function ThreadContentWrapper({ children }: { children: React.ReactNode }) {
   const filePreview = useFilePreviewOptional();
-  const isPreviewOpen = filePreview?.isOpen ?? false;
+  const subagentPreview = useSubAgentPreviewOptional();
+  const isPreviewOpen = filePreview?.isOpen || subagentPreview?.isOpen;
+
+  // Determine which preview panel to show (subagent takes precedence if both open)
+  const PreviewPanel = subagentPreview?.isOpen ? SubAgentPreviewPanel : FilePreviewPanel;
 
   return (
     <ResizablePanelGroup direction="horizontal" className="flex-1">
@@ -148,7 +154,7 @@ function ThreadContentWrapper({ children }: { children: React.ReactNode }) {
         <>
           <ResizableHandle withHandle />
           <ResizablePanel defaultSize={50} minSize={30} maxSize={65}>
-            <FilePreviewPanel />
+            <PreviewPanel />
           </ResizablePanel>
         </>
       )}
@@ -764,13 +770,14 @@ export function Thread({ historyOpen = false, configOpen = false }: ThreadProps)
 
   return (
     <FilePreviewProvider threadId={threadId}>
-      <>
-        <div className="flex flex-1 min-h-0 w-full overflow-hidden">
-          {/* Deep Agent Workspace Sidebar - Left Side */}
-          {(() => {
+      <SubAgentPreviewProvider threadId={threadId}>
+        <>
+          <div className="flex flex-1 min-h-0 w-full overflow-hidden">
+            {/* Deep Agent Workspace Sidebar - Left Side */}
+            {(() => {
 
-            return isDeepAgent && (
-              <TasksFilesSidebar
+              return isDeepAgent && (
+                <TasksFilesSidebar
                 todos={workspaceData.todos}
                 files={workspaceData.files}
                 publishedFiles={workspaceData.publishedFiles}
@@ -941,14 +948,15 @@ export function Thread({ historyOpen = false, configOpen = false }: ThreadProps)
 
         </div>
 
-        {/* File View Dialog */}
-        {selectedFile && (
-          <FileViewDialog
-            file={selectedFile}
-            onClose={() => setSelectedFile(null)}
-          />
-        )}
-      </>
+          {/* File View Dialog */}
+          {selectedFile && (
+            <FileViewDialog
+              file={selectedFile}
+              onClose={() => setSelectedFile(null)}
+            />
+          )}
+        </>
+      </SubAgentPreviewProvider>
     </FilePreviewProvider>
   );
 }

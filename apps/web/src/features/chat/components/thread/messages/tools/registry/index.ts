@@ -5,7 +5,8 @@ import {
   ResearchProgressTool,
   FinalResearchReportTool,
   PublishFileTool,
-  SandboxInitializationTool
+  SandboxInitializationTool,
+  TaskTool,
 } from "./components";
 // Unused imports removed
 
@@ -32,6 +33,12 @@ export const TOOL_REGISTRY: ToolRegistry = {
   // Shows loading UI during sandbox creation, disappears when complete
   "*:sandbox_initialization": {
     component: SandboxInitializationTool,
+  },
+
+  // Skills DeepAgent task delegation tool
+  // Shows sub-agent delegation with slide-over panel for response
+  "*:task": {
+    component: TaskTool,
   },
 
   // Example: Global tools (available for all graphs)
