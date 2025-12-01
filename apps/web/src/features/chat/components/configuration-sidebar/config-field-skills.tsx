@@ -18,6 +18,11 @@ interface ConfigFieldSkillsProps {
   className?: string;
   value?: ConfigurableFieldSkillsMetadata["default"];
   setValue?: (value: ConfigurableFieldSkillsMetadata["default"]) => void;
+  /**
+   * Whether the skills picker is disabled.
+   * When disabled, interactions are prevented and a muted appearance is shown.
+   */
+  disabled?: boolean;
 }
 
 /**
@@ -31,6 +36,7 @@ export function ConfigFieldSkills({
   className,
   value,
   setValue,
+  disabled = false,
 }: ConfigFieldSkillsProps) {
   const { skills, isLoading } = useSkills();
   const [searchTerm, setSearchTerm] = useState("");
@@ -61,6 +67,7 @@ export function ConfigFieldSkills({
 
   // Handle select all / deselect all
   const handleSelectAll = (checked: boolean) => {
+    if (disabled) return; // Prevent changes when disabled
     if (checked) {
       // Select all skills
       const allSkillRefs: SkillReference[] = skills.map((skill) => ({
@@ -77,6 +84,7 @@ export function ConfigFieldSkills({
 
   // Simple toggle handler - no guards needed
   const handleToggleSkill = (skill: Skill) => {
+    if (disabled) return; // Prevent changes when disabled
     const isSelected = selectedSkillIds.includes(skill.id);
     let newSkills: SkillReference[];
 
@@ -101,7 +109,7 @@ export function ConfigFieldSkills({
   }
 
   return (
-    <div className={cn("w-full space-y-3", className)}>
+    <div className={cn("w-full space-y-3", disabled && "opacity-50 pointer-events-none", className)}>
       {/* Header with count */}
       <Label htmlFor={id} className="text-sm font-medium">
         Skills ({selectedSkills.length}/{skills.length})
@@ -115,6 +123,7 @@ export function ConfigFieldSkills({
           value={searchTerm}
           onChange={(e) => setSearchTerm(e.target.value)}
           className="pl-9"
+          disabled={disabled}
         />
       </div>
 
@@ -131,10 +140,11 @@ export function ConfigFieldSkills({
                   : "indeterminate"
             }
             onCheckedChange={(checked) => handleSelectAll(checked === true)}
+            disabled={disabled}
           />
           <Label
             htmlFor={`${id}-select-all`}
-            className="text-sm text-muted-foreground cursor-pointer"
+            className={cn("text-sm text-muted-foreground", !disabled && "cursor-pointer")}
           >
             {getSelectAllState() === "all" ? "Deselect all" : "Select all"}
           </Label>
@@ -157,12 +167,16 @@ export function ConfigFieldSkills({
             return (
               <div
                 key={skill.id}
-                className="flex items-start gap-3 p-3 hover:bg-accent/50 transition-colors border-b last:border-b-0"
+                className={cn(
+                  "flex items-start gap-3 p-3 transition-colors border-b last:border-b-0",
+                  !disabled && "hover:bg-accent/50"
+                )}
               >
                 <Checkbox
                   checked={isSelected}
                   onCheckedChange={() => handleToggleSkill(skill)}
                   className="mt-0.5"
+                  disabled={disabled}
                 />
                 <div className="flex-1 min-w-0">
                   <span className="text-sm font-medium">{skill.name}</span>

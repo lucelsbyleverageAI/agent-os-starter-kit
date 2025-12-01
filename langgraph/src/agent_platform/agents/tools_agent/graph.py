@@ -30,10 +30,16 @@ from agent_platform.utils.model_utils import (
     create_trimming_hook,
 )
 from agent_platform.utils.message_utils import create_image_preprocessor
-from agent_platform.utils.prompt_utils import append_datetime_to_prompt
 
-# Import agent-specific configuration
-from agent_platform.agents.tools_agent.config import GraphConfigPydantic, UNEDITABLE_SYSTEM_PROMPT, DEFAULT_RECURSION_LIMIT
+# Import agent-specific configuration and state
+from agent_platform.agents.tools_agent.config import GraphConfigPydantic, DEFAULT_RECURSION_LIMIT
+from agent_platform.agents.tools_agent.state import ToolsAgentState
+from agent_platform.agents.tools_agent.prompts import build_system_prompt
+
+# Import sandbox-related utilities (lazy import for sandbox tools)
+from agent_platform.agents.deepagents.skills_deepagent.sandbox_tools import create_sandbox_tools
+from agent_platform.agents.deepagents.skills_deepagent.file_attachment_processing import create_file_attachment_nodes
+from agent_platform.agents.deepagents.skills_deepagent.tools.publish_file import create_publish_file_tool
 
 # Import logging utilities
 from agent_platform.sentry import get_logger
@@ -99,9 +105,10 @@ async def graph(config: RunnableConfig):
 
     # Log parsed configuration for debugging
     logger.info(
-        "[TOOLS_AGENT] parsed_config mcp_tools=%s rag_tools=%s",
+        "[TOOLS_AGENT] parsed_config mcp_tools=%s rag_tools=%s sandbox_enabled=%s",
         cfg.mcp_config.tools if cfg.mcp_config else None,
-        cfg.rag.enabled_tools if cfg.rag else None
+        cfg.rag.enabled_tools if cfg.rag else None,
+        cfg.sandbox_enabled
     )
     logger.info(
         "[TOOLS_AGENT] tool_approvals_raw mcp=%s rag=%s",
@@ -216,6 +223,71 @@ async def graph(config: RunnableConfig):
             # Log and continue on MCP connection errors
             logger.exception("[TOOLS_AGENT] mcp_connection_or_loading_error")
 
+    # Step 4b: Extract thread_id and user_id for sandbox tools (if sandbox enabled)
+    thread_id = config.get("configurable", {}).get("thread_id")
+    user_id = config.get("metadata", {}).get("user_id")
+
+    # Step 4c: Add sandbox tools if sandbox is enabled
+    file_attachment_processor = None
+    if cfg.sandbox_enabled:
+        if not thread_id:
+            logger.warning("[TOOLS_AGENT] sandbox_enabled but no thread_id - sandbox tools will not be available")
+        else:
+            logger.info("[TOOLS_AGENT] Sandbox enabled - adding sandbox tools")
+
+            # Get LangConnect URL for skills download
+            langconnect_api_url = (
+                cfg.rag.langconnect_api_url if cfg.rag else "http://langconnect:8080"
+            )
+
+            # Create sandbox tools (run_code, run_command)
+            run_code_tool, run_command_tool = create_sandbox_tools(thread_id)
+            tools.extend([run_code_tool, run_command_tool])
+            logger.info("[TOOLS_AGENT] sandbox_tools_added run_code, run_command")
+
+            # Create publish_file_to_user tool if we have user context
+            if user_id and supabase_token:
+                publish_tool = create_publish_file_tool(
+                    thread_id=thread_id,
+                    user_id=user_id,
+                    langconnect_url=langconnect_api_url,
+                    access_token=supabase_token,
+                )
+                tools.append(publish_tool)
+                logger.info("[TOOLS_AGENT] sandbox_tools_added publish_file_to_user")
+            else:
+                logger.warning("[TOOLS_AGENT] publish_file_to_user not added (missing user_id or access_token)")
+
+            # Create file attachment processing nodes for sandbox initialization
+            # Get skills from config (if configured)
+            skills = []
+            if cfg.skills_config and cfg.skills_config.skills:
+                skills = [
+                    {"skill_id": s.skill_id, "name": s.name}
+                    for s in cfg.skills_config.skills
+                    if s.skill_id and s.name
+                ]
+                logger.info("[TOOLS_AGENT] skills_config has %d skills", len(skills))
+
+            # Get sandbox config settings
+            sandbox_pip_packages = None
+            sandbox_timeout = 3600  # Default 1 hour
+            if cfg.sandbox_config:
+                sandbox_pip_packages = cfg.sandbox_config.pip_packages
+                sandbox_timeout = cfg.sandbox_config.timeout_seconds or 3600
+
+            # Create the file attachment nodes (two-node pattern for progressive UI)
+            emit_status_node, file_attachment_node = create_file_attachment_nodes(
+                thread_id=thread_id,
+                langconnect_url=langconnect_api_url,
+                access_token=supabase_token,
+                skills=skills,
+                sandbox_pip_packages=sandbox_pip_packages,
+                sandbox_timeout=sandbox_timeout,
+            )
+            file_attachment_processor = (emit_status_node, file_attachment_node)
+            logger.info("[TOOLS_AGENT] file_attachment_nodes created")
+
     # Step 5: Initialize the LLM model with optimized settings
     # Temperature and max_tokens are configured automatically based on the model tier
     # - Fast models: temperature=0.7, max_tokens=4000
@@ -299,13 +371,42 @@ async def graph(config: RunnableConfig):
     # Get recursion limit from config, default to DEFAULT_RECURSION_LIMIT if not specified
     recursion_limit = cfg.recursion_limit if cfg.recursion_limit is not None else DEFAULT_RECURSION_LIMIT
 
-    logger.info("[TOOLS_AGENT] agent_created tools_count=%s recursion_limit=%s", len(tools), recursion_limit)
+    # Build the system prompt using the two-layer structure
+    # When sandbox_enabled, includes execution context (role, sandbox, skills)
+    # When sandbox_disabled, just includes role and domain instructions
+    skills_for_prompt = None
+    if cfg.sandbox_enabled and cfg.skills_config and cfg.skills_config.skills:
+        skills_for_prompt = [
+            {"name": s.name, "description": s.description}
+            for s in cfg.skills_config.skills
+            if s.name
+        ]
+
+    final_prompt = build_system_prompt(
+        user_prompt=cfg.system_prompt,
+        sandbox_enabled=cfg.sandbox_enabled,
+        skills=skills_for_prompt,
+    )
+
+    # Determine state schema based on sandbox mode
+    # When sandbox_enabled, use ToolsAgentState (includes sandbox_id and published_files)
+    # When sandbox_disabled, use default AgentState for backward compatibility
+    state_schema = ToolsAgentState if cfg.sandbox_enabled else None
+
+    logger.info(
+        "[TOOLS_AGENT] agent_created tools_count=%s recursion_limit=%s sandbox_enabled=%s",
+        len(tools),
+        recursion_limit,
+        cfg.sandbox_enabled
+    )
 
     return create_react_agent_with_approval(
-        prompt=append_datetime_to_prompt(cfg.system_prompt + UNEDITABLE_SYSTEM_PROMPT),
+        prompt=final_prompt,
         model=model,
         tools=tools,
         tool_approvals=tool_approvals,
         config_schema=GraphConfigPydantic,
         pre_model_hook=combined_hook,  # Combined image + trimming hooks
+        state_schema=state_schema,
+        file_attachment_processor=file_attachment_processor,
     ).with_config({"recursion_limit": recursion_limit})

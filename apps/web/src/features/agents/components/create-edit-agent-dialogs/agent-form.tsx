@@ -210,6 +210,23 @@ interface AgentFieldsFormProps {
   onVersionRestored?: () => void;
 }
 
+/**
+ * Evaluates a disabled_when expression against current config values.
+ * Supports simple expressions like "!sandbox_enabled" (disabled when sandbox_enabled is false).
+ */
+function evaluateDisabledWhen(expression: string | undefined, configValues: Record<string, any>): boolean {
+  if (!expression) return false;
+
+  // Handle negation: "!field_name" means disabled when field is falsy
+  if (expression.startsWith("!")) {
+    const fieldName = expression.substring(1);
+    return !configValues[fieldName];
+  }
+
+  // Handle direct field reference: "field_name" means disabled when field is truthy
+  return !!configValues[expression];
+}
+
 export function AgentFieldsForm({
   configurations,
   toolConfigurations,
@@ -229,6 +246,9 @@ export function AgentFieldsForm({
     tags: string[];
     config: Record<string, any>;
   }>();
+
+  // Watch config values for disabled_when evaluation
+  const configValues = form.watch("config") || {};
 
   const { tools, setTools, getTools, cursor, loading } = useMCPContext();
   const { toolSearchTerm, debouncedSetSearchTerm } =
@@ -359,22 +379,32 @@ export function AgentFieldsForm({
               ))}
 
               {/* Sandbox Configuration */}
-              {hasSandbox && sandboxConfigurations[0] && (
-                <Controller
-                  control={form.control}
-                  name={`config.${sandboxConfigurations[0].label}`}
-                  render={({ field: { value, onChange } }) => (
-                    <ConfigFieldSandboxConfig
-                      id={sandboxConfigurations[0].label}
-                      label="Sandbox Settings"
-                      description="Configure the E2B sandbox environment"
-                      agentId={agentId}
-                      value={value}
-                      setValue={onChange}
-                    />
-                  )}
-                />
-              )}
+              {hasSandbox && sandboxConfigurations[0] && (() => {
+                const isSandboxConfigDisabled = evaluateDisabledWhen(
+                  sandboxConfigurations[0]?.disabled_when,
+                  configValues
+                );
+                return (
+                  <Controller
+                    control={form.control}
+                    name={`config.${sandboxConfigurations[0].label}`}
+                    render={({ field: { value, onChange } }) => (
+                      <ConfigFieldSandboxConfig
+                        id={sandboxConfigurations[0].label}
+                        label="Sandbox Settings"
+                        description={isSandboxConfigDisabled
+                          ? "Enable the sandbox above to configure sandbox settings"
+                          : "Configure the E2B sandbox environment"
+                        }
+                        agentId={agentId}
+                        value={value}
+                        setValue={onChange}
+                        disabled={isSandboxConfigDisabled}
+                      />
+                    )}
+                  />
+                );
+              })()}
             </div>
           )}
         </TabsContent>
@@ -536,19 +566,35 @@ export function AgentFieldsForm({
           <TabsContent value="skills" className="m-0 pt-2">
             <div className="flex w-full flex-col items-start justify-start gap-2">
               <p className="text-lg font-semibold tracking-tight">Agent Skills</p>
-              <Controller
-                control={form.control}
-                name={`config.${skillsConfigurations[0].label}`}
-                render={({ field: { value, onChange } }) => (
-                  <ConfigFieldSkills
-                    id={skillsConfigurations[0].label}
-                    label={skillsConfigurations[0].label}
-                    agentId={agentId}
-                    value={value}
-                    setValue={onChange}
-                  />
-                )}
-              />
+              {(() => {
+                const isSkillsDisabled = evaluateDisabledWhen(
+                  skillsConfigurations[0]?.disabled_when,
+                  configValues
+                );
+                return (
+                  <>
+                    {isSkillsDisabled && (
+                      <p className="text-sm text-muted-foreground">
+                        Enable the sandbox to configure skills for this agent.
+                      </p>
+                    )}
+                    <Controller
+                      control={form.control}
+                      name={`config.${skillsConfigurations[0].label}`}
+                      render={({ field: { value, onChange } }) => (
+                        <ConfigFieldSkills
+                          id={skillsConfigurations[0].label}
+                          label={skillsConfigurations[0].label}
+                          agentId={agentId}
+                          value={value}
+                          setValue={onChange}
+                          disabled={isSkillsDisabled}
+                        />
+                      )}
+                    />
+                  </>
+                );
+              })()}
             </div>
           </TabsContent>
         )}

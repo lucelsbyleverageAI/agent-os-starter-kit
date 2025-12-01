@@ -363,6 +363,23 @@ export const ConfigurationSidebar = forwardRef<
   // Only show tool approval toggles for tools_agent
   const showToolApproval = selectedAgent?.graph_id === 'tools_agent';
 
+  // Helper to evaluate disabled_when expressions for skills/sandbox
+  const evaluateDisabledWhen = (expression: string | undefined): boolean => {
+    if (!expression || !agentId) return false;
+    const configValues = store.configsByAgentId[agentId] || {};
+
+    // Handle negation: "!sandbox_enabled" means disabled when sandbox_enabled is falsy
+    if (expression.startsWith("!")) {
+      const fieldName = expression.substring(1);
+      return !configValues[fieldName];
+    }
+    return !!configValues[expression];
+  };
+
+  // Check if skills/sandbox should be disabled based on disabled_when
+  const isSkillsDisabled = evaluateDisabledWhen(skillsConfigurations[0]?.disabled_when);
+  const isSandboxConfigDisabled = evaluateDisabledWhen(sandboxConfigurations[0]?.disabled_when);
+
   return (
     <div
       ref={ref}
@@ -622,13 +639,22 @@ export const ConfigurationSidebar = forwardRef<
                 {/* Sandbox Configuration */}
                 {agentId && supportedConfigs.includes("sandbox") && sandboxConfigurations[0]?.label && (
                   <ConfigSection title="Sandbox Settings">
+                    {isSandboxConfigDisabled && (
+                      <p className="text-sm text-muted-foreground mb-2">
+                        Enable the sandbox to configure sandbox settings.
+                      </p>
+                    )}
                     <ConfigFieldSandboxConfig
                       id={sandboxConfigurations[0].label}
                       label="Sandbox Settings"
-                      description="Configure the E2B sandbox environment"
+                      description={isSandboxConfigDisabled
+                        ? "Enable the sandbox in Configuration above"
+                        : "Configure the E2B sandbox environment"
+                      }
                       agentId={agentId}
                       value={store.configsByAgentId[`${agentId}:sandbox`]?.[sandboxConfigurations[0].label]}
                       setValue={(newValue) => store.updateConfig(`${agentId}:sandbox`, sandboxConfigurations[0].label, newValue)}
+                      disabled={isSandboxConfigDisabled}
                     />
                   </ConfigSection>
                 )}
@@ -814,6 +840,11 @@ export const ConfigurationSidebar = forwardRef<
                   className="m-0 pb-4 pt-2 space-y-6"
                 >
                   <ConfigSection title="Agent Skills">
+                    {isSkillsDisabled && (
+                      <p className="text-sm text-muted-foreground mb-2">
+                        Enable the sandbox to configure skills for this agent.
+                      </p>
+                    )}
                     {agentId && skillsConfigurations[0]?.label && (
                       <ConfigFieldSkills
                         id={skillsConfigurations[0].label}
@@ -821,6 +852,7 @@ export const ConfigurationSidebar = forwardRef<
                         agentId={agentId}
                         value={store.configsByAgentId[`${agentId}:skills`]?.[skillsConfigurations[0].label] ?? { skills: [] }}
                         setValue={(newValue) => store.updateConfig(`${agentId}:skills`, skillsConfigurations[0].label, newValue)}
+                        disabled={isSkillsDisabled}
                       />
                     )}
                   </ConfigSection>

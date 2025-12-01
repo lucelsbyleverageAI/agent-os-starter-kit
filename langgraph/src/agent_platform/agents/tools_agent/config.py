@@ -1,15 +1,17 @@
 from typing import Optional, List, Dict
 from pydantic import BaseModel, Field
 from agent_platform.utils.model_utils import get_model_options_for_ui
+from agent_platform.agents.deepagents.skills_deepagent.configuration import (
+    SkillsConfig,
+    SandboxConfig,
+)
 
 
 # Graph metadata
 GRAPH_NAME = "Basic ReAct Agent"
 GRAPH_DESCRIPTION = "A versatile AI agent that you can configure with access to tools and knowledge collections. Ideal for general and flexible tasks where you are happy to give the AI agent a high degree of autonomy."
 
-# System prompts and constants
-UNEDITABLE_SYSTEM_PROMPT = "\nIf the tool throws an error requiring authentication, provide the user with a Markdown link to the authentication page and prompt them to authenticate."
-
+# Default system prompt
 DEFAULT_SYSTEM_PROMPT = """## Role
 You are a helpful AI assistant with access to a variety of tools.
 
@@ -248,13 +250,52 @@ class GraphConfigPydantic(BaseModel):
             "x_oap_ui_config": {
                 "type": "runbook",
                 "placeholder": "Enter a system prompt...",
-                "description": f"The system prompt to use in all generations. The following prompt will always be included at the end of the system prompt:\n---{UNEDITABLE_SYSTEM_PROMPT}\n---",
+                "description": "Domain-specific instructions for the agent. These appear after the platform's execution context.",
                 "default": DEFAULT_SYSTEM_PROMPT,
             }
         },
     )
     """Custom system prompt for the agent"""
-    
+
+    sandbox_enabled: bool = Field(
+        default=False,
+        metadata={
+            "x_oap_ui_config": {
+                "type": "boolean",
+                "title": "Enable Sandbox",
+                "description": "Enable E2B sandbox for code execution, file processing, and skills",
+                "default": False,
+            }
+        },
+    )
+    """Master switch for sandbox features - when False, agent behaves as a standard tools agent"""
+
+    skills_config: Optional[SkillsConfig] = Field(
+        default=None,
+        metadata={
+            "x_oap_ui_config": {
+                "type": "skills",
+                "title": "Skills",
+                "description": "Select skills to enable for this agent",
+                "disabled_when": "!sandbox_enabled",
+            }
+        },
+    )
+    """Skills configuration (only used when sandbox_enabled=True)"""
+
+    sandbox_config: Optional[SandboxConfig] = Field(
+        default_factory=SandboxConfig,
+        metadata={
+            "x_oap_ui_config": {
+                "type": "sandbox_config",
+                "title": "Sandbox Settings",
+                "description": "Configure the E2B sandbox environment",
+                "disabled_when": "!sandbox_enabled",
+            }
+        },
+    )
+    """Sandbox configuration (only used when sandbox_enabled=True)"""
+
     mcp_config: Optional[MCPConfig] = Field(
         default=None,
         optional=True,

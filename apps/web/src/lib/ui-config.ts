@@ -225,6 +225,7 @@ export function configSchemaToSkillsConfig(
       default: {
         skills: uiConfig.default?.skills ?? [],
       },
+      disabled_when: uiConfig.disabled_when,
     };
     break;
   }
@@ -252,6 +253,7 @@ export function configSchemaToSandboxConfig(
         timeout_seconds: uiConfig.default?.timeout_seconds ?? 600,
         pip_packages: uiConfig.default?.pip_packages ?? [],
       },
+      disabled_when: uiConfig.disabled_when,
     };
     break;
   }
