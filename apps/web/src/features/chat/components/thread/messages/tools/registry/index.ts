@@ -4,7 +4,6 @@ import {
   SimpleToolCall,
   ResearchProgressTool,
   FinalResearchReportTool,
-  GenerateProcessOnePagerTool,
   PublishFileTool,
   SandboxInitializationTool
 } from "./components";
@@ -22,11 +21,6 @@ export const TOOL_REGISTRY: ToolRegistry = {
   // Final research report tool
   "*:final_research_report": {
     component: FinalResearchReportTool,
-  },
-
-  // E18 Process One-Pager generation tool
-  "*:generate_process_one_pager": {
-    component: GenerateProcessOnePagerTool,
   },
 
   // Skills DeepAgent file publishing tool
