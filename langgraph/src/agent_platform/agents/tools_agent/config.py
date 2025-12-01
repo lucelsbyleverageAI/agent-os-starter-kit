@@ -42,7 +42,7 @@ class RagConfig(BaseModel):
         rag_config = RagConfig(
             langconnect_api_url ="https://langconnect-api.example.com",
             collections=["docs-123", "knowledge-456"],
-            enabled_tools=["hybrid_search", "fs_list_files", "fs_read_file"]
+            enabled_tools=["collection_hybrid_search", "collection_list_files", "collection_read_file"]
         )
         ```
     """
@@ -53,44 +53,44 @@ class RagConfig(BaseModel):
     """List of collection IDs to use for document search"""
     
     enabled_tools: Optional[List[str]] = Field(
-        default=["hybrid_search", "fs_list_collections", "fs_list_files", "fs_read_file", "fs_read_image", "fs_grep_files"],
+        default=["collection_hybrid_search", "collection_list", "collection_list_files", "collection_read_file", "collection_read_image", "collection_grep_files"],
         metadata={
             "x_oap_ui_config": {
                 "type": "rag_tools",
                 "description": "Select which tools the agent can use to interact with document collections",
-                "default": ["hybrid_search", "fs_list_collections", "fs_list_files", "fs_read_file", "fs_read_image", "fs_grep_files"],
+                "default": ["collection_hybrid_search", "collection_list", "collection_list_files", "collection_read_file", "collection_read_image", "collection_grep_files"],
                 "tool_groups": [
                     {
                         "name": "Read Operations",
                         "permission": "viewer",
                         "tools": [
                             {
-                                "name": "hybrid_search",
+                                "name": "collection_hybrid_search",
                                 "label": "Hybrid Search",
                                 "description": "Semantic + keyword search (best for large knowledge bases)",
                             },
                             {
-                                "name": "fs_list_collections",
+                                "name": "collection_list",
                                 "label": "List Collections",
                                 "description": "Browse available document collections",
                             },
                             {
-                                "name": "fs_list_files",
+                                "name": "collection_list_files",
                                 "label": "List Files",
                                 "description": "Browse documents across collections",
                             },
                             {
-                                "name": "fs_read_file",
+                                "name": "collection_read_file",
                                 "label": "Read File",
                                 "description": "Read document contents with line numbers",
                             },
                             {
-                                "name": "fs_read_image",
+                                "name": "collection_read_image",
                                 "label": "Read Image",
                                 "description": "View uploaded images with AI-generated descriptions",
                             },
                             {
-                                "name": "fs_grep_files",
+                                "name": "collection_grep_files",
                                 "label": "Search in Files (Grep)",
                                 "description": "Search for patterns across documents using regex",
                             },
@@ -101,12 +101,12 @@ class RagConfig(BaseModel):
                         "permission": "editor",
                         "tools": [
                             {
-                                "name": "fs_write_file",
+                                "name": "collection_write_file",
                                 "label": "Write File",
                                 "description": "Create new documents in collections",
                             },
                             {
-                                "name": "fs_edit_file",
+                                "name": "collection_edit_file",
                                 "label": "Edit File",
                                 "description": "Modify existing document contents",
                             },
@@ -117,7 +117,7 @@ class RagConfig(BaseModel):
                         "permission": "owner",
                         "tools": [
                             {
-                                "name": "fs_delete_file",
+                                "name": "collection_delete_file",
                                 "label": "Delete File",
                                 "description": "Permanently remove documents",
                             }

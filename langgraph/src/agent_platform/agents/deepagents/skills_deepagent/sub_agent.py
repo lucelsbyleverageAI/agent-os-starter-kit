@@ -66,7 +66,7 @@ TASK_DESCRIPTION_SUFFIX = """
 """
 
 # Default prompt for the general-purpose sub-agent
-GENERAL_PURPOSE_SUBAGENT_PROMPT = """You are a general-purpose sub-agent with access to tools. You have been given a task by the main agent. Complete the task using the tools available to you. Always summarize your work in your final response, referencing any created files."""
+GENERAL_PURPOSE_SUBAGENT_PROMPT = """You are a general-purpose sub-agent with access to tools. You have been given a task by the main agent. Complete the task using the tools available to you. Always summarise your work in your final response, referencing any created files."""
 
 
 async def _get_tools_for_sub_agent(
@@ -102,11 +102,11 @@ async def _get_tools_for_sub_agent(
         if isinstance(rag_config, dict):
             langconnect_api_url = rag_config.get('langconnect_api_url')
             collections = rag_config.get('collections', [])
-            enabled_tools = rag_config.get('enabled_tools', ["hybrid_search"])
+            enabled_tools = rag_config.get('enabled_tools', ["collection_hybrid_search"])
         else:
             langconnect_api_url = getattr(rag_config, 'langconnect_api_url', None)
             collections = getattr(rag_config, 'collections', [])
-            enabled_tools = getattr(rag_config, 'enabled_tools', ["hybrid_search"])
+            enabled_tools = getattr(rag_config, 'enabled_tools', ["collection_hybrid_search"])
 
         if not langconnect_api_url:
             langconnect_api_url = (

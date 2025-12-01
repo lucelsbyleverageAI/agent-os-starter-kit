@@ -249,7 +249,7 @@ async def create_hybrid_search_tool(
         langconnect_api_url = langconnect_api_url[:-1]
     
     @tool
-    async def hybrid_search(
+    async def collection_hybrid_search(
         query: Annotated[str, "Semantic query (natural language)"],
         keywords: Annotated[Optional[list[str]], "Optional keywords/phrases to combine with semantic search"] = None,
         collection_id: Annotated[Optional[str], "Optional collection filter; if omitted, search all accessible" ] = None,
@@ -289,7 +289,7 @@ async def create_hybrid_search_tool(
         # Validate collection_id if provided
         if collection_id and collection_id not in scoped_collections:
             error_response = {
-                "formatted_content": f"Error: You don't have access to collection {collection_id}. Available collections can be found using fs_list_collections.",
+                "formatted_content": f"Error: You don't have access to collection {collection_id}. Available collections can be found using collection_list.",
                 "documents": []
             }
             return json.dumps(error_response, indent=2)
@@ -357,7 +357,7 @@ async def create_hybrid_search_tool(
             }
             return json.dumps(error_response, indent=2)
     
-    return hybrid_search
+    return collection_hybrid_search
 
 
 async def create_rag_tool(langconnect_api_url: str, collection_id: str, access_token: str):
@@ -1169,15 +1169,15 @@ def create_langchain_mcp_tool_with_memory_context(
 
 # ==================== File System Tool Factories ====================
 
-async def create_fs_list_collections_tool(
+async def create_collection_list_tool(
     langconnect_api_url: str,
     access_token: str,
     scoped_collections: List[str]
 ) -> StructuredTool:
     """Create tool to list all accessible collections (scoped to agent config)."""
-    
+
     @tool
-    async def fs_list_collections() -> str:
+    async def collection_list() -> str:
         """List collections accessible to this agent with key metadata.
 
         Returns each collection's id, name, description, document count,
@@ -1185,30 +1185,30 @@ async def create_fs_list_collections_tool(
         """
         import json
         import httpx
-        
+
         url = f"{langconnect_api_url}/agent-filesystem/collections"
         headers = {"Authorization": f"Bearer {access_token}"}
         params = {"scoped_collections": ",".join(scoped_collections)}
-        
+
         async with httpx.AsyncClient() as client:
             response = await client.get(url, headers=headers, params=params, timeout=10.0)
             response.raise_for_status()
             data = response.json()
-        
+
         return json.dumps(data, indent=2)
-    
-    return fs_list_collections
+
+    return collection_list
 
 
-async def create_fs_list_files_tool(
+async def create_collection_list_files_tool(
     langconnect_api_url: str,
     access_token: str,
     scoped_collections: List[str]
 ) -> StructuredTool:
     """Create tool to list files across collections (scoped to agent config)."""
-    
+
     @tool
-    async def fs_list_files(
+    async def collection_list_files(
         collection_id: Annotated[Optional[str], "Optional collection filter; otherwise list across all accessible"] = None,
         limit: Annotated[int, "Max files to return (1-500). Default: 100"] = 100,
         sort_by: Annotated[str, "Sort by: 'updated_at' | 'created_at' | 'name' | 'size'"] = "updated_at",
@@ -1222,7 +1222,7 @@ async def create_fs_list_files_tool(
         Use descriptions to understand file contents at a glance.
 
         File types:
-        - 'image': Uploaded images (use fs_read_image to view)
+        - 'image': Uploaded images (use collection_read_image to view)
         - 'document': Uploaded files or web pages
         - 'text': Agent-created text documents
         """
@@ -1232,7 +1232,7 @@ async def create_fs_list_files_tool(
         # Validate collection_id if provided
         if collection_id and collection_id not in scoped_collections:
             error_response = {
-                "error": f"You don't have access to collection {collection_id}. Available collections can be found using fs_list_collections."
+                "error": f"You don't have access to collection {collection_id}. Available collections can be found using collection_list."
             }
             return json.dumps(error_response, indent=2)
 
@@ -1260,19 +1260,19 @@ async def create_fs_list_files_tool(
             data = response.json()
 
         return json.dumps(data, indent=2)
-    
-    return fs_list_files
+
+    return collection_list_files
 
 
-async def create_fs_read_file_tool(
+async def create_collection_read_file_tool(
     langconnect_api_url: str,
     access_token: str,
     scoped_collections: List[str]
 ) -> StructuredTool:
     """Create tool to read file contents (scoped to agent config)."""
-    
+
     @tool
-    async def fs_read_file(
+    async def collection_read_file(
         document_id: Annotated[str, "Document UUID"],
         offset: Annotated[int, "Start line (0-based)"] = 0,
         limit: Annotated[int, "Lines to return (1-5000). Default: 2000"] = 2000
@@ -1284,7 +1284,7 @@ async def create_fs_read_file_tool(
         """
         import json
         import httpx
-        
+
         url = f"{langconnect_api_url}/agent-filesystem/files/{document_id}"
         headers = {"Authorization": f"Bearer {access_token}"}
         params = {
@@ -1293,12 +1293,12 @@ async def create_fs_read_file_tool(
             "include_line_numbers": True,
             "scoped_collections": ",".join(scoped_collections)
         }
-        
+
         async with httpx.AsyncClient() as client:
             response = await client.get(url, headers=headers, params=params, timeout=30.0)
             response.raise_for_status()
             data = response.json()
-        
+
         # Return content with metadata
         result = {
             "content": data["content"],
@@ -1309,13 +1309,13 @@ async def create_fs_read_file_tool(
                 "truncated": data["truncated"]
             }
         }
-        
+
         return json.dumps(result, indent=2)
-    
-    return fs_read_file
+
+    return collection_read_file
 
 
-async def create_fs_read_image_tool(
+async def create_collection_read_image_tool(
     langconnect_api_url: str,
     access_token: str,
     scoped_collections: List[str]
@@ -1323,7 +1323,7 @@ async def create_fs_read_image_tool(
     """Create tool to read image documents (scoped to agent config)."""
 
     @tool
-    async def fs_read_image(
+    async def collection_read_image(
         document_id: Annotated[str, "Document UUID of the image"]
     ) -> str:
         """Read an image document and return its description along with metadata.
@@ -1334,11 +1334,11 @@ async def create_fs_read_image_tool(
         - Temporary signed URL for viewing (30 min expiry)
         - Storage path reference
 
-        Use this after identifying images via fs_list_files with file_type='image'.
+        Use this after identifying images via collection_list_files with file_type='image'.
         The description provides detailed information about what's in the image.
         The signed URL allows multimodal models to view the actual image.
 
-        For non-image documents, use fs_read_file instead.
+        For non-image documents, use collection_read_file instead.
         """
         import json
         import httpx
@@ -1376,23 +1376,23 @@ async def create_fs_read_image_tool(
             if e.response.status_code == 400:
                 # Not an image document
                 error_response = {
-                    "error": "This document is not an image. Use fs_read_file for non-image documents."
+                    "error": "This document is not an image. Use collection_read_file for non-image documents."
                 }
                 return json.dumps(error_response, indent=2)
             raise
 
-    return fs_read_image
+    return collection_read_image
 
 
-async def create_fs_grep_tool(
+async def create_collection_grep_files_tool(
     langconnect_api_url: str,
     access_token: str,
     scoped_collections: List[str]
 ) -> StructuredTool:
     """Create tool to search for patterns across files (scoped to agent config)."""
-    
+
     @tool
-    async def fs_grep_files(
+    async def collection_grep_files(
         pattern: Annotated[str, "Text or regex to search for"],
         collection_id: Annotated[Optional[str], "Optional collection filter"] = None,
         case_sensitive: Annotated[bool, "Case‑sensitive search"] = False,
@@ -1405,14 +1405,14 @@ async def create_fs_grep_tool(
         """
         import json
         import httpx
-        
+
         # Validate collection_id if provided
         if collection_id and collection_id not in scoped_collections:
             error_response = {
-                "error": f"You don't have access to collection {collection_id}. Available collections can be found using fs_list_collections."
+                "error": f"You don't have access to collection {collection_id}. Available collections can be found using collection_list."
             }
             return json.dumps(error_response, indent=2)
-        
+
         url = f"{langconnect_api_url}/agent-filesystem/files/search"
         headers = {"Authorization": f"Bearer {access_token}"}
         payload = {
@@ -1424,26 +1424,26 @@ async def create_fs_grep_tool(
         }
         if collection_id:
             payload["collection_id"] = collection_id
-        
+
         async with httpx.AsyncClient() as client:
             response = await client.post(url, headers=headers, json=payload, timeout=30.0)
             response.raise_for_status()
             data = response.json()
-        
+
         return json.dumps(data, indent=2)
-    
-    return fs_grep_files
+
+    return collection_grep_files
 
 
-async def create_fs_write_file_tool(
+async def create_collection_write_file_tool(
     langconnect_api_url: str,
     access_token: str,
     scoped_collections: List[str]
 ) -> StructuredTool:
     """Create tool to create new files (scoped to agent config)."""
-    
+
     @tool
-    async def fs_write_file(
+    async def collection_write_file(
         collection_id: Annotated[str, "Target collection UUID"],
         name: Annotated[str, "Document name/title"],
         content: Annotated[str, "Document content (markdown format unless otherwise specified)"],
@@ -1461,14 +1461,14 @@ async def create_fs_write_file_tool(
         """
         import json
         import httpx
-        
+
         # Validate collection_id
         if collection_id not in scoped_collections:
             error_response = {
-                "error": f"You don't have access to collection {collection_id}. Available collections can be found using fs_list_collections."
+                "error": f"You don't have access to collection {collection_id}. Available collections can be found using collection_list."
             }
             return json.dumps(error_response, indent=2)
-        
+
         url = f"{langconnect_api_url}/agent-filesystem/collections/{collection_id}/files"
         headers = {"Authorization": f"Bearer {access_token}"}
         payload = {
@@ -1478,26 +1478,26 @@ async def create_fs_write_file_tool(
             "metadata": metadata or {},
             "scoped_collections": scoped_collections
         }
-        
+
         async with httpx.AsyncClient() as client:
             response = await client.post(url, headers=headers, json=payload, timeout=30.0)
             response.raise_for_status()
             data = response.json()
-        
+
         return json.dumps(data, indent=2)
-    
-    return fs_write_file
+
+    return collection_write_file
 
 
-async def create_fs_edit_file_tool(
+async def create_collection_edit_file_tool(
     langconnect_api_url: str,
     access_token: str,
     scoped_collections: List[str]
 ) -> StructuredTool:
     """Create tool to edit file contents (scoped to agent config)."""
-    
+
     @tool
-    async def fs_edit_file(
+    async def collection_edit_file(
         document_id: Annotated[str, "Document UUID"],
         new_string: Annotated[str, "Replacement text (or entire new document content if replace_entire_document=true)"],
         old_string: Annotated[Optional[str], "Exact text to replace; include unique surrounding context (required unless replace_entire_document=true)"] = None,
@@ -1546,19 +1546,19 @@ async def create_fs_edit_file_tool(
             data = response.json()
 
         return json.dumps(data, indent=2)
-    
-    return fs_edit_file
+
+    return collection_edit_file
 
 
-async def create_fs_delete_file_tool(
+async def create_collection_delete_file_tool(
     langconnect_api_url: str,
     access_token: str,
     scoped_collections: List[str]
 ) -> StructuredTool:
     """Create tool to delete files (scoped to agent config)."""
-    
+
     @tool
-    async def fs_delete_file(
+    async def collection_delete_file(
         document_id: Annotated[str, "Document UUID"]
     ) -> str:
         """Permanently delete a document and its chunks (irreversible).
@@ -1567,19 +1567,19 @@ async def create_fs_delete_file_tool(
         """
         import json
         import httpx
-        
+
         url = f"{langconnect_api_url}/agent-filesystem/files/{document_id}"
         headers = {"Authorization": f"Bearer {access_token}"}
         params = {"scoped_collections": ",".join(scoped_collections)}
-        
+
         async with httpx.AsyncClient() as client:
             response = await client.delete(url, headers=headers, params=params, timeout=10.0)
             response.raise_for_status()
             data = response.json()
-        
+
         return json.dumps(data, indent=2)
-    
-    return fs_delete_file
+
+    return collection_delete_file
 
 
 async def create_collection_tools(
@@ -1607,8 +1607,8 @@ async def create_collection_tools(
         List of enabled and instantiated tools
         
     Tool Types:
-        - hybrid_search: Collection-agnostic search with optional collection_id filter
-        - File system tools: All work across configured collections with permission checks
+        - collection_hybrid_search: Collection-agnostic search with optional collection_id filter
+        - Collection tools: All work across configured collections with permission checks
     """
     tools = []
     
@@ -1619,33 +1619,33 @@ async def create_collection_tools(
     # Map of tool names to factory functions (all now receive scoped_collections)
     tool_factories = {
         # Search tool (collection-agnostic with optional filter)
-        "hybrid_search": lambda: create_hybrid_search_tool(
+        "collection_hybrid_search": lambda: create_hybrid_search_tool(
             langconnect_api_url, access_token, collection_ids
         ),
 
-        # File system tools (all scoped to configured collections)
-        "fs_list_collections": lambda: create_fs_list_collections_tool(
+        # Collection tools (all scoped to configured collections)
+        "collection_list": lambda: create_collection_list_tool(
             langconnect_api_url, access_token, collection_ids
         ),
-        "fs_list_files": lambda: create_fs_list_files_tool(
+        "collection_list_files": lambda: create_collection_list_files_tool(
             langconnect_api_url, access_token, collection_ids
         ),
-        "fs_read_file": lambda: create_fs_read_file_tool(
+        "collection_read_file": lambda: create_collection_read_file_tool(
             langconnect_api_url, access_token, collection_ids
         ),
-        "fs_read_image": lambda: create_fs_read_image_tool(
+        "collection_read_image": lambda: create_collection_read_image_tool(
             langconnect_api_url, access_token, collection_ids
         ),
-        "fs_grep_files": lambda: create_fs_grep_tool(
+        "collection_grep_files": lambda: create_collection_grep_files_tool(
             langconnect_api_url, access_token, collection_ids
         ),
-        "fs_write_file": lambda: create_fs_write_file_tool(
+        "collection_write_file": lambda: create_collection_write_file_tool(
             langconnect_api_url, access_token, collection_ids
         ),
-        "fs_edit_file": lambda: create_fs_edit_file_tool(
+        "collection_edit_file": lambda: create_collection_edit_file_tool(
             langconnect_api_url, access_token, collection_ids
         ),
-        "fs_delete_file": lambda: create_fs_delete_file_tool(
+        "collection_delete_file": lambda: create_collection_delete_file_tool(
             langconnect_api_url, access_token, collection_ids
         ),
     }
@@ -1660,7 +1660,7 @@ async def create_collection_tools(
             tool = await tool_factories[tool_name]()
             
             # Wrap with context injection if config_getter provided
-            if config_getter and tool_name == "hybrid_search":
+            if config_getter and tool_name == "collection_hybrid_search":
                 tool = wrap_tool_with_context_injection(tool, config_getter)
             
             tools.append(tool)
