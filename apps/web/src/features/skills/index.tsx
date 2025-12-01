@@ -33,8 +33,8 @@ export default function SkillsInterface() {
   const [selectedSkill, setSelectedSkill] = useState<Skill | null>(null);
   const [uploadMode, setUploadMode] = useState<"create" | "update">("create");
 
-  // Handlers
-  const handleCreateClick = () => {
+  // Handlers (reserved for future create button in header)
+  const _handleCreateClick = () => {
     setUploadMode("create");
     setSelectedSkill(null);
     setShowUploadDialog(true);

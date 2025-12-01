@@ -11,7 +11,7 @@ import { oneDark } from "react-syntax-highlighter/dist/esm/styles/prism";
 import { cn } from "@/lib/utils";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { scrollbarClasses } from "@/lib/scrollbar-styles";
-import { useFilePreview, type FilePreviewFile } from "../context/file-preview-context";
+import { useFilePreview } from "../context/file-preview-context";
 import { SpreadsheetGrid } from "./spreadsheet-grid";
 import { type SpreadsheetSheet, type SpreadsheetData } from "../types/spreadsheet";
 
@@ -155,8 +155,8 @@ function isHTML(ext: string): boolean {
   return ["html", "htm"].includes(ext);
 }
 
-// Sheet tabs component for Excel workbooks
-function SheetTabs({
+// Sheet tabs component for Excel workbooks (reserved for future multi-sheet UI)
+function _SheetTabs({
   sheets,
   activeIndex,
   onSelect,
@@ -523,8 +523,8 @@ export function FilePreviewPanel() {
     }
   }, [previewState.content]);
 
-  // Sheet switching handler for Excel workbooks
-  const handleSheetChange = useCallback((index: number) => {
+  // Sheet switching handler for Excel workbooks (reserved for future multi-sheet UI)
+  const _handleSheetChange = useCallback((index: number) => {
     if (!previewState.spreadsheetSheets || index < 0 || index >= previewState.spreadsheetSheets.length) {
       return;
     }

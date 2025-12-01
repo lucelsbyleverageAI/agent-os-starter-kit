@@ -154,8 +154,8 @@ function isCode(ext: string): boolean {
   return ext in LANGUAGE_MAP;
 }
 
-// Sheet tabs component for Excel workbooks
-function SheetTabs({
+// Sheet tabs component for Excel workbooks (reserved for future multi-sheet UI)
+function _SheetTabs({
   sheets,
   activeIndex,
   onSelect,
@@ -432,8 +432,8 @@ export function FilePreviewSheet({
     }
   }, [file]);
 
-  // Sheet switching handler for Excel workbooks
-  const handleSheetChange = useCallback((index: number) => {
+  // Sheet switching handler for Excel workbooks (reserved for future multi-sheet UI)
+  const _handleSheetChange = useCallback((index: number) => {
     if (!previewState.spreadsheetSheets || index < 0 || index >= previewState.spreadsheetSheets.length) {
       return;
     }

@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useEffect, useCallback, useMemo } from "react";
+import { useState, useEffect, useCallback } from "react";
 import { useStreamContext } from "@/features/chat/providers/Stream";
 import { useAgentsContext } from "@/providers/Agents";
 import { useAuthContext } from "@/providers/Auth";

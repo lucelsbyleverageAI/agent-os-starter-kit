@@ -170,7 +170,7 @@ export function useFileUpload({
     return parseFloat((bytes / Math.pow(k, i)).toFixed(1)) + ' ' + sizes[i];
   };
 
-  const startJobPolling = useCallback(async (jobId: string, attachmentId: string) => {
+  const _startJobPolling = useCallback(async (jobId: string, attachmentId: string) => {
     const pollInterval = setInterval(async () => {
       try {
         
@@ -407,7 +407,7 @@ ${legacyContent || 'No content extracted'}
    * Documents are stored per-user with timestamps (no thread association).
    * The sandbox path is included so the backend knows where to write the file.
    */
-  const uploadDocumentToStorage = useCallback(async (file: File): Promise<Base64ContentBlock> => {
+  const _uploadDocumentToStorage = useCallback(async (file: File): Promise<Base64ContentBlock> => {
     if (!session?.accessToken) {
       throw new Error("No session found");
     }
