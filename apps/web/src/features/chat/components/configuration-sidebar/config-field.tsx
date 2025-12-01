@@ -1329,6 +1329,11 @@ interface ConfigFieldSandboxConfigProps {
   className?: string;
   value?: { timeout_seconds?: number; pip_packages?: string[] };
   setValue?: (value: { timeout_seconds?: number; pip_packages?: string[] }) => void;
+  /**
+   * Whether the sandbox config is disabled.
+   * When disabled, interactions are prevented and a muted appearance is shown.
+   */
+  disabled?: boolean;
 }
 
 export function ConfigFieldSandboxConfig({
@@ -1339,6 +1344,7 @@ export function ConfigFieldSandboxConfig({
   className,
   value,
   setValue,
+  disabled = false,
 }: ConfigFieldSandboxConfigProps) {
   // Use local state for the raw input to allow typing commas
   const [localPackagesInput, setLocalPackagesInput] = useState<string | null>(null);
@@ -1348,6 +1354,7 @@ export function ConfigFieldSandboxConfig({
   const packagesString = localPackagesInput ?? (value?.pip_packages || []).join(", ");
 
   const handleTimeoutChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+    if (disabled) return; // Prevent changes when disabled
     const newTimeout = parseInt(e.target.value, 10);
     if (!isNaN(newTimeout)) {
       setValue?.({
@@ -1359,6 +1366,7 @@ export function ConfigFieldSandboxConfig({
   };
 
   const handlePackagesChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+    if (disabled) return; // Prevent changes when disabled
     const packagesText = e.target.value;
     // Store raw input to preserve commas while typing
     setLocalPackagesInput(packagesText);
@@ -1386,7 +1394,7 @@ export function ConfigFieldSandboxConfig({
   }
 
   return (
-    <div className={cn("w-full space-y-4", className)}>
+    <div className={cn("w-full space-y-4", disabled && "opacity-50", className)}>
       <div className="space-y-1">
         <Label className="text-sm font-medium">{_.startCase(label)}</Label>
         {description && (
@@ -1408,6 +1416,7 @@ export function ConfigFieldSandboxConfig({
             min={60}
             max={3600}
             step={60}
+            disabled={disabled}
           />
           <p className="text-xs text-muted-foreground">
             Sandbox timeout in seconds (60-3600)
@@ -1426,6 +1435,7 @@ export function ConfigFieldSandboxConfig({
             onChange={handlePackagesChange}
             onBlur={handlePackagesBlur}
             placeholder="pandas, numpy, requests"
+            disabled={disabled}
           />
           <p className="text-xs text-muted-foreground">
             Comma-separated list of packages to install in the sandbox

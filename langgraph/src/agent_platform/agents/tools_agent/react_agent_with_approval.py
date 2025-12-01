@@ -17,7 +17,7 @@ Key difference: Approval is handled via graph-level routing, not ToolNode overri
 This ensures compatibility with both v1 and v2 LangGraph execution modes.
 """
 
-from typing import Literal, Sequence, Union, Callable, Any, Optional, cast
+from typing import Literal, Sequence, Union, Callable, Any, Optional, Type, Tuple, cast
 from langchain_core.messages import BaseMessage, AIMessage, ToolMessage, SystemMessage
 from langchain_core.tools import BaseTool
 from langchain_core.language_models import BaseChatModel
@@ -39,7 +39,7 @@ logger = get_logger(__name__)
 
 
 class AgentState(TypedDict):
-    """The state of the agent."""
+    """The default state of the agent."""
     messages: Annotated[list[BaseMessage], add_messages]
 
 
@@ -51,6 +51,8 @@ def create_react_agent_with_approval(
     prompt: Optional[str] = None,
     pre_model_hook: Optional[Callable] = None,
     config_schema: Optional[type] = None,
+    state_schema: Optional[Type[TypedDict]] = None,
+    file_attachment_processor: Optional[Union[Callable, Tuple[Callable, Callable]]] = None,
     **kwargs
 ) -> Runnable:
     """
@@ -67,6 +69,10 @@ def create_react_agent_with_approval(
         prompt: System prompt for the agent (prepended to messages)
         pre_model_hook: Optional hook to run before calling the model
         config_schema: Optional Pydantic schema for configuration
+        state_schema: Optional TypedDict schema for state (default: AgentState)
+        file_attachment_processor: Optional callable(s) for file attachment processing
+            Can be a single function or a tuple of (emit_status_fn, main_fn)
+            for progressive UI (loading indicator before slow initialization)
         **kwargs: Additional arguments
 
     Returns:
@@ -95,10 +101,14 @@ def create_react_agent_with_approval(
     """
     tool_approvals = tool_approvals or {}
 
+    # Use provided state_schema or default to AgentState
+    effective_state_schema = state_schema or AgentState
+
     logger.info(
-        "[create_react_agent_with_approval] Creating agent with %d tools, %d require approval",
+        "[create_react_agent_with_approval] Creating agent with %d tools, %d require approval, state_schema=%s",
         len(tools),
-        sum(1 for v in tool_approvals.values() if v)
+        sum(1 for v in tool_approvals.values() if v),
+        effective_state_schema.__name__
     )
 
     # Create standard tool node for execution
@@ -409,15 +419,38 @@ def create_react_agent_with_approval(
             return "tools"
 
     # Build the graph
-    workflow = StateGraph(AgentState, config_schema=config_schema)
+    workflow = StateGraph(effective_state_schema, config_schema=config_schema)
 
     # Add nodes
     workflow.add_node("agent", call_model)
     workflow.add_node("approval", approval_node)
     workflow.add_node("tools", tool_node)
 
-    # Add edges
-    workflow.set_entry_point("agent")
+    # Handle file attachment processing if provided
+    # This allows sandbox initialization and file uploads before the agent starts
+    if file_attachment_processor is not None:
+        if isinstance(file_attachment_processor, tuple):
+            # Two-node pattern: emit_initialization_status -> extract_file_attachments -> agent
+            # This enables loading UI to appear BEFORE slow initialization starts
+            emit_status_fn, extract_file_attachments_fn = file_attachment_processor
+            workflow.add_node("emit_initialization_status", emit_status_fn, input_schema=effective_state_schema)
+            workflow.add_node("extract_file_attachments", extract_file_attachments_fn, input_schema=effective_state_schema)
+            # Note: emit_status_fn uses Command(goto="extract_file_attachments") for routing
+            # So we don't add an explicit edge here - the Command handles it
+            workflow.add_edge("extract_file_attachments", "agent")
+            entrypoint = "emit_initialization_status"
+            logger.info("[create_react_agent_with_approval] Added file attachment processing nodes (two-node pattern)")
+        else:
+            # Single function pattern
+            workflow.add_node("extract_file_attachments", file_attachment_processor, input_schema=effective_state_schema)
+            workflow.add_edge("extract_file_attachments", "agent")
+            entrypoint = "extract_file_attachments"
+            logger.info("[create_react_agent_with_approval] Added file attachment processing node (single-node pattern)")
+    else:
+        entrypoint = "agent"
+
+    # Set entry point
+    workflow.set_entry_point(entrypoint)
 
     # Conditional routing after agent
     workflow.add_conditional_edges(
