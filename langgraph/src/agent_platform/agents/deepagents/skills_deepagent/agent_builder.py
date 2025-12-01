@@ -18,12 +18,12 @@ try:
     from .state import SkillsDeepAgentState
     from .toolkit import write_todos
     from .sub_agent import _create_task_tool, _create_sync_task_tool
-    from .file_attachment_processing import create_file_attachment_node
+    from .file_attachment_processing import create_file_attachment_nodes
 except ImportError:
     from agent_platform.agents.deepagents.skills_deepagent.state import SkillsDeepAgentState
     from agent_platform.agents.deepagents.skills_deepagent.toolkit import write_todos
     from agent_platform.agents.deepagents.skills_deepagent.sub_agent import _create_task_tool, _create_sync_task_tool
-    from agent_platform.agents.deepagents.skills_deepagent.file_attachment_processing import create_file_attachment_node
+    from agent_platform.agents.deepagents.skills_deepagent.file_attachment_processing import create_file_attachment_nodes
 
 from agent_platform.agents.deepagents.custom_react_agent import custom_create_react_agent
 from agent_platform.agents.deepagents.model import get_default_model
@@ -152,9 +152,10 @@ def skills_agent_builder(
     # Create custom file attachment processor for skills_deepagent
     # This handles BOTH sandbox initialization AND file attachment processing
     # Sandbox init is deferred to runtime to enable reading state.sandbox_id for reconnection
+    # Returns tuple of (emit_status_node, main_node) for progressive loading UI
     file_attachment_processor = None
     if thread_id:
-        file_attachment_processor = create_file_attachment_node(
+        file_attachment_processor = create_file_attachment_nodes(
             thread_id=thread_id,
             langconnect_url=langconnect_url,
             access_token=access_token,

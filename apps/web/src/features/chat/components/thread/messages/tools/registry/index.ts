@@ -5,7 +5,8 @@ import {
   ResearchProgressTool,
   FinalResearchReportTool,
   GenerateProcessOnePagerTool,
-  PublishFileTool
+  PublishFileTool,
+  SandboxInitializationTool
 } from "./components";
 // Unused imports removed
 
@@ -31,6 +32,12 @@ export const TOOL_REGISTRY: ToolRegistry = {
   // Skills DeepAgent file publishing tool
   "*:publish_file_to_user": {
     component: PublishFileTool,
+  },
+
+  // Skills DeepAgent sandbox initialization status indicator
+  // Shows loading UI during sandbox creation, disappears when complete
+  "*:sandbox_initialization": {
+    component: SandboxInitializationTool,
   },
 
   // Example: Global tools (available for all graphs)

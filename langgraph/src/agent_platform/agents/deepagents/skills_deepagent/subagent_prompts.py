@@ -1,48 +1,69 @@
-"""Sub-agent system prompt templates for Skills DeepAgent.
+"""
+Sub-agent system prompt templates for Skills DeepAgent.
 
-This module provides prompt templates for sub-agents in the Skills DeepAgent system.
-It is separate from prompts.py to avoid circular imports with sub_agent.py.
+The system prompt is structured in a clear layered hierarchy:
+1. Execution Context (built-in) - Role, sandbox, skills (if allocated)
+2. Domain Instructions (user-provided) - Custom prompts and guidelines
 
-Key differences from base deepagent subagent_prompts:
-1. No "Context from Main Agent" section (context is in /sandbox/workspace/)
-2. References run_code and run_command tools explicitly
-3. Includes user_uploads directory in structure
-4. Emphasizes using run_code for file writing (not bash)
+This module is separate from prompts.py to avoid circular imports with sub_agent.py.
 """
 
 from datetime import date
 from typing import List, Optional
 
 
-# Platform appendix for SUB-AGENTS in Skills DeepAgent
-SUBAGENT_PLATFORM_PROMPT_APPENDIX = """
----
+# =============================================================================
+# ROLE CONTEXT TEMPLATE
+# =============================================================================
 
-## Sub-Agent Execution Context
+SUBAGENT_ROLE_CONTEXT = """## Role
 
-You are a sub-agent completing a delegated task.
+You are a sub-agent completing a delegated task from the main agent.
 
 **Guidelines:**
 - Execute directly without asking clarifying questions
 - Be concise - detailed outputs go in files
 - Reference files you create in your response
+- Check `/sandbox/workspace/` for context from the main agent
+"""
 
----
 
-## Sandbox Tools
+# =============================================================================
+# CONSOLIDATED SANDBOX SECTION
+# =============================================================================
 
-You have two tools for interacting with the shared sandbox:
+SUBAGENT_SANDBOX_SECTION = """## Sandbox
 
-### `run_code` - For writing files and complex operations
+You share a persistent sandbox environment with the main agent.
+
+### Filesystem
+
 ```
+/sandbox/
+├── skills/         # Skill packages (if allocated)
+├── user_uploads/   # User's uploaded files
+├── outputs/        # Final deliverables
+└── workspace/      # Scratch space - write your work here
+```
+
+### Where to Write
+
+- **`/sandbox/workspace/`** - Your primary output location for intermediate work
+- **`/sandbox/outputs/`** - For final deliverables that will be shared with user
+
+### Tools
+
+**`run_code`** - Execute Python code. Use for writing files and complex operations:
+```python
 run_code(code='''
 with open("/sandbox/workspace/output.md", "w") as f:
     content = "# Analysis Results\\n\\n## Findings\\nYour multi-line content here..."
     f.write(content)
 print("File written")
 ''')
+```
 
-### `run_command` - For quick shell operations
+**`run_command`** - Execute shell commands. Use for quick operations:
 ```
 run_command(command="cat /sandbox/skills/my-skill/SKILL.md")
 run_command(command="ls -la /sandbox/workspace/")
@@ -51,9 +72,7 @@ run_command(command="python /sandbox/skills/my-skill/scripts/run.py")
 
 **Important:** Always use `run_code` with Python to write files. Do NOT use bash heredocs or echo.
 
----
-
-## Pre-installed Libraries
+### Pre-installed Libraries
 
 The following libraries are available immediately (no `pip install` needed):
 
@@ -73,47 +92,14 @@ The following libraries are available immediately (no `pip install` needed):
 **Utilities:**
 - `requests`, `httpx` - HTTP clients
 - `pyyaml`, `python-dateutil`, `tabulate`
-
----
-
-## Sandbox Filesystem
-
-You share a persistent sandbox with the main agent:
-
-```
-/sandbox/
-├── skills/         # Skill packages (if allocated)
-├── user_uploads/   # User's uploaded files
-├── outputs/        # Final deliverables
-└── workspace/      # Scratch space - write your work here
-```
-
-### Where to Write
-
-- **`/sandbox/workspace/`** - Your primary output location for intermediate work
-- **`/sandbox/outputs/`** - For final deliverables that will be shared with user
-
-{skills_section}
-
----
-
-## Guidelines
-
-- **Use `run_code` for writing**: Python handles multi-line content properly
-- **Use `run_command` for reading**: `cat`, `ls`, `head` for quick operations
-- Write detailed outputs to `/sandbox/workspace/`
-- Return a concise summary with file references
-- Use absolute paths like `/sandbox/workspace/output.md`
-
----
-
-Today's date: {todays_date}
 """
 
 
-# Skills section for sub-agents (only included if skills are allocated)
-SUBAGENT_SKILLS_SECTION = """
-## Skills
+# =============================================================================
+# SKILLS SECTION TEMPLATE (conditional - only if skills allocated)
+# =============================================================================
+
+SUBAGENT_SKILLS_SECTION = """## Skills
 
 You have access to specialized skill packages. **Check if a skill matches your task before starting.**
 
@@ -121,32 +107,19 @@ You have access to specialized skill packages. **Check if a skill matches your t
 
 {skills_table}
 
-### When to Use Skills
+### Usage
 
-- Does your task domain match a skill's description?
-- Would the skill's resources (templates, scripts, data) help?
+1. **Read SKILL.md first**: `run_command(command="cat /sandbox/skills/<skill-name>/SKILL.md")`
+2. **Follow the skill's workflow** - SKILL.md specifies exact steps
+3. **Use provided scripts** - Prefer existing scripts over writing new code
 
-**If a skill is relevant, read its SKILL.md first.**
-
-### How to Use a Skill
-
-**Step 1: Read the skill's instructions (required)**
-```python
-run_command(command="cat /sandbox/skills/<skill-name>/SKILL.md")
-```
-
-**Step 2: Follow the skill's workflow**
-SKILL.md contains the steps, scripts to run, and resources available.
-
-**Step 3: Use provided scripts**
-```python
-run_command(command="python /sandbox/skills/<skill-name>/scripts/<script>.py [arguments]")
-```
-Prefer existing scripts over writing new code.
-
-**Important**: Don't attempt skill-related tasks without reading SKILL.md first.
+**Important:** Don't attempt skill-related tasks without reading SKILL.md first.
 """
 
+
+# =============================================================================
+# HELPER FUNCTIONS
+# =============================================================================
 
 def build_skills_table(skills: Optional[List] = None) -> str:
     """
@@ -178,15 +151,19 @@ def build_subagent_system_prompt(
     """
     Build system prompt for a sub-agent in Skills DeepAgent.
 
-    Sub-agents get specialized instructions that:
-    1. Frame them as working on a delegated task from the main agent
-    2. Emphasize stateless execution without asking clarifying questions
-    3. Guide them to use /sandbox/workspace/ for output
-    4. Reference execute_in_sandbox tool
-    5. Conditionally include skills if allocated
+    Structure:
+    1. # Execution Context
+       - ## Role
+       - ## Sandbox
+       - ## Skills (only if allocated)
+    2. ---
+    3. # Domain Instructions
+       - User's custom prompt
+    4. ---
+    5. Today's date
 
     Args:
-        user_prompt: Sub-agent's custom prompt
+        user_prompt: Sub-agent's custom prompt (domain instructions)
         skills: List of skill references for this sub-agent
 
     Returns:
@@ -199,14 +176,36 @@ def build_subagent_system_prompt(
     else:
         skills_section = ""
 
-    # Build platform appendix for sub-agent
-    appendix = SUBAGENT_PLATFORM_PROMPT_APPENDIX.format(
-        skills_section=skills_section,
-        todays_date=date.today().strftime("%Y-%m-%d")
-    )
+    # Assemble execution context
+    if skills_section:
+        execution_context = f"""# Execution Context
 
-    # Combine: user prompt + platform appendix
-    if user_prompt:
-        return f"{user_prompt}\n{appendix}"
+{SUBAGENT_ROLE_CONTEXT}
+{SUBAGENT_SANDBOX_SECTION}
+{skills_section}"""
     else:
-        return appendix.strip()
+        execution_context = f"""# Execution Context
+
+{SUBAGENT_ROLE_CONTEXT}
+{SUBAGENT_SANDBOX_SECTION}"""
+
+    # Build domain instructions section
+    if user_prompt:
+        domain_section = f"""# Domain Instructions
+
+{user_prompt}"""
+    else:
+        domain_section = "# Domain Instructions\n\n*No custom instructions provided.*"
+
+    # Assemble final prompt with separator
+    todays_date = date.today().strftime("%Y-%m-%d")
+
+    return f"""{execution_context}
+---
+
+{domain_section}
+
+---
+
+Today's date: {todays_date}
+"""

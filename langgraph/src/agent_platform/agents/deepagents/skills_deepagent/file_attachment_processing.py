@@ -12,8 +12,8 @@ Files are downloaded from Supabase Storage and written to /sandbox/user_uploads/
 
 import re
 import httpx
-from typing import Annotated, Optional, List, Dict, Any
-from langchain_core.messages import HumanMessage
+from typing import Annotated, Optional, List, Dict, Any, Tuple, Callable
+from langchain_core.messages import HumanMessage, AIMessage, ToolMessage
 from langgraph.types import Command
 from langgraph.prebuilt import InjectedState
 from agent_platform.sentry import get_logger
@@ -512,3 +512,212 @@ def create_file_attachment_node(
         return Command(update={"sandbox_id": sandbox_id})
 
     return file_attachment_node
+
+
+def create_file_attachment_nodes(
+    thread_id: str,
+    langconnect_url: str = "http://langconnect:8080",
+    access_token: Optional[str] = None,
+    skills: Optional[List[Dict[str, Any]]] = None,
+    sandbox_pip_packages: Optional[List[str]] = None,
+    sandbox_timeout: int = 3600,
+) -> Tuple[Callable, Callable]:
+    """Create file attachment processing nodes with initialization status UI.
+
+    Returns a tuple of two nodes for progressive message emission:
+    1. emit_initialization_status - Emits loading UI on first run (fast)
+    2. file_attachment_node - Does actual initialization and emits completion (slow)
+
+    This enables the frontend to show a loading indicator BEFORE the slow
+    sandbox initialization starts, improving perceived responsiveness.
+
+    Args:
+        thread_id: Thread identifier for sandbox
+        langconnect_url: LangConnect API URL for storage/skill downloads
+        access_token: User's access token for authentication
+        skills: List of skill references to upload to sandbox
+        sandbox_pip_packages: Additional pip packages to install
+        sandbox_timeout: Sandbox timeout in seconds (max 3600 for hobby tier)
+
+    Returns:
+        Tuple of (emit_initialization_status, file_attachment_node) functions
+    """
+    # Deterministic tool_call_id based on thread_id - both nodes compute the same value
+    # Note: OpenAI has a 40 char max for tool_call_id, so we truncate the thread_id
+    tool_call_id = f"sb_init_{thread_id[:24]}"  # 8 + 24 = 32 chars (under 40 limit)
+
+    async def emit_initialization_status(state: SkillsDeepAgentState) -> Command:
+        """Check if first run, emit loading message if so.
+
+        On first run: Emits AIMessage with tool_call to trigger loading UI
+        On reconnection: Skips directly to extract_file_attachments node
+        """
+        existing_sandbox_id = state.get("sandbox_id")
+
+        # If sandbox already exists (reconnection), skip loading UI
+        if existing_sandbox_id:
+            logger.info(
+                "[SKILLS_INIT_STATUS] Reconnection case - skipping loading UI (sandbox_id=%s)",
+                existing_sandbox_id
+            )
+            return Command(goto="extract_file_attachments")
+
+        # First run - emit loading tool call
+        logger.info("[SKILLS_INIT_STATUS] First run - emitting loading UI")
+
+        ai_message = AIMessage(
+            content="",
+            tool_calls=[{
+                "id": tool_call_id,
+                "name": "sandbox_initialization",
+                "type": "tool_call",
+                "args": {}
+            }]
+        )
+
+        return Command(
+            update={"messages": [ai_message]},
+            goto="extract_file_attachments"
+        )
+
+    async def file_attachment_node(state: SkillsDeepAgentState) -> Command:
+        """Initialize sandbox and process file attachments.
+
+        This is the slow part - creates sandbox, uploads skills, processes files.
+        On first run, also emits ToolMessage to complete the loading UI.
+        """
+        existing_sandbox_id = state.get("sandbox_id")
+        is_first_run = not existing_sandbox_id
+
+        if existing_sandbox_id:
+            logger.info(
+                "[SKILLS_FILE_ATTACH] Found existing sandbox_id in state: %s",
+                existing_sandbox_id
+            )
+        else:
+            logger.info("[SKILLS_FILE_ATTACH] No existing sandbox_id in state, will create new sandbox")
+
+        try:
+            # get_or_create_sandbox returns (sandbox, sandbox_id)
+            # It will try to reconnect if existing_sandbox_id is provided
+            sandbox, sandbox_id = await get_or_create_sandbox(
+                thread_id=thread_id,
+                skills=skills or [],
+                langconnect_url=langconnect_url,
+                access_token=access_token,
+                pip_packages=sandbox_pip_packages,
+                timeout=sandbox_timeout,
+                existing_sandbox_id=existing_sandbox_id,
+            )
+            logger.info(
+                "[SKILLS_FILE_ATTACH] Sandbox ready: %s (reconnected=%s)",
+                sandbox_id,
+                sandbox_id == existing_sandbox_id
+            )
+        except Exception as e:
+            logger.error("[SKILLS_FILE_ATTACH] Failed to initialize sandbox: %s", e)
+            raise RuntimeError(f"Sandbox initialization failed: {e}")
+
+        # Process file attachments
+        messages = state.get("messages", [])
+        files_written = 0
+
+        if messages:
+            latest_message = messages[-1]
+
+            if isinstance(latest_message, HumanMessage):
+                # Collect all text content from the message
+                message_texts = []
+
+                if isinstance(latest_message.content, str):
+                    message_texts.append(latest_message.content)
+                elif isinstance(latest_message.content, list):
+                    for content_item in latest_message.content:
+                        if isinstance(content_item, dict) and content_item.get('type') == 'text':
+                            message_texts.append(content_item.get('text', ''))
+
+                message_content = '\n'.join(message_texts)
+
+                # Check for upload markers
+                has_binary_uploads = '<UserUploadedImage' in message_content or '<UserUploadedDocument' in message_content
+                has_legacy_attachments = '<UserUploadedAttachment>' in message_content
+
+                if has_binary_uploads or has_legacy_attachments:
+                    # Ensure user_uploads directory exists
+                    try:
+                        sandbox.files.make_dir("/sandbox/user_uploads")
+                    except Exception:
+                        pass
+
+                    # Process binary uploads
+                    if has_binary_uploads and access_token:
+                        binary_uploads = _parse_binary_uploads(message_content)
+                        if binary_uploads:
+                            storage_paths = [upload['storage_path'] for upload in binary_uploads]
+                            try:
+                                signed_urls = _fetch_signed_urls(
+                                    storage_paths=storage_paths,
+                                    langconnect_url=langconnect_url,
+                                    access_token=access_token,
+                                )
+                            except Exception as e:
+                                logger.error("[SKILLS_FILE_ATTACH] Failed to fetch signed URLs: %s", e)
+                                signed_urls = {}
+
+                            for upload in binary_uploads:
+                                signed_url = signed_urls.get(upload['storage_path'])
+                                if signed_url:
+                                    try:
+                                        file_data = _download_from_signed_url(signed_url)
+                                        sandbox.files.write(upload['sandbox_path'], file_data)
+                                        logger.info(
+                                            "[SKILLS_FILE_ATTACH] Wrote %s to %s (%d bytes)",
+                                            upload['file_name'],
+                                            upload['sandbox_path'],
+                                            len(file_data)
+                                        )
+                                        files_written += 1
+                                    except Exception as e:
+                                        logger.error(
+                                            "[SKILLS_FILE_ATTACH] Failed to transfer %s: %s",
+                                            upload['file_name'],
+                                            str(e)
+                                        )
+
+                    # Process legacy attachments
+                    if has_legacy_attachments:
+                        legacy_attachments = _parse_legacy_attachments(message_content)
+                        for attachment in legacy_attachments:
+                            try:
+                                markdown_file_name = f"{attachment['file_name']}.md"
+                                sandbox_path = f"/sandbox/user_uploads/{markdown_file_name}"
+                                sandbox.files.write(sandbox_path, attachment['content'].encode('utf-8'))
+                                files_written += 1
+                            except Exception as e:
+                                logger.error(
+                                    "[SKILLS_FILE_ATTACH] Failed to write legacy attachment: %s",
+                                    str(e)
+                                )
+
+        logger.info(
+            "[SKILLS_FILE_ATTACH] Completed: sandbox_id=%s, files_written=%d",
+            sandbox_id,
+            files_written
+        )
+
+        # Build return update
+        update: Dict[str, Any] = {"sandbox_id": sandbox_id}
+
+        # If first run, emit completion message to close loading UI
+        if is_first_run:
+            completion_message = ToolMessage(
+                content="Environment ready",
+                tool_call_id=tool_call_id,
+                name="sandbox_initialization"
+            )
+            update["messages"] = [completion_message]
+            logger.info("[SKILLS_FILE_ATTACH] Emitted completion message for loading UI")
+
+        return Command(update=update)
+
+    return emit_initialization_status, file_attachment_node
