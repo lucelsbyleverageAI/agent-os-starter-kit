@@ -216,6 +216,7 @@ def custom_create_react_agent(
     version: Literal["v1", "v2"] = "v2",
     name: Optional[str] = None,
     enable_image_processing: bool = False,
+    file_attachment_processor: Optional[Callable] = None,
     **kwargs: Any,
 ) -> CompiledStateGraph:
     """Creates a ReAct agent graph that calls tools in a loop until a stopping condition is met.
@@ -546,14 +547,18 @@ def custom_create_react_agent(
             input_schema=input_schema,
         )
 
-        # Import file attachment processing
-        try:
-            from .file_attachment_processing import extract_file_attachments
-        except ImportError:
-            from agent_platform.agents.deepagents.file_attachment_processing import extract_file_attachments
+        # Import file attachment processing (use custom processor if provided)
+        if file_attachment_processor is not None:
+            extract_file_attachments_fn = file_attachment_processor
+        else:
+            try:
+                from .file_attachment_processing import extract_file_attachments
+            except ImportError:
+                from agent_platform.agents.deepagents.file_attachment_processing import extract_file_attachments
+            extract_file_attachments_fn = extract_file_attachments
 
         # Add file attachment extraction node (always runs first)
-        workflow.add_node("extract_file_attachments", extract_file_attachments)
+        workflow.add_node("extract_file_attachments", extract_file_attachments_fn)
         entrypoint = "extract_file_attachments"
 
         # Handle image processing and pre_model_hook for no-tool case
@@ -641,15 +646,31 @@ def custom_create_react_agent(
     )
     workflow.add_node("tools", tool_node)
 
-    # Import file attachment processing
-    try:
-        from .file_attachment_processing import extract_file_attachments
-    except ImportError:
-        from agent_platform.agents.deepagents.file_attachment_processing import extract_file_attachments
-
-    # Add file attachment extraction node (always runs first)
-    workflow.add_node("extract_file_attachments", extract_file_attachments, input_schema=state_schema)
-    entrypoint = "extract_file_attachments"
+    # Import file attachment processing (use custom processor if provided)
+    # Supports both single function and tuple of (emit_status_fn, main_fn) for progressive UI
+    if file_attachment_processor is not None:
+        if isinstance(file_attachment_processor, tuple):
+            # Two-node pattern: emit_initialization_status -> extract_file_attachments
+            # This enables loading UI to appear BEFORE slow initialization starts
+            emit_status_fn, extract_file_attachments_fn = file_attachment_processor
+            workflow.add_node("emit_initialization_status", emit_status_fn, input_schema=state_schema)
+            workflow.add_node("extract_file_attachments", extract_file_attachments_fn, input_schema=state_schema)
+            # Note: emit_status_fn uses Command(goto="extract_file_attachments") for routing
+            # So we don't add an explicit edge here - the Command handles it
+            entrypoint = "emit_initialization_status"
+        else:
+            # Single function (backward compatible)
+            extract_file_attachments_fn = file_attachment_processor
+            workflow.add_node("extract_file_attachments", extract_file_attachments_fn, input_schema=state_schema)
+            entrypoint = "extract_file_attachments"
+    else:
+        try:
+            from .file_attachment_processing import extract_file_attachments
+        except ImportError:
+            from agent_platform.agents.deepagents.file_attachment_processing import extract_file_attachments
+        extract_file_attachments_fn = extract_file_attachments
+        workflow.add_node("extract_file_attachments", extract_file_attachments_fn, input_schema=state_schema)
+        entrypoint = "extract_file_attachments"
 
     # agent_loop_entrypoint is where tools should route back to (skipping file attachment extraction)
     agent_loop_entrypoint = "agent"

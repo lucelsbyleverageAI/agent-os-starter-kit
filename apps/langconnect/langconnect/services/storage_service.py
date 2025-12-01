@@ -13,6 +13,7 @@ logger = logging.getLogger(__name__)
 COLLECTIONS_BUCKET = "collections"
 CHAT_UPLOADS_BUCKET = "chat-uploads"
 SUPPORT_BUCKET = "support"
+AGENT_OUTPUTS_BUCKET = "agent-outputs"
 SIGNED_URL_EXPIRY_SECONDS = 1800  # 30 minutes
 
 
@@ -22,17 +23,28 @@ class StorageService:
     def __init__(self):
         """Initialize the storage service.
 
-        Uses SUPABASE_PUBLIC_URL for storage operations to ensure signed URLs
-        are publicly accessible via HTTPS (required by external clients like Claude API).
+        Uses internal URL (SUPABASE_URL) for all storage operations within Docker.
+        URLs returned to clients are transformed to use SUPABASE_PUBLIC_URL.
         """
-        # Use public URL for storage operations (signed URLs, public URLs)
-        # This ensures URLs are externally accessible via HTTPS
-        storage_url = config.SUPABASE_PUBLIC_URL
-        self.client = create_client(storage_url, config.SUPABASE_KEY)
+        # Internal URL for all operations within Docker network
+        self.internal_url = config.SUPABASE_URL
+        self.public_url = config.SUPABASE_PUBLIC_URL
+        self.client = create_client(self.internal_url, config.SUPABASE_KEY)
         self.collections_bucket = COLLECTIONS_BUCKET
         self.chat_uploads_bucket = CHAT_UPLOADS_BUCKET
         self.support_bucket = SUPPORT_BUCKET
+        self.agent_outputs_bucket = AGENT_OUTPUTS_BUCKET
         self.signed_url_expiry = SIGNED_URL_EXPIRY_SECONDS
+
+    def _make_url_public(self, url: str) -> str:
+        """Transform internal URL to public URL for external access.
+
+        Replaces the internal Supabase URL (e.g., http://kong:8000) with
+        the public URL (e.g., http://localhost:8000) so browsers can access it.
+        """
+        if self.internal_url and self.public_url and self.internal_url != self.public_url:
+            return url.replace(self.internal_url, self.public_url)
+        return url
 
     def _generate_storage_path(
         self,
@@ -264,13 +276,16 @@ class StorageService:
     ) -> str:
         """Generate a signed URL for temporary access to a file.
 
+        Uses internal client for the API call, then transforms the URL
+        to use the public URL for external accessibility.
+
         Args:
             file_path: Path within bucket (not storage:// URI)
             expiry_seconds: Expiry time in seconds (default: 30 minutes)
             bucket: Bucket name (default: collections bucket)
 
         Returns:
-            Signed URL string
+            Signed URL string (with public URL for browser access)
 
         Raises:
             Exception: If URL generation fails
@@ -279,6 +294,7 @@ class StorageService:
             expiry = expiry_seconds or self.signed_url_expiry
             bucket_name = bucket or self.collections_bucket
 
+            # Use internal client for API call
             response = self.client.storage.from_(bucket_name).create_signed_url(
                 path=file_path,
                 expires_in=expiry
@@ -287,6 +303,9 @@ class StorageService:
             signed_url = response.get("signedURL")
             if not signed_url:
                 raise ValueError("Failed to generate signed URL")
+
+            # Transform to public URL for browser access
+            signed_url = self._make_url_public(signed_url)
 
             logger.debug(f"Generated signed URL for {file_path} (expires in {expiry}s)")
             return signed_url
@@ -398,7 +417,7 @@ class StorageService:
             signed: Whether to generate signed URL (default: True)
 
         Returns:
-            URL string (signed or public)
+            URL string (signed or public, transformed to public URL for browser access)
 
         Raises:
             ValueError: If URI is invalid
@@ -409,8 +428,138 @@ class StorageService:
         if signed:
             return await self.get_signed_url(parsed["file_path"])
         else:
-            # Return public URL
-            return self.client.storage.from_(parsed["bucket"]).get_public_url(parsed["file_path"])
+            # Get public URL from internal client and transform for external access
+            url = self.client.storage.from_(parsed["bucket"]).get_public_url(parsed["file_path"])
+            return self._make_url_public(url)
+
+    def _generate_agent_output_path(
+        self,
+        user_id: str,
+        thread_id: str,
+        filename: str
+    ) -> str:
+        """Generate a storage path for an agent output file.
+
+        Format: {user_id}/{thread_id}/{timestamp}_{filename}
+
+        Args:
+            user_id: UUID of the user
+            thread_id: UUID of the thread
+            filename: Original filename
+
+        Returns:
+            Storage path string
+        """
+        timestamp = datetime.utcnow().strftime("%Y%m%d_%H%M%S_%f")
+        safe_filename = filename.replace(" ", "_")
+        return f"{user_id}/{thread_id}/{timestamp}_{safe_filename}"
+
+    async def upload_agent_output(
+        self,
+        file_data: bytes,
+        filename: str,
+        content_type: str,
+        user_id: str,
+        thread_id: str,
+    ) -> dict:
+        """Upload a file created by an agent to Supabase Storage.
+
+        Args:
+            file_data: Binary file content
+            filename: Original filename
+            content_type: MIME type
+            user_id: UUID of the user
+            thread_id: UUID of the thread
+
+        Returns:
+            dict with:
+                - storage_path: Path within bucket
+                - file_path: Same as storage_path
+                - bucket: Bucket name
+
+        Raises:
+            Exception: If upload fails
+        """
+        try:
+            # Generate storage path
+            file_path = self._generate_agent_output_path(user_id, thread_id, filename)
+
+            # Upload to Supabase Storage with upsert to allow updates
+            response = self.client.storage.from_(self.agent_outputs_bucket).upload(
+                path=file_path,
+                file=file_data,
+                file_options={
+                    "content-type": content_type,
+                    "cache-control": "3600",
+                    "upsert": "true"  # Allow updates (for file revisions)
+                }
+            )
+
+            logger.info(f"Uploaded agent output to storage: {file_path}")
+
+            return {
+                "storage_path": file_path,
+                "file_path": file_path,
+                "bucket": self.agent_outputs_bucket
+            }
+
+        except Exception as e:
+            logger.error(f"Failed to upload agent output to storage: {e}")
+            raise
+
+    async def download_agent_output(
+        self,
+        storage_path: str,
+    ) -> bytes:
+        """Download a file from agent outputs storage.
+
+        Args:
+            storage_path: Path within the agent-outputs bucket
+
+        Returns:
+            File content as bytes
+
+        Raises:
+            Exception: If download fails
+        """
+        try:
+            response = self.client.storage.from_(self.agent_outputs_bucket).download(
+                path=storage_path
+            )
+
+            logger.debug(f"Downloaded agent output from storage: {storage_path}")
+            return response
+
+        except Exception as e:
+            logger.error(f"Failed to download agent output from storage: {e}")
+            raise
+
+    async def download_chat_upload(
+        self,
+        storage_path: str,
+    ) -> bytes:
+        """Download a file from chat uploads storage.
+
+        Args:
+            storage_path: Path within the chat-uploads bucket
+
+        Returns:
+            File content as bytes
+
+        Raises:
+            Exception: If download fails
+        """
+        try:
+            response = self.client.storage.from_(self.chat_uploads_bucket).download(
+                path=storage_path
+            )
+
+            logger.debug(f"Downloaded chat upload from storage: {storage_path}")
+            return response
+
+        except Exception as e:
+            logger.error(f"Failed to download chat upload from storage: {e}")
+            raise
 
 
 # Global service instance

@@ -7,6 +7,7 @@ Features token limiting to prevent excessive costs on long conversations.
 """
 
 import logging
+import re
 from typing import Optional, List, Dict, Any
 from datetime import datetime
 from pydantic import BaseModel, Field
@@ -132,32 +133,60 @@ class ThreadNamingService:
             log.error(f"Failed to fetch messages for thread {thread_id}: {e}")
             raise RuntimeError(f"Failed to fetch thread messages: {e}")
 
+    def _strip_upload_xml_tags(self, text: str) -> str:
+        """
+        Strip XML upload tags from text content.
+
+        These tags are used for backend file processing (sandbox transfers)
+        but should not be included in thread naming/summarization.
+
+        Args:
+            text: Raw text content that may contain XML upload tags
+
+        Returns:
+            Cleaned text with XML upload blocks removed
+        """
+        cleaned = text
+        # Remove <UserUploadedImage...>...</UserUploadedImage> blocks
+        cleaned = re.sub(r'<UserUploadedImage[^>]*>[\s\S]*?</UserUploadedImage>', '', cleaned)
+        # Remove <UserUploadedDocument...>...</UserUploadedDocument> blocks
+        cleaned = re.sub(r'<UserUploadedDocument[^>]*>[\s\S]*?</UserUploadedDocument>', '', cleaned)
+        # Remove <UserUploadedAttachment>...</UserUploadedAttachment> blocks
+        cleaned = re.sub(r'<UserUploadedAttachment>[\s\S]*?</UserUploadedAttachment>', '', cleaned)
+        return cleaned.strip()
+
     def _extract_message_content(self, message: Dict[str, Any]) -> str:
         """
         Extract text content from a LangGraph message.
 
         Handles both string content and structured content arrays.
+        Strips XML upload tags that are used for backend file processing.
 
         Args:
             message: Message dictionary from LangGraph
 
         Returns:
-            Extracted text content
+            Extracted text content with XML upload tags removed
         """
         content = message.get("content", "")
 
         # Handle string content
         if isinstance(content, str):
-            return content.strip()
+            return self._strip_upload_xml_tags(content)
 
         # Handle structured content (array of content blocks)
         if isinstance(content, list):
             text_parts = []
             for block in content:
                 if isinstance(block, dict) and block.get("type") == "text":
-                    text_parts.append(block.get("text", ""))
+                    text = block.get("text", "")
+                    cleaned = self._strip_upload_xml_tags(text)
+                    if cleaned:  # Only add non-empty strings
+                        text_parts.append(cleaned)
                 elif isinstance(block, str):
-                    text_parts.append(block)
+                    cleaned = self._strip_upload_xml_tags(block)
+                    if cleaned:
+                        text_parts.append(cleaned)
             return " ".join(text_parts).strip()
 
         return ""

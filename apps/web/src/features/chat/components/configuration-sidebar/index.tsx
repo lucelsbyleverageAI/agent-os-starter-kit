@@ -9,7 +9,9 @@ import {
   ConfigFieldAgents,
   ConfigFieldRAG,
   ConfigFieldTool,
+  ConfigFieldSandboxConfig,
 } from "@/features/chat/components/configuration-sidebar/config-field";
+import { ConfigFieldSkills } from "@/features/chat/components/configuration-sidebar/config-field-skills";
 import { ConfigSection } from "@/features/chat/components/configuration-sidebar/config-section";
 import { useConfigStore } from "@/features/chat/hooks/use-config-store";
 import { cn } from "@/lib/utils";
@@ -45,10 +47,12 @@ import {
 } from "@/components/ui/alert-dialog";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
-import { canUserEditAssistant } from "@/lib/agent-utils";
+import { canUserEditAssistant, isUserDefaultAssistant } from "@/lib/agent-utils";
 import { useAuthContext } from "@/providers/Auth";
 import { getScrollbarClasses } from "@/lib/scrollbar-styles";
 import { AGENT_TAG_GROUPS, getTagLabel } from "@/lib/agent-tags";
+import { VersionsTab } from "@/features/agents/components/create-edit-agent-dialogs/versions-tab";
+import { History } from "lucide-react";
 import {
   Command,
   CommandEmpty,
@@ -154,6 +158,8 @@ export const ConfigurationSidebar = forwardRef<
     toolConfigurations,
     ragConfigurations,
     agentsConfigurations,
+    skillsConfigurations,
+    sandboxConfigurations,
     loading,
     supportedConfigs,
   } = useAgentConfig();
@@ -357,6 +363,23 @@ export const ConfigurationSidebar = forwardRef<
   // Only show tool approval toggles for tools_agent
   const showToolApproval = selectedAgent?.graph_id === 'tools_agent';
 
+  // Helper to evaluate disabled_when expressions for skills/sandbox
+  const evaluateDisabledWhen = (expression: string | undefined): boolean => {
+    if (!expression || !agentId) return false;
+    const configValues = store.configsByAgentId[agentId] || {};
+
+    // Handle negation: "!sandbox_enabled" means disabled when sandbox_enabled is falsy
+    if (expression.startsWith("!")) {
+      const fieldName = expression.substring(1);
+      return !configValues[fieldName];
+    }
+    return !!configValues[expression];
+  };
+
+  // Check if skills/sandbox should be disabled based on disabled_when
+  const isSkillsDisabled = evaluateDisabledWhen(skillsConfigurations[0]?.disabled_when);
+  const isSandboxConfigDisabled = evaluateDisabledWhen(sandboxConfigurations[0]?.disabled_when);
+
   return (
     <div
       ref={ref}
@@ -424,8 +447,8 @@ export const ConfigurationSidebar = forwardRef<
             defaultValue="general"
             className="flex flex-1 flex-col min-h-0"
           >
-            <div className="flex justify-center px-6 pt-4 pb-3 border-b">
-              <TabsList variant="branded" className="w-fit flex-shrink-0">
+            <div className={cn("flex justify-start px-6 pt-4 pb-3 border-b overflow-x-auto", ...getScrollbarClasses('x'))}>
+              <TabsList variant="branded" className="flex-shrink-0">
                 <TabsTrigger value="general">
                   General
                 </TabsTrigger>
@@ -442,6 +465,17 @@ export const ConfigurationSidebar = forwardRef<
                 {supportedConfigs.includes("supervisor") && (
                   <TabsTrigger value="supervisor">
                     Sub-Agents
+                  </TabsTrigger>
+                )}
+                {supportedConfigs.includes("skills") && (
+                  <TabsTrigger value="skills">
+                    Skills
+                  </TabsTrigger>
+                )}
+                {selectedAgent && !isUserDefaultAssistant(selectedAgent) && (
+                  <TabsTrigger value="versions">
+                    <History className="h-4 w-4 mr-1" />
+                    Versions
                   </TabsTrigger>
                 )}
               </TabsList>
@@ -601,6 +635,29 @@ export const ConfigurationSidebar = forwardRef<
                     });
                   })()}
                 </ConfigSection>
+
+                {/* Sandbox Configuration */}
+                {agentId && supportedConfigs.includes("sandbox") && sandboxConfigurations[0]?.label && (
+                  <ConfigSection title="Sandbox Settings">
+                    {isSandboxConfigDisabled && (
+                      <p className="text-sm text-muted-foreground mb-2">
+                        Enable the sandbox to configure sandbox settings.
+                      </p>
+                    )}
+                    <ConfigFieldSandboxConfig
+                      id={sandboxConfigurations[0].label}
+                      label="Sandbox Settings"
+                      description={isSandboxConfigDisabled
+                        ? "Enable the sandbox in Configuration above"
+                        : "Configure the E2B sandbox environment"
+                      }
+                      agentId={agentId}
+                      value={store.configsByAgentId[`${agentId}:sandbox`]?.[sandboxConfigurations[0].label]}
+                      setValue={(newValue) => store.updateConfig(`${agentId}:sandbox`, sandboxConfigurations[0].label, newValue)}
+                      disabled={isSandboxConfigDisabled}
+                    />
+                  </ConfigSection>
+                )}
               </TabsContent>
 
               {supportedConfigs.includes("tools") && (
@@ -774,6 +831,43 @@ export const ConfigurationSidebar = forwardRef<
                       />
                     )}
                   </ConfigSection>
+                </TabsContent>
+              )}
+
+              {supportedConfigs.includes("skills") && (
+                <TabsContent
+                  value="skills"
+                  className="m-0 pb-4 pt-2 space-y-6"
+                >
+                  <ConfigSection title="Agent Skills">
+                    {isSkillsDisabled && (
+                      <p className="text-sm text-muted-foreground mb-2">
+                        Enable the sandbox to configure skills for this agent.
+                      </p>
+                    )}
+                    {agentId && skillsConfigurations[0]?.label && (
+                      <ConfigFieldSkills
+                        id={skillsConfigurations[0].label}
+                        label={skillsConfigurations[0].label}
+                        agentId={agentId}
+                        value={store.configsByAgentId[`${agentId}:skills`]?.[skillsConfigurations[0].label] ?? { skills: [] }}
+                        setValue={(newValue) => store.updateConfig(`${agentId}:skills`, skillsConfigurations[0].label, newValue)}
+                        disabled={isSkillsDisabled}
+                      />
+                    )}
+                  </ConfigSection>
+                </TabsContent>
+              )}
+
+              {selectedAgent && !isUserDefaultAssistant(selectedAgent) && (
+                <TabsContent
+                  value="versions"
+                  className="m-0 pb-4 pt-2"
+                >
+                  <VersionsTab
+                    assistantId={selectedAgent.assistant_id}
+                    permissionLevel={selectedAgent.permission_level}
+                  />
                 </TabsContent>
               )}
               </div>

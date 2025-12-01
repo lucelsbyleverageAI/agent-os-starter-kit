@@ -120,3 +120,34 @@ export type ConfigurableFieldAgentsMetadata = {
   }[];
   itemSchema?: ConfigurableFieldUIMetadata[]; // Schema for individual sub-agent fields
 };
+
+export type ConfigurableFieldSkillsMetadata = {
+  label: string;
+  type: "skills";
+  default?: {
+    skills?: Array<{
+      skill_id: string;
+      name: string;
+      description: string;
+    }>;
+  };
+  /**
+   * Expression to determine when this field should be disabled.
+   * e.g., "!sandbox_enabled" means disabled when sandbox_enabled is false
+   */
+  disabled_when?: string;
+};
+
+export type ConfigurableFieldSandboxConfigMetadata = {
+  label: string;
+  type: "sandbox_config";
+  default?: {
+    timeout_seconds?: number;
+    pip_packages?: string[];
+  };
+  /**
+   * Expression to determine when this field should be disabled.
+   * e.g., "!sandbox_enabled" means disabled when sandbox_enabled is false
+   */
+  disabled_when?: string;
+};

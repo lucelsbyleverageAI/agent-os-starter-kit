@@ -381,7 +381,28 @@ async def register_assistant(
             log.warning(f"Failed to sync assistant {request.assistant_id} to mirror: {sync_error}")
             schemas_warming = True  # If main sync fails, schemas definitely need warming
             # Don't fail the registration if sync fails
-        
+
+        # Save initial version snapshot for version history
+        try:
+            from langconnect.services.version_service import get_version_service
+            version_service = get_version_service(langgraph_service)
+
+            initial_version = langgraph_assistant.get("version", 1)
+            await version_service.save_version_snapshot(
+                assistant_id=request.assistant_id,
+                version=initial_version,
+                name=langgraph_assistant.get("name", ""),
+                description=request.description or langgraph_assistant.get("description"),
+                config=langgraph_assistant.get("config", {}),
+                metadata=langgraph_assistant.get("metadata"),
+                commit_message="Initial version",
+                user_id=owner_id,
+            )
+            log.info(f"Saved initial version snapshot for assistant {request.assistant_id}")
+        except Exception as version_error:
+            log.warning(f"Failed to save initial version for assistant {request.assistant_id}: {version_error}")
+            # Don't fail registration if version save fails
+
         return AssistantDetailsResponse(
             assistant_id=request.assistant_id,
             graph_id=metadata.get("graph_id") if metadata else langgraph_assistant.get("graph_id", "unknown"),
@@ -581,65 +602,112 @@ async def update_assistant(
             )
         
         updated_fields = []
-        
-        # Update LangGraph assistant if name or config changed
-        langgraph_updates = {}
+
+        # Track what fields would be updated
         if request.name is not None:
-            langgraph_updates["name"] = request.name
             updated_fields.append("name")
-        
         if request.config is not None:
-            langgraph_updates["config"] = request.config
             updated_fields.append("config")
-        
-        if langgraph_updates:
-            try:
-                # Build complete update payload with top-level description (no metadata.description)
-                # CRITICAL: Use defensive parsing to prevent double-encoding corruption
-                from langconnect.utils.metadata_validation import sanitize_langgraph_payload
 
-                current_metadata = current_assistant.get("metadata", {})
-                current_config = current_assistant.get("config", {})
-                current_top_level_description = current_assistant.get("description", "")
+        # Skip LangGraph update if frontend already did it via SDK
+        # This prevents double version increments
+        if request.skip_langgraph_update:
+            log.info(f"Skipping LangGraph PATCH for {assistant_id} (already updated via SDK)")
+            # Fetch the updated assistant from LangGraph (SDK already updated it)
+            # We need fresh data for the version snapshot
+            patch_response = await langgraph_service._make_request(
+                "GET",
+                f"assistants/{assistant_id}"
+            )
+        else:
+            # Update LangGraph assistant if name or config changed
+            langgraph_updates = {}
+            if request.name is not None:
+                langgraph_updates["name"] = request.name
 
-                update_payload = {
-                    "graph_id": current_assistant.get("graph_id"),
-                    "config": request.config if request.config is not None else current_config,
-                    "metadata": current_metadata,
-                    "name": request.name if request.name is not None else current_assistant.get("name", ""),
-                    "description": request.description if request.description is not None else current_top_level_description
-                }
+            if request.config is not None:
+                langgraph_updates["config"] = request.config
 
-                # Sanitize payload to prevent double-encoding and character array corruption
-                update_payload = sanitize_langgraph_payload(update_payload)
+            if langgraph_updates:
+                try:
+                    # Build complete update payload with top-level description (no metadata.description)
+                    # CRITICAL: Use defensive parsing to prevent double-encoding corruption
+                    from langconnect.utils.metadata_validation import sanitize_langgraph_payload
 
-                await langgraph_service._make_request(
-                    "PATCH",  # Use PATCH instead of PUT
-                    f"assistants/{assistant_id}",
-                    data=update_payload
-                )
-                log.info(f"Updated LangGraph assistant {assistant_id}: {list(langgraph_updates.keys())}")
-            except Exception as e:
-                raise HTTPException(
-                    status_code=500,
-                    detail=f"Failed to update assistant in LangGraph: {str(e)}"
-                )
-        
+                    current_metadata = current_assistant.get("metadata", {})
+                    current_config = current_assistant.get("config", {})
+                    current_top_level_description = current_assistant.get("description", "")
+
+                    update_payload = {
+                        "graph_id": current_assistant.get("graph_id"),
+                        "config": request.config if request.config is not None else current_config,
+                        "metadata": current_metadata,
+                        "name": request.name if request.name is not None else current_assistant.get("name", ""),
+                        "description": request.description if request.description is not None else current_top_level_description
+                    }
+
+                    # Sanitize payload to prevent double-encoding and character array corruption
+                    update_payload = sanitize_langgraph_payload(update_payload)
+
+                    # Capture the PATCH response to get the new version number directly
+                    patch_response = await langgraph_service._make_request(
+                        "PATCH",  # Use PATCH instead of PUT
+                        f"assistants/{assistant_id}",
+                        data=update_payload
+                    )
+                    log.info(f"Updated LangGraph assistant {assistant_id}: {list(langgraph_updates.keys())}")
+                except Exception as e:
+                    raise HTTPException(
+                        status_code=500,
+                        detail=f"Failed to update assistant in LangGraph: {str(e)}"
+                    )
+            else:
+                patch_response = None
+
         # No local metadata updates; rely on LangGraph + mirror. Track description change for response messaging.
         if request.description is not None:
             updated_fields.append("description")
-        
-        
-        
+
+
+
         success = len(updated_fields) > 0
         message = f"Successfully updated {', '.join(updated_fields)}" if success else "No changes made"
-        
+
         # Sync assistant to mirror after successful update
         if success:
             try:
                 sync_service = get_sync_service()
                 await sync_service.sync_assistant(assistant_id)
                 log.info(f"Synced assistant {assistant_id} to mirror after update")
+
+                # Save version snapshot to local DB for version history
+                from langconnect.services.version_service import get_version_service
+                version_service = get_version_service(langgraph_service)
+
+                # Use the PATCH response directly instead of making another GET request
+                # This avoids version mismatch issues in local dev where GET might return a different version
+                if patch_response:
+                    updated_assistant = patch_response
+                else:
+                    # Fallback to GET if no PATCH response (shouldn't happen if success=True)
+                    updated_assistant = await langgraph_service._make_request(
+                        "GET",
+                        f"assistants/{assistant_id}"
+                    )
+                new_version = updated_assistant.get("version", 1)
+
+                await version_service.save_version_snapshot(
+                    assistant_id=assistant_id,
+                    version=new_version,
+                    name=updated_assistant.get("name", ""),
+                    description=updated_assistant.get("description"),
+                    config=updated_assistant.get("config", {}),
+                    metadata=updated_assistant.get("metadata"),
+                    commit_message=request.commit_message,
+                    user_id=actor.identity,
+                )
+                log.info(f"Saved version snapshot for assistant {assistant_id} v{new_version}")
+
             except Exception as sync_error:
                 log.warning(f"Failed to sync assistant {assistant_id} to mirror: {sync_error}")
                 # Don't fail the update if sync fails

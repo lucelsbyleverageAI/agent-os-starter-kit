@@ -305,6 +305,7 @@ export function useAgents() {
         config?: Record<string, any>;
         tags?: string[];
         metadata?: Record<string, any>;
+        commitMessage?: string;
       },
     ): Promise<Result<Agent>> => {
       if (!session?.accessToken) {
@@ -348,6 +349,15 @@ export function useAgents() {
           // Note: tags not sent here - already in metadata._x_oap_tags above.
           // Sync will extract tags from metadata when mirroring to database.
           if (formData.metadata) syncPayload.metadata = formData.metadata;
+
+          // Include commit message for version history if provided
+          if (formData.commitMessage) {
+            syncPayload.commit_message = formData.commitMessage;
+          }
+
+          // Tell LangConnect to skip LangGraph PATCH since SDK already did it
+          // This prevents double version increments
+          syncPayload.skip_langgraph_update = true;
 
           console.log('[useAgents] Syncing to LangConnect with payload:', syncPayload);
           const syncResponse = await fetch(`/api/langconnect/agents/assistants/${agentId}`, {

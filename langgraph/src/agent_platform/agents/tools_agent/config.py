@@ -1,15 +1,17 @@
 from typing import Optional, List, Dict
 from pydantic import BaseModel, Field
 from agent_platform.utils.model_utils import get_model_options_for_ui
+from agent_platform.agents.deepagents.skills_deepagent.configuration import (
+    SkillsConfig,
+    SandboxConfig,
+)
 
 
 # Graph metadata
 GRAPH_NAME = "Basic ReAct Agent"
 GRAPH_DESCRIPTION = "A versatile AI agent that you can configure with access to tools and knowledge collections. Ideal for general and flexible tasks where you are happy to give the AI agent a high degree of autonomy."
 
-# System prompts and constants
-UNEDITABLE_SYSTEM_PROMPT = "\nIf the tool throws an error requiring authentication, provide the user with a Markdown link to the authentication page and prompt them to authenticate."
-
+# Default system prompt
 DEFAULT_SYSTEM_PROMPT = """## Role
 You are a helpful AI assistant with access to a variety of tools.
 
@@ -42,7 +44,7 @@ class RagConfig(BaseModel):
         rag_config = RagConfig(
             langconnect_api_url ="https://langconnect-api.example.com",
             collections=["docs-123", "knowledge-456"],
-            enabled_tools=["hybrid_search", "fs_list_files", "fs_read_file"]
+            enabled_tools=["collection_hybrid_search", "collection_list_files", "collection_read_file"]
         )
         ```
     """
@@ -53,44 +55,44 @@ class RagConfig(BaseModel):
     """List of collection IDs to use for document search"""
     
     enabled_tools: Optional[List[str]] = Field(
-        default=["hybrid_search", "fs_list_collections", "fs_list_files", "fs_read_file", "fs_read_image", "fs_grep_files"],
+        default=["collection_hybrid_search", "collection_list", "collection_list_files", "collection_read_file", "collection_read_image", "collection_grep_files"],
         metadata={
             "x_oap_ui_config": {
                 "type": "rag_tools",
                 "description": "Select which tools the agent can use to interact with document collections",
-                "default": ["hybrid_search", "fs_list_collections", "fs_list_files", "fs_read_file", "fs_read_image", "fs_grep_files"],
+                "default": ["collection_hybrid_search", "collection_list", "collection_list_files", "collection_read_file", "collection_read_image", "collection_grep_files"],
                 "tool_groups": [
                     {
                         "name": "Read Operations",
                         "permission": "viewer",
                         "tools": [
                             {
-                                "name": "hybrid_search",
+                                "name": "collection_hybrid_search",
                                 "label": "Hybrid Search",
                                 "description": "Semantic + keyword search (best for large knowledge bases)",
                             },
                             {
-                                "name": "fs_list_collections",
+                                "name": "collection_list",
                                 "label": "List Collections",
                                 "description": "Browse available document collections",
                             },
                             {
-                                "name": "fs_list_files",
+                                "name": "collection_list_files",
                                 "label": "List Files",
                                 "description": "Browse documents across collections",
                             },
                             {
-                                "name": "fs_read_file",
+                                "name": "collection_read_file",
                                 "label": "Read File",
                                 "description": "Read document contents with line numbers",
                             },
                             {
-                                "name": "fs_read_image",
+                                "name": "collection_read_image",
                                 "label": "Read Image",
                                 "description": "View uploaded images with AI-generated descriptions",
                             },
                             {
-                                "name": "fs_grep_files",
+                                "name": "collection_grep_files",
                                 "label": "Search in Files (Grep)",
                                 "description": "Search for patterns across documents using regex",
                             },
@@ -101,12 +103,12 @@ class RagConfig(BaseModel):
                         "permission": "editor",
                         "tools": [
                             {
-                                "name": "fs_write_file",
+                                "name": "collection_write_file",
                                 "label": "Write File",
                                 "description": "Create new documents in collections",
                             },
                             {
-                                "name": "fs_edit_file",
+                                "name": "collection_edit_file",
                                 "label": "Edit File",
                                 "description": "Modify existing document contents",
                             },
@@ -117,7 +119,7 @@ class RagConfig(BaseModel):
                         "permission": "owner",
                         "tools": [
                             {
-                                "name": "fs_delete_file",
+                                "name": "collection_delete_file",
                                 "label": "Delete File",
                                 "description": "Permanently remove documents",
                             }
@@ -248,13 +250,52 @@ class GraphConfigPydantic(BaseModel):
             "x_oap_ui_config": {
                 "type": "runbook",
                 "placeholder": "Enter a system prompt...",
-                "description": f"The system prompt to use in all generations. The following prompt will always be included at the end of the system prompt:\n---{UNEDITABLE_SYSTEM_PROMPT}\n---",
+                "description": "Domain-specific instructions for the agent. These appear after the platform's execution context.",
                 "default": DEFAULT_SYSTEM_PROMPT,
             }
         },
     )
     """Custom system prompt for the agent"""
-    
+
+    sandbox_enabled: bool = Field(
+        default=False,
+        metadata={
+            "x_oap_ui_config": {
+                "type": "boolean",
+                "title": "Enable Sandbox",
+                "description": "Enable E2B sandbox for code execution, file processing, and skills",
+                "default": False,
+            }
+        },
+    )
+    """Master switch for sandbox features - when False, agent behaves as a standard tools agent"""
+
+    skills_config: Optional[SkillsConfig] = Field(
+        default=None,
+        metadata={
+            "x_oap_ui_config": {
+                "type": "skills",
+                "title": "Skills",
+                "description": "Select skills to enable for this agent",
+                "disabled_when": "!sandbox_enabled",
+            }
+        },
+    )
+    """Skills configuration (only used when sandbox_enabled=True)"""
+
+    sandbox_config: Optional[SandboxConfig] = Field(
+        default_factory=SandboxConfig,
+        metadata={
+            "x_oap_ui_config": {
+                "type": "sandbox_config",
+                "title": "Sandbox Settings",
+                "description": "Configure the E2B sandbox environment",
+                "disabled_when": "!sandbox_enabled",
+            }
+        },
+    )
+    """Sandbox configuration (only used when sandbox_enabled=True)"""
+
     mcp_config: Optional[MCPConfig] = Field(
         default=None,
         optional=True,

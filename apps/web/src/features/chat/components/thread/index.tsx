@@ -13,6 +13,15 @@ import { Button } from "@/components/ui/button";
 import { Checkpoint, Message } from "@langchain/langgraph-sdk";
 import { AssistantMessage } from "@/features/chat/components/thread/messages/ai";
 import { HumanMessage } from "@/features/chat/components/thread/messages/human";
+import {
+  ResizablePanelGroup,
+  ResizablePanel,
+  ResizableHandle,
+} from "@/components/ui/resizable";
+import { FilePreviewProvider, useFilePreviewOptional } from "../../context/file-preview-context";
+import { SubAgentPreviewProvider, useSubAgentPreviewOptional } from "../../context/subagent-preview-context";
+import { FilePreviewPanel } from "../file-preview-panel";
+import { SubAgentPreviewPanel } from "../subagent-preview-panel";
 
 import {
   ArrowDown,
@@ -62,6 +71,21 @@ function getUserFirstName(user: any): string {
   return firstName.charAt(0).toUpperCase() + firstName.slice(1).toLowerCase();
 }
 
+/**
+ * Strips XML upload tags from text content.
+ * These tags are used for backend processing but should not appear in thread names.
+ */
+function stripUploadXmlTags(text: string): string {
+  let cleaned = text;
+  // Remove <UserUploadedImage...>...</UserUploadedImage> blocks
+  cleaned = cleaned.replace(/<UserUploadedImage[^>]*>[\s\S]*?<\/UserUploadedImage>/g, '');
+  // Remove <UserUploadedDocument...>...</UserUploadedDocument> blocks
+  cleaned = cleaned.replace(/<UserUploadedDocument[^>]*>[\s\S]*?<\/UserUploadedDocument>/g, '');
+  // Remove <UserUploadedAttachment>...</UserUploadedAttachment> blocks
+  cleaned = cleaned.replace(/<UserUploadedAttachment>[\s\S]*?<\/UserUploadedAttachment>/g, '');
+  return cleaned.trim();
+}
+
 function StickyToBottomContent(props: {
   content: ReactNode;
   className?: string;
@@ -104,6 +128,38 @@ function ScrollToBottom(props: { className?: string }) {
 interface ThreadProps {
   historyOpen?: boolean;
   configOpen?: boolean;
+}
+
+// Inner component that uses preview contexts for conditional rendering
+// Always renders ResizablePanelGroup to maintain stable DOM structure and prevent
+// StickToBottom from triggering unwanted scroll resets when preview opens/closes
+function ThreadContentWrapper({ children }: { children: React.ReactNode }) {
+  const filePreview = useFilePreviewOptional();
+  const subagentPreview = useSubAgentPreviewOptional();
+  const isPreviewOpen = filePreview?.isOpen || subagentPreview?.isOpen;
+
+  // Determine which preview panel to show (subagent takes precedence if both open)
+  const PreviewPanel = subagentPreview?.isOpen ? SubAgentPreviewPanel : FilePreviewPanel;
+
+  return (
+    <ResizablePanelGroup direction="horizontal" className="flex-1">
+      <ResizablePanel
+        defaultSize={isPreviewOpen ? 50 : 100}
+        minSize={35}
+        className="flex flex-col min-h-0"
+      >
+        {children}
+      </ResizablePanel>
+      {isPreviewOpen && (
+        <>
+          <ResizableHandle withHandle />
+          <ResizablePanel defaultSize={50} minSize={30} maxSize={65}>
+            <PreviewPanel />
+          </ResizablePanel>
+        </>
+      )}
+    </ResizablePanelGroup>
+  );
 }
 
 export function Thread({ historyOpen = false, configOpen = false }: ThreadProps) {
@@ -608,12 +664,13 @@ export function Thread({ historyOpen = false, configOpen = false }: ThreadProps)
       const graphId = currentAgent?.graph_id;
 
 
-      // Extract first human message content for naming
-      const nameIfAbsent = (newHumanMessage.content as any[])
-        .filter((c) => c?.type === 'text')
-        .map((c) => c.text)
-        .join(' ')
-        .slice(0, 80);
+      // Extract first human message content for naming (strip XML upload tags)
+      const nameIfAbsent = stripUploadXmlTags(
+        (newHumanMessage.content as any[])
+          .filter((c) => c?.type === 'text')
+          .map((c) => c.text)
+          .join(' ')
+      ).slice(0, 80);
 
       if (currentThreadId && session?.accessToken) {
         // Existing thread - touch immediately
@@ -712,23 +769,27 @@ export function Thread({ historyOpen = false, configOpen = false }: ThreadProps)
   const shouldShowLoading = threadId && !hasMessages && !showingCachedMessages;
 
   return (
-    <>
-      <div className="flex flex-1 min-h-0 w-full overflow-hidden">
-        {/* Deep Agent Workspace Sidebar - Left Side */}
-        {(() => {
-          
-          return isDeepAgent && (
-            <TasksFilesSidebar
-              todos={workspaceData.todos}
-              files={workspaceData.files}
-              onFileClick={setSelectedFile}
-              collapsed={workspaceSidebarCollapsed}
-              onToggleCollapse={toggleWorkspaceSidebar}
-            />
-          );
-        })()}
+    <FilePreviewProvider threadId={threadId}>
+      <SubAgentPreviewProvider threadId={threadId}>
+        <>
+          <div className="flex flex-1 min-h-0 w-full overflow-hidden">
+            {/* Deep Agent Workspace Sidebar - Left Side */}
+            {(() => {
 
-        <StickToBottom className="flex flex-1 min-h-0 flex-col overflow-hidden">
+              return isDeepAgent && (
+                <TasksFilesSidebar
+                todos={workspaceData.todos}
+                files={workspaceData.files}
+                publishedFiles={workspaceData.publishedFiles}
+                onFileClick={setSelectedFile}
+                collapsed={workspaceSidebarCollapsed}
+                onToggleCollapse={toggleWorkspaceSidebar}
+              />
+            );
+          })()}
+
+          <ThreadContentWrapper>
+            <StickToBottom className="flex flex-1 min-h-0 flex-col overflow-hidden">
           <div className={cn(
             "flex flex-1 min-h-0 flex-col",
             !hasMessages && !shouldShowLoading && "items-center justify-center"
@@ -882,17 +943,20 @@ export function Thread({ historyOpen = false, configOpen = false }: ThreadProps)
               </>
             )}
           </div>
-        </StickToBottom>
+            </StickToBottom>
+          </ThreadContentWrapper>
 
-      </div>
+        </div>
 
-      {/* File View Dialog */}
-      {selectedFile && (
-        <FileViewDialog
-          file={selectedFile}
-          onClose={() => setSelectedFile(null)}
-        />
-      )}
-    </>
+          {/* File View Dialog */}
+          {selectedFile && (
+            <FileViewDialog
+              file={selectedFile}
+              onClose={() => setSelectedFile(null)}
+            />
+          )}
+        </>
+      </SubAgentPreviewProvider>
+    </FilePreviewProvider>
   );
 }

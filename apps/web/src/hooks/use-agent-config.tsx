@@ -2,6 +2,8 @@ import {
   ConfigurableFieldAgentsMetadata,
   ConfigurableFieldMCPMetadata,
   ConfigurableFieldRAGMetadata,
+  ConfigurableFieldSandboxConfigMetadata,
+  ConfigurableFieldSkillsMetadata,
   ConfigurableFieldUIMetadata,
 } from "@/types/configurable";
 import { useCallback, useState } from "react";
@@ -30,11 +32,22 @@ const lastExtractedByAssistantId = new Map<
     toolConfigurations: ConfigurableFieldMCPMetadata[];
     ragConfigurations: ConfigurableFieldRAGMetadata[];
     agentsConfigurations: ConfigurableFieldAgentsMetadata[];
+    skillsConfigurations: ConfigurableFieldSkillsMetadata[];
+    sandboxConfigurations: ConfigurableFieldSandboxConfigMetadata[];
     supportedConfigs: string[];
     inputSchema: GraphSchema["input_schema"] | null;
     inputMode: InputMode;
   }
 >();
+
+/**
+ * Clear cached config data for an assistant.
+ * Call this after restoring a version to ensure fresh data is fetched.
+ */
+export function clearAgentConfigCache(assistantId: string): void {
+  inflightLoads.delete(assistantId);
+  lastExtractedByAssistantId.delete(assistantId);
+}
 
 export function useAgentConfig() {
   const { getAgentConfigSchema, getGraphConfigSchema, getAgent } = useAgents();
@@ -54,6 +67,12 @@ export function useAgentConfig() {
   const [agentsConfigurations, setAgentsConfigurations] = useState<
     ConfigurableFieldAgentsMetadata[]
   >([]);
+  const [skillsConfigurations, setSkillsConfigurations] = useState<
+    ConfigurableFieldSkillsMetadata[]
+  >([]);
+  const [sandboxConfigurations, setSandboxConfigurations] = useState<
+    ConfigurableFieldSandboxConfigMetadata[]
+  >([]);
 
   const [supportedConfigs, setSupportedConfigs] = useState<string[]>([]);
   const [loading, setLoading] = useState(false);
@@ -67,6 +86,8 @@ export function useAgentConfig() {
     setToolConfigurations([]);
     setRagConfigurations([]);
     setAgentsConfigurations([]);
+    setSkillsConfigurations([]);
+    setSandboxConfigurations([]);
     // Do not modify loading here to avoid transient empty UI while not loading
     setInputSchema(null);
     setInputMode('loading');
@@ -95,6 +116,8 @@ export function useAgentConfig() {
             setToolConfigurations(cached.toolConfigurations);
             setRagConfigurations(cached.ragConfigurations);
             setAgentsConfigurations(cached.agentsConfigurations);
+            setSkillsConfigurations(cached.skillsConfigurations);
+            setSandboxConfigurations(cached.sandboxConfigurations);
             setSupportedConfigs(cached.supportedConfigs);
             setInputSchema(cached.inputSchema);
             setInputMode(cached.inputMode);
@@ -145,8 +168,9 @@ export function useAgentConfig() {
           setInputMode('chat'); // Default to chat mode if no schema
           return {
             name: agent.name,
+            // Prefer top-level description (from mirror), fall back to metadata.description
             description:
-              (agent.metadata?.description as string | undefined) ?? "",
+              (agent as any).description ?? (agent.metadata?.description as string | undefined) ?? "",
             config: {},
           };
         }
@@ -214,7 +238,7 @@ export function useAgentConfig() {
         };
 
         // Extract config fields using the agent with full config
-        const { configFields, toolConfig, ragConfig, agentsConfig } =
+        const { configFields, toolConfig, ragConfig, agentsConfig, skillsConfig, sandboxConfig } =
           extractConfigurationsFromAgent({
             agent: agentWithFullConfig,
             schema: schema.config_schema,
@@ -227,7 +251,7 @@ export function useAgentConfig() {
 
         // Set config values using the extracted configurations (which already have the saved values merged)
         const { setDefaultConfig } = useConfigStore.getState();
-        
+
         setDefaultConfig(agentId, configFields);
 
         const supportedConfigs: string[] = [];
@@ -273,6 +297,16 @@ export function useAgentConfig() {
             void 0; // ignore sub-agent pre-populate errors
           }
         }
+        if (skillsConfig.length) {
+          setDefaultConfig(`${agentId}:skills`, skillsConfig);
+          setSkillsConfigurations(skillsConfig);
+          supportedConfigs.push("skills");
+        }
+        if (sandboxConfig.length) {
+          setDefaultConfig(`${agentId}:sandbox`, sandboxConfig);
+          setSandboxConfigurations(sandboxConfig);
+          supportedConfigs.push("sandbox");
+        }
         setSupportedConfigs(supportedConfigs);
         // debug logs removed
 
@@ -298,7 +332,9 @@ export function useAgentConfig() {
           configurations: configFields,
           toolConfigurations: toolConfig,
           ragConfigurations: ragConfig,
+          sandboxConfigurations: sandboxConfig,
           agentsConfigurations: agentsConfig,
+          skillsConfigurations: skillsConfig,
           supportedConfigs,
           inputSchema: effectiveInputSchema ?? null,
           inputMode: cachedInputMode,
@@ -309,6 +345,8 @@ export function useAgentConfig() {
           toolConfig,
           ragConfig,
           agentsConfig,
+          skillsConfig,
+          sandboxConfig,
         );
 
         // Prefer saved sub-agents from backend config when available
@@ -326,8 +364,9 @@ export function useAgentConfig() {
         
         const result = {
           name: agent.name,
+          // Prefer top-level description (from mirror), fall back to metadata.description
           description:
-            (agent.metadata?.description as string | undefined) ?? "",
+            (agent as any).description ?? (agent.metadata?.description as string | undefined) ?? "",
           config: configurableDefaults,
         };
         // debug logs removed
@@ -430,7 +469,7 @@ export function useAgentConfig() {
         }
 
         // Extract config fields using empty config (since this is a template)
-        const { configFields, toolConfig, ragConfig, agentsConfig } =
+        const { configFields, toolConfig, ragConfig, agentsConfig, skillsConfig, sandboxConfig } =
           extractConfigurationsFromAgent({
             agent: { config: {} } as any,
             schema: schema.config_schema,
@@ -477,6 +516,16 @@ export function useAgentConfig() {
           setAgentsConfigurations(agentsConfig);
           supportedConfigs.push("supervisor");
         }
+        if (skillsConfig.length) {
+          setDefaultConfig(`${tempKey}:skills`, skillsConfig);
+          setSkillsConfigurations(skillsConfig);
+          supportedConfigs.push("skills");
+        }
+        if (sandboxConfig.length) {
+          setDefaultConfig(`${tempKey}:sandbox`, sandboxConfig);
+          setSandboxConfigurations(sandboxConfig);
+          supportedConfigs.push("sandbox");
+        }
         setSupportedConfigs(supportedConfigs);
 
         const configurableDefaults = getConfigurableDefaults(
@@ -484,6 +533,8 @@ export function useAgentConfig() {
           toolConfig,
           ragConfig,
           agentsConfig,
+          skillsConfig,
+          sandboxConfig,
         );
 
         return {
@@ -515,6 +566,8 @@ export function useAgentConfig() {
     toolConfigurations,
     ragConfigurations,
     agentsConfigurations,
+    skillsConfigurations,
+    sandboxConfigurations,
     supportedConfigs,
 
     loading,

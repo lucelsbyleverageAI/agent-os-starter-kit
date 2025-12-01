@@ -21,14 +21,31 @@ import { getScrollbarClasses } from "@/lib/scrollbar-styles";
 import { Button } from "@/components/ui/button";
 import { useCachePolling } from "@/hooks/use-cache-polling";
 
+/**
+ * Strips XML upload tags from text content.
+ * These tags are used for backend processing but should not be displayed in UI.
+ */
+const stripUploadXmlTags = (text: string): string => {
+  let cleaned = text;
+  // Remove <UserUploadedImage...>...</UserUploadedImage> blocks
+  cleaned = cleaned.replace(/<UserUploadedImage[^>]*>[\s\S]*?<\/UserUploadedImage>/g, '');
+  // Remove <UserUploadedDocument...>...</UserUploadedDocument> blocks
+  cleaned = cleaned.replace(/<UserUploadedDocument[^>]*>[\s\S]*?<\/UserUploadedDocument>/g, '');
+  // Remove <UserUploadedAttachment>...</UserUploadedAttachment> blocks
+  cleaned = cleaned.replace(/<UserUploadedAttachment>[\s\S]*?<\/UserUploadedAttachment>/g, '');
+  return cleaned.trim();
+};
+
 const getMessageStringContent = (
   content: MessageContent | undefined,
 ): string => {
   if (!content) return "";
-  if (typeof content === "string") return content;
+  if (typeof content === "string") return stripUploadXmlTags(content);
   const texts = content
     .filter((c): c is { type: "text"; text: string } => c.type === "text")
-    .map((c) => c.text);
+    .map((c) => c.text)
+    .map(stripUploadXmlTags)
+    .filter((text) => text.length > 0);
   return texts.join(" ");
 };
 

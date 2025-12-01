@@ -18,19 +18,22 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select";
-import { PublicGraphPermission, PublicAssistantPermission, PublicCollectionPermission } from "@/types/public-permissions";
+import { PublicGraphPermission, PublicAssistantPermission, PublicCollectionPermission, PublicSkillPermission } from "@/types/public-permissions";
 import { useAgentsContext } from "@/providers/Agents";
 import { useKnowledgeContext } from "@/features/knowledge/providers/Knowledge";
+import { Skill } from "@/types/skill";
 
 interface AddPermissionModalProps {
   isOpen: boolean;
   onClose: () => void;
-  onConfirm: (type: 'graph' | 'assistant' | 'collection', id: string, permissionLevel: string) => void;
+  onConfirm: (type: 'graph' | 'assistant' | 'collection' | 'skill', id: string, permissionLevel: string) => void;
   isLoading: boolean;
-  type: 'graph' | 'assistant' | 'collection';
+  type: 'graph' | 'assistant' | 'collection' | 'skill';
   existingGraphPermissions: PublicGraphPermission[];
   existingAssistantPermissions: PublicAssistantPermission[];
   existingCollectionPermissions: PublicCollectionPermission[];
+  existingSkillPermissions: PublicSkillPermission[];
+  allSkills: Skill[];
 }
 
 export const AddPermissionModal = ({
@@ -42,6 +45,8 @@ export const AddPermissionModal = ({
   existingGraphPermissions,
   existingAssistantPermissions,
   existingCollectionPermissions,
+  existingSkillPermissions,
+  allSkills,
 }: AddPermissionModalProps) => {
   const [selectedId, setSelectedId] = useState("");
   const [permissionLevel, setPermissionLevel] = useState("");
@@ -68,6 +73,8 @@ export const AddPermissionModal = ({
       setPermissionLevel('viewer');
     } else if (type === 'collection') {
       setPermissionLevel('viewer');
+    } else if (type === 'skill') {
+      setPermissionLevel('viewer');
     }
   }, [type]);
 
@@ -75,6 +82,7 @@ export const AddPermissionModal = ({
   const existingGraphIds = React.useMemo(() => new Set(existingGraphPermissions.map(p => p.graph_id)), [existingGraphPermissions]);
   const existingAssistantIds = React.useMemo(() => new Set(existingAssistantPermissions.map(p => p.assistant_id)), [existingAssistantPermissions]);
   const existingCollectionIds = React.useMemo(() => new Set(existingCollectionPermissions.map(p => p.collection_id)), [existingCollectionPermissions]);
+  const existingSkillIds = React.useMemo(() => new Set(existingSkillPermissions.map(p => p.skill_id)), [existingSkillPermissions]);
 
   // For assistants, also get graph IDs that have public permissions
   // (since default assistants in those graphs don't need separate permissions)
@@ -156,7 +164,16 @@ export const AddPermissionModal = ({
             name: collection.name,
             type: 'collection' as const
           }));
-      
+
+      case 'skill':
+        return allSkills
+          .filter(skill => !existingSkillIds.has(skill.id))
+          .map(skill => ({
+            id: skill.id,
+            name: skill.name,
+            type: 'skill' as const
+          }));
+
       case 'assistant':
       default:
         return []; // For assistants, we use the grouped structure
@@ -208,7 +225,7 @@ export const AddPermissionModal = ({
     <Dialog open={isOpen} onOpenChange={handleClose}>
       <DialogContent className="sm:max-w-[425px]">
         <DialogHeader>
-          <DialogTitle>Add Public {type === 'graph' ? 'Graph' : type === 'assistant' ? 'Assistant' : 'Collection'} Permission</DialogTitle>
+          <DialogTitle>Add Public {type === 'graph' ? 'Graph' : type === 'assistant' ? 'Assistant' : type === 'collection' ? 'Collection' : 'Skill'} Permission</DialogTitle>
           <DialogDescription asChild>
             <div>
               Grant public access to a {type}. This will make it accessible to all users.
@@ -224,7 +241,7 @@ export const AddPermissionModal = ({
         <div className="grid gap-4 py-4">
           <div className="grid gap-2">
             <Label htmlFor="item-select">
-              Select {type === 'graph' ? 'Graph' : type === 'assistant' ? 'Assistant' : 'Collection'}
+              Select {type === 'graph' ? 'Graph' : type === 'assistant' ? 'Assistant' : type === 'collection' ? 'Collection' : 'Skill'}
             </Label>
             <Select
               value={selectedId}
@@ -304,12 +321,8 @@ export const AddPermissionModal = ({
                     <SelectItem value="access">Access</SelectItem>
                     <SelectItem value="admin">Admin</SelectItem>
                   </>
-                ) : type === 'assistant' ? (
-                  <>
-                    <SelectItem value="viewer">Viewer</SelectItem>
-                    <SelectItem value="editor">Editor</SelectItem>
-                  </>
                 ) : (
+                  // assistant, collection, and skill all use viewer/editor
                   <>
                     <SelectItem value="viewer">Viewer</SelectItem>
                     <SelectItem value="editor">Editor</SelectItem>

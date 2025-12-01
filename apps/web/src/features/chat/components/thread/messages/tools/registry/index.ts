@@ -1,9 +1,12 @@
 import { ToolComponent, ToolRegistryEntry, ToolRegistry } from "../types";
-import { 
-  SilentToolCall, 
+import {
+  SilentToolCall,
   SimpleToolCall,
   ResearchProgressTool,
-  FinalResearchReportTool
+  FinalResearchReportTool,
+  PublishFileTool,
+  SandboxInitializationTool,
+  TaskTool,
 } from "./components";
 // Unused imports removed
 
@@ -21,6 +24,22 @@ export const TOOL_REGISTRY: ToolRegistry = {
     component: FinalResearchReportTool,
   },
 
+  // Skills DeepAgent file publishing tool
+  "*:publish_file_to_user": {
+    component: PublishFileTool,
+  },
+
+  // Skills DeepAgent sandbox initialization status indicator
+  // Shows loading UI during sandbox creation, disappears when complete
+  "*:sandbox_initialization": {
+    component: SandboxInitializationTool,
+  },
+
+  // Skills DeepAgent task delegation tool
+  // Shows sub-agent delegation with slide-over panel for response
+  "*:task": {
+    component: TaskTool,
+  },
 
   // Example: Global tools (available for all graphs)
   // "*:arcade_CodeSandbox_RunCode": {

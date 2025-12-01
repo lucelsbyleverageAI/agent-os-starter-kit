@@ -41,11 +41,25 @@ export function getContentString(content: Message["content"]): string {
     const texts = content
       .filter((c): c is { type: "text"; text: string } => c.type === "text")
       .map((c) => c.text)
-      .filter((text) => {
-        // Exclude XML-wrapped document content from regular text display
-        return !text.includes("<UserUploadedAttachment>");
-      });
-    
+      .map((text) => {
+        // Strip XML-wrapped content from text blocks
+        // These are used for backend processing (sandbox file transfers)
+        // Remove entire XML blocks including their content
+        let cleaned = text;
+
+        // Remove <UserUploadedImage...>...</UserUploadedImage> blocks
+        cleaned = cleaned.replace(/<UserUploadedImage[^>]*>[\s\S]*?<\/UserUploadedImage>/g, '');
+
+        // Remove <UserUploadedDocument...>...</UserUploadedDocument> blocks
+        cleaned = cleaned.replace(/<UserUploadedDocument[^>]*>[\s\S]*?<\/UserUploadedDocument>/g, '');
+
+        // Remove <UserUploadedAttachment>...</UserUploadedAttachment> blocks
+        cleaned = cleaned.replace(/<UserUploadedAttachment>[\s\S]*?<\/UserUploadedAttachment>/g, '');
+
+        return cleaned.trim();
+      })
+      .filter((text) => text.length > 0); // Remove empty strings after stripping
+
     // Join text blocks with a space
     textContent = texts.join(" ");
   }
@@ -63,12 +77,24 @@ export function calculateMessageCharacterCount(
   contentBlocks: Base64ContentBlock[]
 ): number {
   let totalCharacters = textContent.length;
-  
+
   // Add characters from attachment content
   contentBlocks.forEach(block => {
+    // Skip hidden XML blocks (used for backend file transfers)
+    if ((block as any).metadata?.is_hidden_xml) {
+      return;
+    }
+
     if ((block as any).type === "text" && (block as any).text) {
       // Text blocks with extracted content (new format)
       const text = (block as any).text as string;
+
+      // Skip blocks that are just XML metadata
+      if (text.includes("<UserUploadedImage") ||
+          text.includes("<UserUploadedDocument")) {
+        return;
+      }
+
       if (text.includes("<UserUploadedAttachment>")) {
         // Extract content from XML wrapper
         const contentMatch = text.match(/<Content>([\s\S]*?)<\/Content>/);
@@ -89,7 +115,7 @@ export function calculateMessageCharacterCount(
       }
     }
   });
-  
+
   return totalCharacters;
 }
 

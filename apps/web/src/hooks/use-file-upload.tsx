@@ -11,6 +11,35 @@ export const MAX_FILE_SIZE = 10 * 1024 * 1024;
 // Maximum total size for all attachments in chat (50MB)
 export const MAX_TOTAL_ATTACHMENTS_SIZE = 50 * 1024 * 1024;
 
+// Maximum words to include in document preview (10,000 words ≈ 40k chars ≈ 10k tokens)
+export const MAX_PREVIEW_WORDS = 10000;
+
+/**
+ * Truncates text to a maximum number of words.
+ * Returns the truncated text and metadata about truncation.
+ */
+function truncateToWords(
+  text: string,
+  maxWords: number
+): { text: string; truncated: boolean; totalWords: number } {
+  if (!text) {
+    return { text: '', truncated: false, totalWords: 0 };
+  }
+
+  const words = text.split(/\s+/).filter(w => w.length > 0);
+  const totalWords = words.length;
+
+  if (totalWords <= maxWords) {
+    return { text, truncated: false, totalWords };
+  }
+
+  return {
+    text: words.slice(0, maxWords).join(' '),
+    truncated: true,
+    totalWords
+  };
+}
+
 // Expanded supported file types
 export const SUPPORTED_FILE_TYPES = {
   // Images (handled synchronously)
@@ -27,7 +56,8 @@ export const SUPPORTED_FILE_TYPES = {
     "application/vnd.openxmlformats-officedocument.presentationml.presentation", // .pptx
     "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet", // .xlsx
     "text/plain",
-    "text/markdown"
+    "text/markdown",
+    "text/csv", // .csv
   ]
 };
 
@@ -38,6 +68,7 @@ export interface ProcessingAttachment {
   jobId?: string;
   content?: string;
   error?: string;
+  storageData?: { storage_path: string; bucket: string } | null;
 }
 
 interface UseFileUploadOptions {
@@ -139,7 +170,7 @@ export function useFileUpload({
     return parseFloat((bytes / Math.pow(k, i)).toFixed(1)) + ' ' + sizes[i];
   };
 
-  const startJobPolling = useCallback(async (jobId: string, attachmentId: string) => {
+  const _startJobPolling = useCallback(async (jobId: string, attachmentId: string) => {
     const pollInterval = setInterval(async () => {
       try {
         
@@ -167,9 +198,9 @@ export function useFileUpload({
           
           if (processedAttachment) {
             // Try to get content from either result_data or output_data
-            const extractedContent = jobData.result_data?.content || jobData.output_data?.content;
-            
-            if (!extractedContent) {
+            const fullContent = jobData.result_data?.content || jobData.output_data?.content;
+
+            if (!fullContent) {
               // Set error state
               setProcessingAttachments(prev => prev.map(att => {
                 if (att.id === attachmentId) {
@@ -183,7 +214,14 @@ export function useFileUpload({
               }));
               return;
             }
-            
+
+            // Truncate content to prevent context window bloat
+            const { text: previewText, truncated, totalWords } = truncateToWords(fullContent, MAX_PREVIEW_WORDS);
+            const truncationNotice = truncated
+              ? `\n\n[CONTENT TRUNCATED - ${totalWords.toLocaleString()} words total]`
+              : '';
+            const content = previewText + truncationNotice;
+
             // Create a content block for the processed document
             const newBlock: Base64ContentBlock = {
               type: "text",
@@ -191,7 +229,7 @@ export function useFileUpload({
 <FileType>${processedAttachment.file.type}</FileType>
 <FileName>${processedAttachment.file.name}</FileName>
 <Content>
-${extractedContent}
+${content}
 </Content>
 </UserUploadedAttachment>`,
               metadata: {
@@ -237,6 +275,178 @@ ${extractedContent}
     pollingIntervals.current[attachmentId] = pollInterval;
   }, [session?.accessToken]);
 
+  /**
+   * Job polling with storage path included in the final content block.
+   * This creates the new XML format that includes both storage path and preview.
+   */
+  const startJobPollingWithStorage = useCallback(async (
+    jobId: string,
+    attachmentId: string,
+    storageData: { storage_path: string; bucket: string } | null
+  ) => {
+    const pollInterval = setInterval(async () => {
+      try {
+        const response = await fetch(`/api/langconnect/jobs/${jobId}`, {
+          method: 'GET',
+          headers: {
+            Authorization: `Bearer ${session?.accessToken}`,
+          }
+        });
+
+        if (!response.ok) {
+          const errorText = await response.text();
+          throw new Error(`Failed to fetch job status: ${response.status} ${errorText}`);
+        }
+
+        const jobData = await response.json();
+
+        if (jobData.status === 'completed') {
+          // Job completed successfully
+          clearInterval(pollingIntervals.current[attachmentId]);
+          delete pollingIntervals.current[attachmentId];
+
+          // Get the attachment that was just processed
+          const processedAttachment = processingAttachmentsRef.current.find(att => att.id === attachmentId);
+
+          if (processedAttachment) {
+            // Try to get content from either result_data or output_data
+            const fullContent = jobData.result_data?.content || jobData.output_data?.content || '';
+
+            // Truncate content to prevent context window bloat
+            const { text: previewText, truncated, totalWords } = truncateToWords(fullContent, MAX_PREVIEW_WORDS);
+
+            // Build truncation notice if content was truncated
+            const sandboxPath = `/sandbox/user_uploads/${processedAttachment.file.name}`;
+            const truncationNotice = truncated
+              ? `\n\n[CONTENT TRUNCATED - ${totalWords.toLocaleString()} words total. Full file available at: ${sandboxPath}]`
+              : '';
+
+            const preview = previewText + truncationNotice;
+
+            // Create content block with new XML format including storage path
+            let xmlContent: string;
+
+            if (storageData) {
+              // New format with storage path for binary access
+              xmlContent = `<UserUploadedDocument hidden="true">
+<FileName>${processedAttachment.file.name}</FileName>
+<FileType>${processedAttachment.file.type}</FileType>
+<StoragePath>${storageData.storage_path}</StoragePath>
+<SandboxPath>${sandboxPath}</SandboxPath>
+<Preview>
+${preview || 'No preview available'}
+</Preview>
+</UserUploadedDocument>`;
+            } else {
+              // Fallback to old format if storage upload failed (no sandbox path available)
+              const legacyTruncationNotice = truncated
+                ? `\n\n[CONTENT TRUNCATED - ${totalWords.toLocaleString()} words total]`
+                : '';
+              const legacyContent = previewText + legacyTruncationNotice;
+
+              xmlContent = `<UserUploadedAttachment>
+<FileType>${processedAttachment.file.type}</FileType>
+<FileName>${processedAttachment.file.name}</FileName>
+<Content>
+${legacyContent || 'No content extracted'}
+</Content>
+</UserUploadedAttachment>`;
+            }
+
+            const newBlock: Base64ContentBlock = {
+              type: "text",
+              text: xmlContent,
+              metadata: {
+                filename: processedAttachment.file.name,
+                mime_type: processedAttachment.file.type,
+                extracted_text: true,
+                storage_path: storageData?.storage_path,
+                bucket: storageData?.bucket,
+                is_binary_upload: !!storageData
+              }
+            } as any;
+
+            setContentBlocks(prev => [...prev, newBlock]);
+
+            // Remove the processing attachment
+            setProcessingAttachments(prev => prev.filter(att => att.id !== attachmentId));
+          }
+        } else if (jobData.status === 'failed') {
+          // Job failed
+          clearInterval(pollingIntervals.current[attachmentId]);
+          delete pollingIntervals.current[attachmentId];
+
+          setProcessingAttachments(prev => prev.map(att => {
+            if (att.id === attachmentId) {
+              return {
+                ...att,
+                status: 'error',
+                error: jobData.error_message || 'Processing failed'
+              };
+            }
+            return att;
+          }));
+
+          toast.error(`Failed to process file`, {
+            description: jobData.error_message || 'An error occurred while processing the file'
+          });
+        }
+        // Status is 'pending' or 'processing' - continue polling
+      } catch (_error) {
+        // Don't immediately fail - network issues might be temporary
+      }
+    }, 2000);
+
+    pollingIntervals.current[attachmentId] = pollInterval;
+  }, [session?.accessToken]);
+
+  /**
+   * Upload document to storage and return a content block with storage path + preview.
+   * This enables agents to access the original binary file in the sandbox.
+   *
+   * Documents are stored per-user with timestamps (no thread association).
+   * The sandbox path is included so the backend knows where to write the file.
+   */
+  const _uploadDocumentToStorage = useCallback(async (file: File): Promise<Base64ContentBlock> => {
+    if (!session?.accessToken) {
+      throw new Error("No session found");
+    }
+
+    const formData = new FormData();
+    formData.append('file', file);
+
+    const response = await fetch('/api/langconnect/storage/upload-chat-document', {
+      method: 'POST',
+      body: formData,
+    });
+
+    if (!response.ok) {
+      const errorData = await response.json().catch(() => ({ error: 'Failed to upload document' }));
+      throw new Error(errorData.error || 'Failed to upload document');
+    }
+
+    const data = await response.json();
+
+    // Return a text content block with XML metadata for the backend
+    // This tells the backend where to find the file and where to put it in the sandbox
+    return {
+      type: "text",
+      text: `<UserUploadedDocument hidden="true">
+<FileName>${file.name}</FileName>
+<FileType>${file.type}</FileType>
+<StoragePath>${data.storage_path}</StoragePath>
+<SandboxPath>/sandbox/user_uploads/${file.name}</SandboxPath>
+</UserUploadedDocument>`,
+      metadata: {
+        filename: file.name,
+        mime_type: file.type,
+        storage_path: data.storage_path,
+        bucket: data.bucket,
+        is_binary_upload: true
+      }
+    } as any as Base64ContentBlock;
+  }, [session?.accessToken]);
+
   const processDocument = useCallback(async (file: File) => {
     if (!session?.accessToken) {
       toast.error("No session found", {
@@ -255,6 +465,21 @@ ${extractedContent}
     }]);
 
     try {
+      // Step 1: Upload binary to storage first
+      const storageFormData = new FormData();
+      storageFormData.append('file', file);
+
+      const storageResponse = await fetch('/api/langconnect/storage/upload-chat-document', {
+        method: 'POST',
+        body: storageFormData,
+      });
+
+      let storageData: { storage_path: string; bucket: string } | null = null;
+      if (storageResponse.ok) {
+        storageData = await storageResponse.json();
+      }
+
+      // Step 2: Extract text preview (existing flow)
       const formData = new FormData();
       formData.append('file', file);
       formData.append('processing_mode', 'fast');
@@ -273,21 +498,20 @@ ${extractedContent}
 
       const data = await response.json();
 
-      // Start polling immediately
-      startJobPolling(data.job_id, attachmentId);
-
-      // Update attachment with job ID
+      // Update attachment with storage data for later use
       setProcessingAttachments(prev => prev.map(att => {
         if (att.id === attachmentId) {
           return {
             ...att,
-            jobId: data.job_id
-          };
+            jobId: data.job_id,
+            storageData: storageData
+          } as ProcessingAttachment;
         }
         return att;
       }));
 
-      toast.info(`Processing ${file.name}...`);
+      // Start polling with storage data
+      startJobPollingWithStorage(data.job_id, attachmentId, storageData);
     } catch (error) {
       console.error('Error processing document:', error);
 
@@ -306,15 +530,17 @@ ${extractedContent}
         description: error instanceof Error ? error.message : 'An error occurred'
       });
     }
-  }, [session?.accessToken, startJobPolling]);
+  }, [session?.accessToken]);
 
   /**
-   * Upload image to storage and return a content block with storage path.
-   * This replaces the old base64 approach to keep messages lean.
+   * Upload image to storage and return content blocks with storage path.
+   * Returns an array with:
+   * 1. Image content block for model vision
+   * 2. Text block with XML metadata for sandbox transfer
    *
    * Images are stored per-user with timestamps (no thread association).
    */
-  const uploadImageToStorage = useCallback(async (file: File): Promise<Base64ContentBlock> => {
+  const uploadImageToStorage = useCallback(async (file: File): Promise<Base64ContentBlock[]> => {
     if (!session?.accessToken) {
       throw new Error("No session found");
     }
@@ -334,10 +560,10 @@ ${extractedContent}
 
     const data = await response.json();
 
-    // Return a content block with storage path for message content
-    // Use preview_url for immediate display in UI
-    // Note: Using 'as any' because we're extending Base64ContentBlock with url support
-    return {
+    // Return array of content blocks:
+    // 1. Image block for model vision capability
+    // 2. Hidden text block with XML for sandbox transfer
+    const imageBlock: Base64ContentBlock = {
       type: "image",
       source_type: "url",
       url: data.storage_path,  // Storage path for message content (will be converted to signed URL at runtime)
@@ -348,6 +574,26 @@ ${extractedContent}
         preview_url: data.preview_url  // Temporary signed URL for UI preview
       },
     } as any as Base64ContentBlock;
+
+    // XML metadata block for the backend to transfer to sandbox
+    const xmlBlock: Base64ContentBlock = {
+      type: "text",
+      text: `<UserUploadedImage hidden="true">
+<FileName>${file.name}</FileName>
+<FileType>${file.type}</FileType>
+<StoragePath>${data.storage_path}</StoragePath>
+<SandboxPath>/sandbox/user_uploads/${file.name}</SandboxPath>
+</UserUploadedImage>`,
+      metadata: {
+        filename: file.name,
+        mime_type: file.type,
+        storage_path: data.storage_path,
+        bucket: data.bucket,
+        is_hidden_xml: true
+      }
+    } as any as Base64ContentBlock;
+
+    return [imageBlock, xmlBlock];
   }, [session?.accessToken]);
 
   const handleFileUpload = async (e: ChangeEvent<HTMLInputElement>) => {
@@ -416,10 +662,10 @@ ${extractedContent}
     // Process valid files
     for (const file of validFiles) {
       if (isImageFile(file)) {
-        // Upload image to storage and create storage path content block
+        // Upload image to storage and create storage path content blocks
         try {
-          const block = await uploadImageToStorage(file);
-          setContentBlocks(prev => [...prev, block]);
+          const blocks = await uploadImageToStorage(file);
+          setContentBlocks(prev => [...prev, ...blocks]);
         } catch (error) {
           console.error('Error uploading image:', error);
           toast.error(`Failed to upload ${file.name}`, {
@@ -522,10 +768,10 @@ ${extractedContent}
       // Process valid files
       for (const file of validFiles) {
         if (isImageFile(file)) {
-          // Upload image to storage and create storage path content block
+          // Upload image to storage and create storage path content blocks
           try {
-            const block = await uploadImageToStorage(file);
-            setContentBlocks(prev => [...prev, block]);
+            const blocks = await uploadImageToStorage(file);
+            setContentBlocks(prev => [...prev, ...blocks]);
           } catch (error) {
             console.error('Error uploading image:', error);
             toast.error(`Failed to upload ${file.name}`, {
@@ -588,7 +834,29 @@ ${extractedContent}
   }, [contentBlocks, calculateTotalAttachmentsSize, isDuplicate, processDocument, uploadImageToStorage]);
 
   const removeBlock = (idx: number) => {
-    setContentBlocks((prev) => prev.filter((_, i) => i !== idx));
+    setContentBlocks((prev) => {
+      const blockToRemove = prev[idx];
+
+      // If removing an image block, also remove associated hidden XML block
+      if (blockToRemove?.type === "image") {
+        const imageName = (blockToRemove as any).metadata?.name;
+        if (imageName) {
+          // Filter out both the image and its associated hidden XML block
+          return prev.filter((block, i) => {
+            if (i === idx) return false; // Remove the clicked block
+            // Also remove hidden XML block with matching filename
+            if ((block as any).metadata?.is_hidden_xml &&
+                (block as any).metadata?.filename === imageName) {
+              return false;
+            }
+            return true;
+          });
+        }
+      }
+
+      // Default: just remove the single block
+      return prev.filter((_, i) => i !== idx);
+    });
   };
 
   const removeProcessingAttachment = (id: string) => {
@@ -681,8 +949,8 @@ ${extractedContent}
         if (isImageFile(file)) {
           // Upload image to storage
           try {
-            const block = await uploadImageToStorage(file);
-            setContentBlocks(prev => [...prev, block]);
+            const blocks = await uploadImageToStorage(file);
+            setContentBlocks(prev => [...prev, ...blocks]);
           } catch (error) {
             console.error('Error uploading pasted image:', error);
             toast.error(`Failed to upload ${file.name}`, {

@@ -4,7 +4,7 @@ import { Label } from "@/components/ui/label";
 import { Skeleton } from "@/components/ui/skeleton";
 import { Textarea } from "@/components/ui/textarea";
 import { Badge } from "@/components/ui/badge";
-import { X, Check } from "lucide-react";
+import { X, Check, History, Sparkles } from "lucide-react";
 import { Search } from "@/components/ui/tool-search";
 import { Button } from "@/components/ui/button";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
@@ -12,7 +12,9 @@ import {
   ConfigField,
   ConfigFieldAgents,
   ConfigFieldRAG,
+  ConfigFieldSandboxConfig,
 } from "@/features/chat/components/configuration-sidebar/config-field";
+import { ConfigFieldSkills } from "@/features/chat/components/configuration-sidebar/config-field-skills";
 import { ConfigToolkitSelector } from "@/features/chat/components/configuration-sidebar/config-toolkit-selector";
 import { useSearchTools } from "@/hooks/use-search-tools";
 import { useMCPContext } from "@/providers/MCP";
@@ -20,6 +22,8 @@ import {
   ConfigurableFieldAgentsMetadata,
   ConfigurableFieldMCPMetadata,
   ConfigurableFieldRAGMetadata,
+  ConfigurableFieldSandboxConfigMetadata,
+  ConfigurableFieldSkillsMetadata,
   ConfigurableFieldUIMetadata,
 } from "@/types/configurable";
 import _ from "lodash";
@@ -40,6 +44,7 @@ import {
 } from "@/components/ui/popover";
 import { cn } from "@/lib/utils";
 import { getScrollbarClasses } from "@/lib/scrollbar-styles";
+import { VersionsTab } from "./versions-tab";
 
 // Separate component for tags selector to comply with React Hooks rules
 function TagsSelector({ value = [], onChange }: { value: string[]; onChange: (value: string[]) => void }) {
@@ -197,7 +202,29 @@ interface AgentFieldsFormProps {
   agentId: string;
   ragConfigurations: ConfigurableFieldRAGMetadata[];
   agentsConfigurations: ConfigurableFieldAgentsMetadata[];
+  skillsConfigurations?: ConfigurableFieldSkillsMetadata[];
+  sandboxConfigurations?: ConfigurableFieldSandboxConfigMetadata[];
   graphId?: string; // Optional graph_id to determine if tool approval should be shown
+  assistantId?: string; // For version history
+  permissionLevel?: "owner" | "editor" | "viewer" | "admin";
+  onVersionRestored?: () => void;
+}
+
+/**
+ * Evaluates a disabled_when expression against current config values.
+ * Supports simple expressions like "!sandbox_enabled" (disabled when sandbox_enabled is false).
+ */
+function evaluateDisabledWhen(expression: string | undefined, configValues: Record<string, any>): boolean {
+  if (!expression) return false;
+
+  // Handle negation: "!field_name" means disabled when field is falsy
+  if (expression.startsWith("!")) {
+    const fieldName = expression.substring(1);
+    return !configValues[fieldName];
+  }
+
+  // Handle direct field reference: "field_name" means disabled when field is truthy
+  return !!configValues[expression];
 }
 
 export function AgentFieldsForm({
@@ -206,7 +233,12 @@ export function AgentFieldsForm({
   agentId,
   ragConfigurations,
   agentsConfigurations,
+  skillsConfigurations = [],
+  sandboxConfigurations = [],
   graphId,
+  assistantId,
+  permissionLevel,
+  onVersionRestored,
 }: AgentFieldsFormProps) {
   const form = useFormContext<{
     name: string;
@@ -214,6 +246,9 @@ export function AgentFieldsForm({
     tags: string[];
     config: Record<string, any>;
   }>();
+
+  // Watch config values for disabled_when evaluation
+  const configValues = form.watch("config") || {};
 
   const { tools, setTools, getTools, cursor, loading } = useMCPContext();
   const { toolSearchTerm, debouncedSetSearchTerm } =
@@ -233,6 +268,8 @@ export function AgentFieldsForm({
   const hasTools = toolConfigurations.length > 0;
   const hasRag = ragConfigurations.length > 0;
   const hasAgents = agentsConfigurations.length > 0;
+  const hasSkills = skillsConfigurations.length > 0;
+  const hasSandbox = sandboxConfigurations.length > 0;
 
   // Only show tool approval toggles for tools_agent
   const showToolApproval = graphId === 'tools_agent';
@@ -245,7 +282,19 @@ export function AgentFieldsForm({
             <TabsTrigger value="general">General</TabsTrigger>
             {hasTools && <TabsTrigger value="tools">Tools</TabsTrigger>}
             {hasRag && <TabsTrigger value="rag">Knowledge</TabsTrigger>}
+            {hasSkills && (
+              <TabsTrigger value="skills">
+                <Sparkles className="mr-1 h-4 w-4" />
+                Skills
+              </TabsTrigger>
+            )}
             {hasAgents && <TabsTrigger value="supervisor">Sub-Agents</TabsTrigger>}
+            {assistantId && (
+              <TabsTrigger value="versions">
+                <History className="mr-1 h-4 w-4" />
+                Versions
+              </TabsTrigger>
+            )}
           </TabsList>
         </div>
 
@@ -297,10 +346,12 @@ export function AgentFieldsForm({
             />
           </div>
 
-          {configurations.length > 0 && (
+          {(configurations.length > 0 || hasSandbox) && (
             <div className="mt-6 flex w-full flex-col items-start justify-start gap-2 space-y-2">
               <p className="text-lg font-semibold tracking-tight">Configuration</p>
-              {configurations.map((c, index) => (
+              {configurations
+                .filter((c) => c.label !== "sub_agents")
+                .map((c, index) => (
                 <Controller
                   key={`${c.label}-${index}`}
                   control={form.control}
@@ -326,6 +377,34 @@ export function AgentFieldsForm({
                   )}
                 />
               ))}
+
+              {/* Sandbox Configuration */}
+              {hasSandbox && sandboxConfigurations[0] && (() => {
+                const isSandboxConfigDisabled = evaluateDisabledWhen(
+                  sandboxConfigurations[0]?.disabled_when,
+                  configValues
+                );
+                return (
+                  <Controller
+                    control={form.control}
+                    name={`config.${sandboxConfigurations[0].label}`}
+                    render={({ field: { value, onChange } }) => (
+                      <ConfigFieldSandboxConfig
+                        id={sandboxConfigurations[0].label}
+                        label="Sandbox Settings"
+                        description={isSandboxConfigDisabled
+                          ? "Enable the sandbox above to configure sandbox settings"
+                          : "Configure the E2B sandbox environment"
+                        }
+                        agentId={agentId}
+                        value={value}
+                        setValue={onChange}
+                        disabled={isSandboxConfigDisabled}
+                      />
+                    )}
+                  />
+                );
+              })()}
             </div>
           )}
         </TabsContent>
@@ -483,6 +562,43 @@ export function AgentFieldsForm({
           </TabsContent>
         )}
 
+        {hasSkills && (
+          <TabsContent value="skills" className="m-0 pt-2">
+            <div className="flex w-full flex-col items-start justify-start gap-2">
+              <p className="text-lg font-semibold tracking-tight">Agent Skills</p>
+              {(() => {
+                const isSkillsDisabled = evaluateDisabledWhen(
+                  skillsConfigurations[0]?.disabled_when,
+                  configValues
+                );
+                return (
+                  <>
+                    {isSkillsDisabled && (
+                      <p className="text-sm text-muted-foreground">
+                        Enable the sandbox to configure skills for this agent.
+                      </p>
+                    )}
+                    <Controller
+                      control={form.control}
+                      name={`config.${skillsConfigurations[0].label}`}
+                      render={({ field: { value, onChange } }) => (
+                        <ConfigFieldSkills
+                          id={skillsConfigurations[0].label}
+                          label={skillsConfigurations[0].label}
+                          agentId={agentId}
+                          value={value}
+                          setValue={onChange}
+                          disabled={isSkillsDisabled}
+                        />
+                      )}
+                    />
+                  </>
+                );
+              })()}
+            </div>
+          </TabsContent>
+        )}
+
         {hasAgents && (
           <TabsContent value="supervisor" className="m-0 pt-2">
             {(() => {
@@ -509,6 +625,17 @@ export function AgentFieldsForm({
                 </div>
               );
             })()}
+          </TabsContent>
+        )}
+
+        {/* Versions Tab */}
+        {assistantId && (
+          <TabsContent value="versions" className="m-0 pt-2">
+            <VersionsTab
+              assistantId={assistantId}
+              permissionLevel={permissionLevel}
+              onVersionRestored={onVersionRestored}
+            />
           </TabsContent>
         )}
       </Tabs>

@@ -1,0 +1,17 @@
+# This is a config for E2B sandbox template.
+# You can use template ID (c46w5971k3l3r3qd4n9q) or template name (skills-deepagent-docs) to create a sandbox:
+
+# Python SDK
+# from e2b import Sandbox, AsyncSandbox
+# sandbox = Sandbox.create("skills-deepagent-docs") # Sync sandbox
+# sandbox = await AsyncSandbox.create("skills-deepagent-docs") # Async sandbox
+
+# JS SDK
+# import { Sandbox } from 'e2b'
+# const sandbox = await Sandbox.create('skills-deepagent-docs')
+
+team_id = "ac9aede0-4901-4663-b54c-27a3128d7627"
+start_cmd = "/root/.jupyter/start-up.sh"
+dockerfile = "e2b.Dockerfile"
+template_name = "skills-deepagent-docs"
+template_id = "c46w5971k3l3r3qd4n9q"

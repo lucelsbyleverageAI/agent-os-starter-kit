@@ -5,7 +5,7 @@ This module provides utilities for:
 1. Cleaning orphaned tool calls from message history
 2. Converting storage paths to signed URLs in image content blocks
 3. Local dev fallback: Converting HTTP URLs to base64 data URLs for Claude API
-4. Converting fs_read_image tool results to multimodal content blocks
+4. Converting collection_read_image tool results to multimodal content blocks
 """
 
 import re
@@ -87,13 +87,13 @@ def clean_orphaned_tool_calls(messages: List[BaseMessage]) -> List[BaseMessage]:
     return messages
 
 
-# ==================== fs_read_image Tool Result Processing ====================
+# ==================== collection_read_image Tool Result Processing ====================
 
-async def convert_fs_read_image_to_multimodal(messages: List[BaseMessage]) -> List[BaseMessage]:
+async def convert_collection_read_image_to_multimodal(messages: List[BaseMessage]) -> List[BaseMessage]:
     """
-    Convert fs_read_image tool results from JSON strings to multimodal content blocks.
+    Convert collection_read_image tool results from JSON strings to multimodal content blocks.
 
-    The fs_read_image tool returns a JSON string containing image description and signed URL.
+    The collection_read_image tool returns a JSON string containing image description and signed URL.
     This function detects those ToolMessages and converts them to multimodal content with:
     - Text description
     - Image content block with the signed URL (converted to base64 if HTTP for local dev)
@@ -104,16 +104,16 @@ async def convert_fs_read_image_to_multimodal(messages: List[BaseMessage]) -> Li
         messages: List of BaseMessage objects to process
 
     Returns:
-        List of BaseMessage objects with fs_read_image results converted to multimodal content
+        List of BaseMessage objects with collection_read_image results converted to multimodal content
 
     Example:
         >>> # ToolMessage with JSON content becomes multimodal
         >>> before = ToolMessage(
         ...     content='{"description": "A cat", "metadata": {"signed_url": "https://..."}}',
-        ...     name="fs_read_image",
+        ...     name="collection_read_image",
         ...     tool_call_id="call_123"
         ... )
-        >>> after = await convert_fs_read_image_to_multimodal([before])
+        >>> after = await convert_collection_read_image_to_multimodal([before])
         >>> # Now content is: [
         >>> #   {"type": "text", "text": "A cat"},
         >>> #   {"type": "image_url", "image_url": {"url": "https://..."}}
@@ -124,13 +124,13 @@ async def convert_fs_read_image_to_multimodal(messages: List[BaseMessage]) -> Li
 
     processed_messages = []
     for message in messages:
-        # Only process ToolMessages from fs_read_image
+        # Only process ToolMessages from collection_read_image
         if not isinstance(message, ToolMessage):
             processed_messages.append(message)
             continue
 
-        # Check if this is from fs_read_image tool
-        if message.name != "fs_read_image":
+        # Check if this is from collection_read_image tool
+        if message.name != "collection_read_image":
             processed_messages.append(message)
             continue
 
@@ -149,24 +149,24 @@ async def convert_fs_read_image_to_multimodal(messages: List[BaseMessage]) -> Li
             name = data.get("metadata", {}).get("name", "Image")
 
             if not signed_url:
-                logger.warning(f"[FS_READ_IMAGE] No signed_url found in tool result")
+                logger.warning(f"[COLLECTION_READ_IMAGE] No signed_url found in tool result")
                 processed_messages.append(message)
                 continue
 
             # Fix localhost URL issue (kong:8000 -> localhost:8000)
             if "kong:8000" in signed_url:
                 signed_url = signed_url.replace("kong:8000", "localhost:8000")
-                logger.debug(f"[FS_READ_IMAGE] Fixed kong URL to localhost")
+                logger.debug(f"[COLLECTION_READ_IMAGE] Fixed kong URL to localhost")
 
             # Convert HTTP URLs to base64 for local development (Claude requires HTTPS)
             if signed_url.startswith("http://"):
-                logger.info(f"[FS_READ_IMAGE] Converting HTTP URL to base64 for local dev")
+                logger.info(f"[COLLECTION_READ_IMAGE] Converting HTTP URL to base64 for local dev")
                 data_url = await convert_http_url_to_base64(signed_url)
                 if data_url:
                     signed_url = data_url
-                    logger.info(f"[FS_READ_IMAGE] Successfully converted to base64 data URL")
+                    logger.info(f"[COLLECTION_READ_IMAGE] Successfully converted to base64 data URL")
                 else:
-                    logger.warning(f"[FS_READ_IMAGE] Failed to convert HTTP URL to base64, will fail with Claude API")
+                    logger.warning(f"[COLLECTION_READ_IMAGE] Failed to convert HTTP URL to base64, will fail with Claude API")
 
             # Create multimodal content blocks
             multimodal_content = [
@@ -189,11 +189,11 @@ async def convert_fs_read_image_to_multimodal(messages: List[BaseMessage]) -> Li
                 additional_kwargs=message.additional_kwargs
             )
 
-            logger.info(f"[FS_READ_IMAGE] Converted tool result to multimodal content: {name}")
+            logger.info(f"[COLLECTION_READ_IMAGE] Converted tool result to multimodal content: {name}")
             processed_messages.append(processed_msg)
 
         except (json.JSONDecodeError, KeyError, TypeError) as e:
-            logger.warning(f"[FS_READ_IMAGE] Failed to parse tool result as JSON: {e}")
+            logger.warning(f"[COLLECTION_READ_IMAGE] Failed to parse tool result as JSON: {e}")
             processed_messages.append(message)
             continue
 
@@ -648,9 +648,9 @@ async def process_messages_with_signed_urls(
     Returns:
         New list of messages with storage paths replaced by signed URLs (or base64 data URLs) in image blocks
     """
-    # Step 0: Convert fs_read_image tool results to multimodal content first
+    # Step 0: Convert collection_read_image tool results to multimodal content first
     # This also converts HTTP URLs to base64 for local development
-    messages = await convert_fs_read_image_to_multimodal(messages)
+    messages = await convert_collection_read_image_to_multimodal(messages)
 
     # Step 1: Extract all storage paths from image blocks across all messages
     all_storage_paths = []

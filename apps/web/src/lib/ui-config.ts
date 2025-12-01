@@ -2,6 +2,8 @@ import {
   ConfigurableFieldAgentsMetadata,
   ConfigurableFieldMCPMetadata,
   ConfigurableFieldRAGMetadata,
+  ConfigurableFieldSandboxConfigMetadata,
+  ConfigurableFieldSkillsMetadata,
   ConfigurableFieldUIMetadata,
 } from "@/types/configurable";
 import { Assistant, GraphSchema } from "@langchain/langgraph-sdk";
@@ -64,7 +66,7 @@ export function configSchemaToConfigurableFields(
   const fields: ConfigurableFieldUIMetadata[] = [];
   for (const [key, value] of Object.entries(schema.properties)) {
     const uiConfig = getUiConfig(value);
-    if (uiConfig && ["mcp", "rag", "hidden", "agent_name", "agent_description"].includes(uiConfig.type)) {
+    if (uiConfig && ["mcp", "rag", "skills", "sandbox_config", "hidden", "agent_name", "agent_description", "agents_builder", "agents"].includes(uiConfig.type)) {
       continue;
     }
 
@@ -203,6 +205,61 @@ export function configSchemaToRagConfig(
   return ragField;
 }
 
+export function configSchemaToSkillsConfig(
+  schema: GraphSchema["config_schema"],
+): ConfigurableFieldSkillsMetadata | undefined {
+  if (!schema || !schema.properties) {
+    return undefined;
+  }
+
+  let skillsField: ConfigurableFieldSkillsMetadata | undefined;
+  for (const [key, value] of Object.entries(schema.properties)) {
+    const uiConfig = getUiConfig(value);
+    if (!uiConfig || uiConfig.type !== "skills") {
+      continue;
+    }
+
+    skillsField = {
+      label: key,
+      type: "skills",
+      default: {
+        skills: uiConfig.default?.skills ?? [],
+      },
+      disabled_when: uiConfig.disabled_when,
+    };
+    break;
+  }
+  return skillsField;
+}
+
+export function configSchemaToSandboxConfig(
+  schema: GraphSchema["config_schema"],
+): ConfigurableFieldSandboxConfigMetadata | undefined {
+  if (!schema || !schema.properties) {
+    return undefined;
+  }
+
+  let sandboxField: ConfigurableFieldSandboxConfigMetadata | undefined;
+  for (const [key, value] of Object.entries(schema.properties)) {
+    const uiConfig = getUiConfig(value);
+    if (!uiConfig || uiConfig.type !== "sandbox_config") {
+      continue;
+    }
+
+    sandboxField = {
+      label: key,
+      type: "sandbox_config",
+      default: {
+        timeout_seconds: uiConfig.default?.timeout_seconds ?? 600,
+        pip_packages: uiConfig.default?.pip_packages ?? [],
+      },
+      disabled_when: uiConfig.disabled_when,
+    };
+    break;
+  }
+  return sandboxField;
+}
+
 export function configSchemaToAgentsConfig(
   schema: GraphSchema["config_schema"],
 ): ConfigurableFieldAgentsMetadata | undefined {
@@ -295,6 +352,8 @@ type ExtractedConfigs = {
   toolConfig: ConfigurableFieldMCPMetadata[];
   ragConfig: ConfigurableFieldRAGMetadata[];
   agentsConfig: ConfigurableFieldAgentsMetadata[];
+  skillsConfig: ConfigurableFieldSkillsMetadata[];
+  sandboxConfig: ConfigurableFieldSandboxConfigMetadata[];
 };
 
 export function extractConfigurationsFromAgent({
@@ -308,6 +367,8 @@ export function extractConfigurationsFromAgent({
   const toolConfig = configSchemaToConfigurableTools(schema);
   const ragConfig = configSchemaToRagConfig(schema);
   const agentsConfig = configSchemaToAgentsConfig(schema);
+  const skillsConfig = configSchemaToSkillsConfig(schema);
+  const sandboxConfig = configSchemaToSandboxConfig(schema);
 
   const configFieldsWithDefaults = configFields.map((f) => {
     const defaultConfig = (agent.config as Record<string, any>)?.[f.label] ?? f.default;
@@ -346,7 +407,7 @@ export function extractConfigurationsFromAgent({
           enabled_tools:
             configurable[ragConfig.label]?.enabled_tools ??
             ragConfig.default?.enabled_tools ??
-            ["hybrid_search", "fs_list_collections", "fs_list_files", "fs_read_file", "fs_read_image", "fs_grep_files"],
+            ["collection_hybrid_search", "collection_list", "collection_list_files", "collection_read_file", "collection_read_image", "collection_grep_files"],
         },
       }
     : undefined;
@@ -368,12 +429,46 @@ export function extractConfigurationsFromAgent({
       }
     : undefined;
 
+  const configurableSkillsWithDefaults = skillsConfig
+    ? {
+        ...skillsConfig,
+        default: {
+          skills:
+            configurable[skillsConfig.label]?.skills ??
+            skillsConfig.default?.skills ??
+            [],
+        },
+      }
+    : undefined;
+
+  const configurableSandboxWithDefaults = sandboxConfig
+    ? {
+        ...sandboxConfig,
+        default: {
+          timeout_seconds:
+            configurable[sandboxConfig.label]?.timeout_seconds ??
+            sandboxConfig.default?.timeout_seconds ??
+            600,
+          pip_packages:
+            configurable[sandboxConfig.label]?.pip_packages ??
+            sandboxConfig.default?.pip_packages ??
+            [],
+        },
+      }
+    : undefined;
+
   return {
     configFields: configFieldsWithDefaults,
     toolConfig: configToolsWithDefaults,
     ragConfig: configRagWithDefaults ? [configRagWithDefaults] : [],
     agentsConfig: configurableAgentsWithDefaults
       ? [configurableAgentsWithDefaults]
+      : [],
+    skillsConfig: configurableSkillsWithDefaults
+      ? [configurableSkillsWithDefaults]
+      : [],
+    sandboxConfig: configurableSandboxWithDefaults
+      ? [configurableSandboxWithDefaults]
       : [],
   };
 }
@@ -383,6 +478,8 @@ export function getConfigurableDefaults(
   toolConfig: ConfigurableFieldMCPMetadata[],
   ragConfig: ConfigurableFieldRAGMetadata[],
   agentsConfig: ConfigurableFieldAgentsMetadata[],
+  skillsConfig?: ConfigurableFieldSkillsMetadata[],
+  sandboxConfig?: ConfigurableFieldSandboxConfigMetadata[],
 ): Record<string, any> {
   const defaults: Record<string, any> = {};
   configFields.forEach((field) => {
@@ -395,6 +492,12 @@ export function getConfigurableDefaults(
     defaults[field.label] = field.default;
   });
   agentsConfig.forEach((field) => {
+    defaults[field.label] = field.default;
+  });
+  skillsConfig?.forEach((field) => {
+    defaults[field.label] = field.default;
+  });
+  sandboxConfig?.forEach((field) => {
     defaults[field.label] = field.default;
   });
   return defaults;

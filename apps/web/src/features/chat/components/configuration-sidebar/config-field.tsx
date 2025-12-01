@@ -47,6 +47,7 @@ import { useAgentsContext } from "@/providers/Agents";
 import { getDeployments } from "@/lib/environment/deployments";
 import { useOptionalMCPContext } from "@/providers/MCP";
 import { ConfigToolkitSelector } from "./config-toolkit-selector";
+import { SubAgentSkillsPicker } from "./config-field-skills";
 import { Search } from "@/components/ui/tool-search";
 import { useSearchTools } from "@/hooks/use-search-tools";
 
@@ -822,7 +823,7 @@ export function ConfigFieldAgents({
                   {itemSchema && itemSchema.length > 0 ? (
                     <div className="grid grid-cols-1 gap-3">
                       {itemSchema
-                        .filter((field) => !["name", "description", "prompt", "mcp_config", "rag_config"].includes(field.label))
+                        .filter((field) => !["name", "description", "prompt", "mcp_config", "rag_config", "skills_config"].includes(field.label))
                         .map((field) => (
                           <div key={field.label}>
                             <Label className="text-xs">{_.startCase(field.label)}</Label>
@@ -953,12 +954,18 @@ export function ConfigFieldAgents({
                         value={{
                           collections: sa.rag_config?.collections || [],
                           langconnect_api_url: undefined,
-                          enabled_tools: sa.rag_config?.enabled_tools || ["hybrid_search", "fs_list_collections", "fs_list_files", "fs_read_file", "fs_grep_files"],
+                          enabled_tools: sa.rag_config?.enabled_tools || ["collection_hybrid_search", "collection_list", "collection_list_files", "collection_read_file", "collection_grep_files"],
                         }}
                         setValue={(v) => updateAtPath(i, ["rag_config"], v)}
                       />
                     )}
                   </div>
+
+                  {/* Sub-agent Skills */}
+                  <SubAgentSkillsPicker
+                    value={sa.skills_config?.skills || []}
+                    onChange={(skills) => updateAtPath(i, ["skills_config"], { skills })}
+                  />
                 </div>
               )}
             </div>
@@ -1025,7 +1032,7 @@ export function ConfigFieldRAGTools({
   }
 
   // Get the enabled_tools list and tool metadata
-  const enabledTools = defaults.enabled_tools || ["hybrid_search", "fs_list_collections", "fs_list_files", "fs_read_file", "fs_grep_files"];
+  const enabledTools = defaults.enabled_tools || ["collection_hybrid_search", "collection_list", "collection_list_files", "collection_read_file", "collection_grep_files"];
   
   const toggleGroup = (groupName: string) => {
     setExpandedGroups(prev => {
@@ -1046,27 +1053,27 @@ export function ConfigFieldRAGTools({
       permission: "viewer",
       tools: [
         {
-          name: "hybrid_search",
+          name: "collection_hybrid_search",
           label: "Hybrid Search",
           description: "Semantic + keyword search (best for large knowledge bases)",
         },
         {
-          name: "fs_list_collections",
+          name: "collection_list",
           label: "List Collections",
           description: "Browse available document collections",
         },
         {
-          name: "fs_list_files",
+          name: "collection_list_files",
           label: "List Files",
           description: "Browse documents across collections",
         },
         {
-          name: "fs_read_file",
+          name: "collection_read_file",
           label: "Read File",
           description: "Read document contents with line numbers",
         },
         {
-          name: "fs_grep_files",
+          name: "collection_grep_files",
           label: "Search in Files (Grep)",
           description: "Search for patterns across documents using regex",
         },
@@ -1077,12 +1084,12 @@ export function ConfigFieldRAGTools({
       permission: "editor",
       tools: [
         {
-          name: "fs_write_file",
+          name: "collection_write_file",
           label: "Write File",
           description: "Create new documents in collections",
         },
         {
-          name: "fs_edit_file",
+          name: "collection_edit_file",
           label: "Edit File",
           description: "Modify existing document contents",
         },
@@ -1093,7 +1100,7 @@ export function ConfigFieldRAGTools({
       permission: "owner",
       tools: [
         {
-          name: "fs_delete_file",
+          name: "collection_delete_file",
           label: "Delete File",
           description: "Permanently remove documents",
         }
@@ -1309,6 +1316,131 @@ export function ConfigFieldRAGTools({
             </div>
           );
         })}
+      </div>
+    </div>
+  );
+}
+
+interface ConfigFieldSandboxConfigProps {
+  id: string;
+  label: string;
+  description?: string;
+  agentId: string;
+  className?: string;
+  value?: { timeout_seconds?: number; pip_packages?: string[] };
+  setValue?: (value: { timeout_seconds?: number; pip_packages?: string[] }) => void;
+  /**
+   * Whether the sandbox config is disabled.
+   * When disabled, interactions are prevented and a muted appearance is shown.
+   */
+  disabled?: boolean;
+}
+
+export function ConfigFieldSandboxConfig({
+  id,
+  label,
+  description,
+  agentId,
+  className,
+  value,
+  setValue,
+  disabled = false,
+}: ConfigFieldSandboxConfigProps) {
+  // Use local state for the raw input to allow typing commas
+  const [localPackagesInput, setLocalPackagesInput] = useState<string | null>(null);
+
+  // Convert pip_packages array to comma-separated string for display
+  // Only use localPackagesInput while user is actively typing
+  const packagesString = localPackagesInput ?? (value?.pip_packages || []).join(", ");
+
+  const handleTimeoutChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+    if (disabled) return; // Prevent changes when disabled
+    const newTimeout = parseInt(e.target.value, 10);
+    if (!isNaN(newTimeout)) {
+      setValue?.({
+        ...value,
+        timeout_seconds: Math.min(3600, Math.max(60, newTimeout)),
+        pip_packages: value?.pip_packages || [],
+      });
+    }
+  };
+
+  const handlePackagesChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+    if (disabled) return; // Prevent changes when disabled
+    const packagesText = e.target.value;
+    // Store raw input to preserve commas while typing
+    setLocalPackagesInput(packagesText);
+
+    // Split by comma, trim whitespace, and filter empty strings
+    const packages = packagesText
+      .split(",")
+      .map((p) => p.trim())
+      .filter((p) => p.length > 0);
+
+    setValue?.({
+      ...value,
+      timeout_seconds: value?.timeout_seconds ?? 600,
+      pip_packages: packages,
+    });
+  };
+
+  const handlePackagesBlur = () => {
+    // Clear local input on blur to sync with the cleaned value
+    setLocalPackagesInput(null);
+  };
+
+  if (!value) {
+    return null;
+  }
+
+  return (
+    <div className={cn("w-full space-y-4", disabled && "opacity-50", className)}>
+      <div className="space-y-1">
+        <Label className="text-sm font-medium">{_.startCase(label)}</Label>
+        {description && (
+          <p className="text-xs text-muted-foreground">{description}</p>
+        )}
+      </div>
+
+      <div className="space-y-4 rounded-lg border p-4">
+        {/* Timeout Field */}
+        <div className="space-y-2">
+          <Label htmlFor={`${id}-timeout`} className="text-sm">
+            Timeout (seconds)
+          </Label>
+          <Input
+            id={`${id}-timeout`}
+            type="number"
+            value={value.timeout_seconds ?? 600}
+            onChange={handleTimeoutChange}
+            min={60}
+            max={3600}
+            step={60}
+            disabled={disabled}
+          />
+          <p className="text-xs text-muted-foreground">
+            Sandbox timeout in seconds (60-3600)
+          </p>
+        </div>
+
+        {/* Pip Packages Field */}
+        <div className="space-y-2">
+          <Label htmlFor={`${id}-packages`} className="text-sm">
+            Additional Pip Packages
+          </Label>
+          <Input
+            id={`${id}-packages`}
+            type="text"
+            value={packagesString}
+            onChange={handlePackagesChange}
+            onBlur={handlePackagesBlur}
+            placeholder="pandas, numpy, requests"
+            disabled={disabled}
+          />
+          <p className="text-xs text-muted-foreground">
+            Comma-separated list of packages to install in the sandbox
+          </p>
+        </div>
       </div>
     </div>
   );
