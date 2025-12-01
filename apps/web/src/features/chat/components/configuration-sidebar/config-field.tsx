@@ -954,7 +954,7 @@ export function ConfigFieldAgents({
                         value={{
                           collections: sa.rag_config?.collections || [],
                           langconnect_api_url: undefined,
-                          enabled_tools: sa.rag_config?.enabled_tools || ["hybrid_search", "fs_list_collections", "fs_list_files", "fs_read_file", "fs_grep_files"],
+                          enabled_tools: sa.rag_config?.enabled_tools || ["collection_hybrid_search", "collection_list", "collection_list_files", "collection_read_file", "collection_grep_files"],
                         }}
                         setValue={(v) => updateAtPath(i, ["rag_config"], v)}
                       />
@@ -1032,7 +1032,7 @@ export function ConfigFieldRAGTools({
   }
 
   // Get the enabled_tools list and tool metadata
-  const enabledTools = defaults.enabled_tools || ["hybrid_search", "fs_list_collections", "fs_list_files", "fs_read_file", "fs_grep_files"];
+  const enabledTools = defaults.enabled_tools || ["collection_hybrid_search", "collection_list", "collection_list_files", "collection_read_file", "collection_grep_files"];
   
   const toggleGroup = (groupName: string) => {
     setExpandedGroups(prev => {
@@ -1053,27 +1053,27 @@ export function ConfigFieldRAGTools({
       permission: "viewer",
       tools: [
         {
-          name: "hybrid_search",
+          name: "collection_hybrid_search",
           label: "Hybrid Search",
           description: "Semantic + keyword search (best for large knowledge bases)",
         },
         {
-          name: "fs_list_collections",
+          name: "collection_list",
           label: "List Collections",
           description: "Browse available document collections",
         },
         {
-          name: "fs_list_files",
+          name: "collection_list_files",
           label: "List Files",
           description: "Browse documents across collections",
         },
         {
-          name: "fs_read_file",
+          name: "collection_read_file",
           label: "Read File",
           description: "Read document contents with line numbers",
         },
         {
-          name: "fs_grep_files",
+          name: "collection_grep_files",
           label: "Search in Files (Grep)",
           description: "Search for patterns across documents using regex",
         },
@@ -1084,12 +1084,12 @@ export function ConfigFieldRAGTools({
       permission: "editor",
       tools: [
         {
-          name: "fs_write_file",
+          name: "collection_write_file",
           label: "Write File",
           description: "Create new documents in collections",
         },
         {
-          name: "fs_edit_file",
+          name: "collection_edit_file",
           label: "Edit File",
           description: "Modify existing document contents",
         },
@@ -1100,7 +1100,7 @@ export function ConfigFieldRAGTools({
       permission: "owner",
       tools: [
         {
-          name: "fs_delete_file",
+          name: "collection_delete_file",
           label: "Delete File",
           description: "Permanently remove documents",
         }

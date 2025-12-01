@@ -77,11 +77,11 @@ async def _get_tools_for_sub_agent(
         if isinstance(rag_config, dict):
             langconnect_api_url = rag_config.get('langconnect_api_url')
             collections = rag_config.get('collections', [])
-            enabled_tools = rag_config.get('enabled_tools', ["hybrid_search", "fs_list_collections", "fs_list_files", "fs_read_file", "fs_grep_files"])
+            enabled_tools = rag_config.get('enabled_tools', ["collection_hybrid_search", "collection_list", "collection_list_files", "collection_read_file", "collection_grep_files"])
         else:
             langconnect_api_url = getattr(rag_config, 'langconnect_api_url', None)
             collections = getattr(rag_config, 'collections', [])
-            enabled_tools = getattr(rag_config, 'enabled_tools', ["hybrid_search", "fs_list_collections", "fs_list_files", "fs_read_file", "fs_grep_files"])
+            enabled_tools = getattr(rag_config, 'enabled_tools', ["collection_hybrid_search", "collection_list", "collection_list_files", "collection_read_file", "collection_grep_files"])
         
         # Fallback to global RAG URL from main config
         if not langconnect_api_url:
