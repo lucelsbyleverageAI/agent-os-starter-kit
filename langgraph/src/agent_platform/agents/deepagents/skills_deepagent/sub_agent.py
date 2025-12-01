@@ -66,7 +66,7 @@ TASK_DESCRIPTION_SUFFIX = """
 """
 
 # Default prompt for the general-purpose sub-agent
-GENERAL_PURPOSE_SUBAGENT_PROMPT = """You are a general-purpose sub-agent with access to tools. You have been given a task by the main agent. Complete the task using the tools available to you. Always produce your result as a file in /sandbox/shared/ and summarize your work in your final response, referencing any created files."""
+GENERAL_PURPOSE_SUBAGENT_PROMPT = """You are a general-purpose sub-agent with access to tools. You have been given a task by the main agent. Complete the task using the tools available to you. Always summarize your work in your final response, referencing any created files."""
 
 
 async def _get_tools_for_sub_agent(

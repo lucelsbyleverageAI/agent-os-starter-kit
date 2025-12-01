@@ -4,7 +4,7 @@ This module provides prompt templates for sub-agents in the Skills DeepAgent sys
 It is separate from prompts.py to avoid circular imports with sub_agent.py.
 
 Key differences from base deepagent subagent_prompts:
-1. No "Context from Main Agent" section (context is in /sandbox/shared/)
+1. No "Context from Main Agent" section (context is in /sandbox/workspace/)
 2. References run_code and run_command tools explicitly
 3. Includes user_uploads directory in structure
 4. Emphasizes using run_code for file writing (not bash)
@@ -36,7 +36,7 @@ You have two tools for interacting with the shared sandbox:
 ### `run_code` - For writing files and complex operations
 ```
 run_code(code='''
-with open("/sandbox/shared/output.md", "w") as f:
+with open("/sandbox/workspace/output.md", "w") as f:
     content = "# Analysis Results\\n\\n## Findings\\nYour multi-line content here..."
     f.write(content)
 print("File written")
@@ -45,7 +45,7 @@ print("File written")
 ### `run_command` - For quick shell operations
 ```
 run_command(command="cat /sandbox/skills/my-skill/SKILL.md")
-run_command(command="ls -la /sandbox/shared/")
+run_command(command="ls -la /sandbox/workspace/")
 run_command(command="python /sandbox/skills/my-skill/scripts/run.py")
 ```
 
@@ -84,16 +84,14 @@ You share a persistent sandbox with the main agent:
 /sandbox/
 ├── skills/         # Skill packages (if allocated)
 ├── user_uploads/   # User's uploaded files
-├── shared/         # Context sharing - write your outputs here
 ├── outputs/        # Final deliverables
-└── workspace/      # Scratch space
+└── workspace/      # Scratch space - write your work here
 ```
 
 ### Where to Write
 
-- **`/sandbox/shared/`** - Your primary output location
-- **`/sandbox/shared/research/`** - Research findings
-- **`/sandbox/shared/drafts/`** - Work in progress
+- **`/sandbox/workspace/`** - Your primary output location for intermediate work
+- **`/sandbox/outputs/`** - For final deliverables that will be shared with user
 
 {skills_section}
 
@@ -103,9 +101,9 @@ You share a persistent sandbox with the main agent:
 
 - **Use `run_code` for writing**: Python handles multi-line content properly
 - **Use `run_command` for reading**: `cat`, `ls`, `head` for quick operations
-- Write detailed outputs to `/sandbox/shared/`
+- Write detailed outputs to `/sandbox/workspace/`
 - Return a concise summary with file references
-- Use absolute paths like `/sandbox/shared/output.md`
+- Use absolute paths like `/sandbox/workspace/output.md`
 
 ---
 
@@ -183,7 +181,7 @@ def build_subagent_system_prompt(
     Sub-agents get specialized instructions that:
     1. Frame them as working on a delegated task from the main agent
     2. Emphasize stateless execution without asking clarifying questions
-    3. Guide them to use /sandbox/shared/ for output
+    3. Guide them to use /sandbox/workspace/ for output
     4. Reference execute_in_sandbox tool
     5. Conditionally include skills if allocated
 

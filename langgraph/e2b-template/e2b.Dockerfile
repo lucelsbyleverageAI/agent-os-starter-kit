@@ -56,5 +56,18 @@ USER root
 # docx - Create Word documents programmatically (used by docx skill)
 RUN npm install -g docx
 
+# ============================================
+# Pre-create Sandbox Directory Structure
+# ============================================
+
+# Create directories that Skills DeepAgent expects
+# This saves ~1-2 seconds on first message by avoiding API calls
+# Note: Must set ownership to 'user' so sandbox can write to these directories
+RUN mkdir -p /sandbox/skills \
+    /sandbox/user_uploads \
+    /sandbox/outputs \
+    /sandbox/workspace \
+    && chown -R user:user /sandbox
+
 # Switch back to default user
 USER user

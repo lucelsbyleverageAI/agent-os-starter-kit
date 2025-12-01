@@ -330,7 +330,7 @@ export function AgentFieldsForm({
             <div className="mt-6 flex w-full flex-col items-start justify-start gap-2 space-y-2">
               <p className="text-lg font-semibold tracking-tight">Configuration</p>
               {configurations
-                .filter((c) => c.label !== "sub_agents" && c.type !== "agents_builder")
+                .filter((c) => c.label !== "sub_agents")
                 .map((c, index) => (
                 <Controller
                   key={`${c.label}-${index}`}

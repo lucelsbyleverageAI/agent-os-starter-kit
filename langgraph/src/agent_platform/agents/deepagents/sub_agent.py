@@ -2,12 +2,10 @@ try:
     from .deep_agent_toolkit_descriptions import TASK_DESCRIPTION_PREFIX, TASK_DESCRIPTION_SUFFIX
     from .state import DeepAgentState
     from .deep_agent_toolkit import write_todos, write_file, read_file, ls, edit_file
-    from .subagent_prompts import build_subagent_system_prompt
 except ImportError:
     from agent_platform.agents.deepagents.deep_agent_toolkit_descriptions import TASK_DESCRIPTION_PREFIX, TASK_DESCRIPTION_SUFFIX
     from agent_platform.agents.deepagents.state import DeepAgentState
     from agent_platform.agents.deepagents.deep_agent_toolkit import write_todos, write_file, read_file, ls, edit_file
-    from agent_platform.agents.deepagents.subagent_prompts import build_subagent_system_prompt
 from agent_platform.services.mcp_token import fetch_tokens
 from agent_platform.utils.tool_utils import (
     create_collection_tools,
@@ -42,9 +40,8 @@ from langgraph.prebuilt import InjectedState
 from agent_platform.sentry import get_logger
 logger = get_logger(__name__)
 
-# Default prompt for the general-purpose sub-agent (user instructions portion)
-# This gets enhanced with filesystem/sub-agent context via build_subagent_system_prompt()
-GENERAL_PURPOSE_SUBAGENT_PROMPT = """You are a general-purpose sub-agent with access to a variety of tools. You have been given a task by the main agent. Complete the task using the tools available to you. Always produce your result as a file and summarize your work in your final response, referencing any created files."""
+# Default prompt for the general-purpose sub-agent
+GENERAL_PURPOSE_SUBAGENT_PROMPT = """You are a sub-agent with access to a variety of tools. You have been given a task by your supervisor. Please complete the task based on their instructions using the tools available to you if and when needed. Always produce your result as a file using the write_file tool and summarise your work in your final response, referencing any created or updated files. Do not ask for clarifications from the main agent unless absolutely necessary, try to do the task with the information provided."""
 
 
 async def _get_tools_for_sub_agent(
@@ -279,14 +276,9 @@ async def _get_agents(
         # IMPORTANT: Trim FIRST (when images are storage paths), THEN convert images
         gp_combined_hook = _create_combined_hook(gp_trimming_hook, image_preprocessor)
 
-        # Build enhanced prompt for general-purpose agent with filesystem instructions
-        # Note: general-purpose agent has no allocated skills, so skills=None
-        gp_enhanced_prompt = build_subagent_system_prompt(GENERAL_PURPOSE_SUBAGENT_PROMPT, skills=None)
-        logger.info("[SUB_AGENT] prompt_enhanced agent=general-purpose skills_count=0")
-
         agents["general-purpose"] = custom_create_react_agent(
             model,
-            prompt=gp_enhanced_prompt,
+            prompt=append_datetime_to_prompt(GENERAL_PURPOSE_SUBAGENT_PROMPT),
             tools=tools,
             state_schema=state_schema,
             checkpointer=False,
@@ -313,10 +305,6 @@ async def _get_agents(
             # Check for model_name field first (new centralized config), then fall back to legacy 'model' field
             agent_model = _agent.get('model_name', None) or _agent.get('model', None)
             agent_prompt = _agent.get('prompt', 'You are a helpful assistant.')
-            # Extract skills_config for skills-enabled sub-agents
-            agent_skills_config = _agent.get('skills_config')
-            logger.info("[SUB_AGENT] config_extraction agent=%s prompt_preview='%s...' skills_config=%s",
-                       agent_name, agent_prompt[:50] if agent_prompt else 'None', agent_skills_config is not None)
         else:
             # Handle SerializableSubAgent object
             agent_name = getattr(_agent, 'name', 'unnamed_agent')
@@ -324,18 +312,6 @@ async def _get_agents(
             # Check for model_name field first (new centralized config), then fall back to legacy 'model' field
             agent_model = getattr(_agent, 'model_name', None) or getattr(_agent, 'model', None)
             agent_prompt = getattr(_agent, 'prompt', 'You are a helpful assistant.')
-            # Extract skills_config for skills-enabled sub-agents
-            agent_skills_config = getattr(_agent, 'skills_config', None)
-            logger.info("[SUB_AGENT] config_extraction agent=%s prompt_preview='%s...' skills_config=%s (object)",
-                       agent_name, agent_prompt[:50] if agent_prompt else 'None', agent_skills_config is not None)
-
-        # Convert skills_config to list of skills for prompt building
-        agent_skills = []
-        if agent_skills_config:
-            if isinstance(agent_skills_config, dict):
-                agent_skills = agent_skills_config.get('skills', [])
-            else:
-                agent_skills = getattr(agent_skills_config, 'skills', [])
 
         if config:
             # Fetch sub-agent specific tools (RAG/MCP)
@@ -420,16 +396,10 @@ async def _get_agents(
         # IMPORTANT: Trim FIRST (when images are storage paths), THEN convert images
         sub_combined_hook = _create_combined_hook(sub_trimming_hook, image_preprocessor)
 
-        # Build enhanced system prompt with sub-agent context and skills (if any)
-        # This adds filesystem instructions, behavioral guidelines, and skill documentation
-        enhanced_prompt = build_subagent_system_prompt(agent_prompt, agent_skills)
-        logger.info("[SUB_AGENT] prompt_enhanced agent=%s skills_count=%s user_prompt_preview='%s...'",
-                   agent_name, len(agent_skills), agent_prompt[:80] if agent_prompt else 'None')
-
         logger.info("[SUB_AGENT] tools_assigned agent=%s total=%s", agent_name, len(_tools))
         agents[agent_name] = custom_create_react_agent(
             sub_model,
-            prompt=enhanced_prompt,
+            prompt=append_datetime_to_prompt(agent_prompt),
             tools=_tools,
             state_schema=state_schema,
             checkpointer=False,
