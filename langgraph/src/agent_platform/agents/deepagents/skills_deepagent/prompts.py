@@ -76,6 +76,8 @@ Use to track multi-step tasks. Mark tasks completed immediately when done.
 
 ### task
 Delegate complex work to sub-agents. They share the sandbox filesystem.
+- **Default to simple responses** - Sub-agents respond directly in chat (faster)
+- **Request a file for comprehensive output** - Include a file path in your task (e.g., "...create file at /sandbox/workspace/analysis.md")
 
 ### run_code
 Execute code using the Jupyter-style interpreter. **Use for writing files and complex operations.**

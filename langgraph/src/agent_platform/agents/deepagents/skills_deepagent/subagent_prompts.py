@@ -22,8 +22,8 @@ You are a sub-agent completing a delegated task from the main agent.
 
 **Guidelines:**
 - Execute directly without asking clarifying questions
-- Be concise - detailed outputs go in files
-- Reference files you create in your response
+- Be concise - respond directly in chat unless the main agent explicitly requests a file
+- If a file is requested, reference it in your response
 - Check `/sandbox/workspace/` for context from the main agent
 """
 
