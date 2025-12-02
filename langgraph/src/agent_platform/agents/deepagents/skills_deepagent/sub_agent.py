@@ -68,6 +68,9 @@ TASK_DESCRIPTION_SUFFIX = """
 # Default prompt for the general-purpose sub-agent
 GENERAL_PURPOSE_SUBAGENT_PROMPT = """You are a general-purpose sub-agent with access to tools. You have been given a task by the main agent. Complete the task using the tools available to you. Always summarise your work in your final response, referencing any created files."""
 
+# Tools that should only be available to the main agent, not sub-agents
+MAIN_AGENT_ONLY_TOOLS = {"publish_file_to_user"}
+
 
 async def _get_tools_for_sub_agent(
     sub_agent_config: Union[SerializableSubAgent, dict],
@@ -238,6 +241,9 @@ async def _get_agents(
     all_builtin_tools = [write_todos]
     agents = {}
 
+    # Filter out main-agent-only tools for sub-agents
+    subagent_tools = [t for t in tools if getattr(t, "name", "") not in MAIN_AGENT_ONLY_TOOLS]
+
     # Get LangConnect URL from config
     langconnect_api_url = "http://langconnect:8080"
     if config:
@@ -277,7 +283,8 @@ async def _get_agents(
         logger.info("[SKILLS_SUB_AGENT] prompt_enhanced agent=general-purpose skills_count=%s", gp_skills_count)
 
         # Include tools from parent (which includes execute_in_sandbox)
-        gp_tools = list(all_builtin_tools) + list(tools)
+        # Use subagent_tools to exclude main-agent-only tools like publish_file_to_user
+        gp_tools = list(all_builtin_tools) + list(subagent_tools)
 
         agents["general-purpose"] = custom_create_react_agent(
             model,
@@ -327,14 +334,16 @@ async def _get_agents(
                 _agent, list(builtin_tools_by_name.values()), config
             )
             # Combine: built-ins + parent tools (execute_in_sandbox) + sub-agent specific
+            # Use subagent_tools to exclude main-agent-only tools like publish_file_to_user
             combined_tools_by_name = {}
-            for tool_obj in sub_specific_tools + list(builtin_tools_by_name.values()) + list(tools):
+            for tool_obj in sub_specific_tools + list(builtin_tools_by_name.values()) + list(subagent_tools):
                 combined_tools_by_name[getattr(tool_obj, "name", str(tool_obj))] = tool_obj
             _tools = list(combined_tools_by_name.values())
             logger.info("[SKILLS_SUB_AGENT] tools_composition agent=%s total=%s",
                        agent_name, len(_tools))
         else:
-            _tools = list(builtin_tools_by_name.values()) + list(tools)
+            # Use subagent_tools to exclude main-agent-only tools like publish_file_to_user
+            _tools = list(builtin_tools_by_name.values()) + list(subagent_tools)
 
         if agent_model:
             if isinstance(agent_model, str):
