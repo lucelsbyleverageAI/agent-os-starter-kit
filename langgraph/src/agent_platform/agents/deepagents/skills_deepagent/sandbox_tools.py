@@ -191,14 +191,14 @@ async def get_or_create_sandbox(
     pip_packages: Optional[List[str]] = None,
     timeout: int = 3600,  # Max 1 hour for hobby tier
     existing_sandbox_id: Optional[str] = None,  # For reconnection from state
-) -> Tuple[Any, str]:
+) -> Tuple[Any, str, bool]:
     """
     Get existing sandbox (reconnect/resume) or create new one with skills uploaded.
 
     This function implements E2B sandbox lifecycle management:
     1. If existing_sandbox_id is provided, attempt to reconnect (auto-resumes if paused)
     2. If reconnection fails or no ID provided, create a new sandbox
-    3. Returns both the sandbox instance and its ID for state persistence
+    3. Returns sandbox instance, ID for state persistence, and whether previous sandbox expired
 
     Args:
         thread_id: Unique identifier for this thread/conversation
@@ -210,7 +210,11 @@ async def get_or_create_sandbox(
         existing_sandbox_id: E2B sandbox ID from previous request (for reconnection)
 
     Returns:
-        Tuple of (E2B Sandbox instance, sandbox_id for state persistence)
+        Tuple of (E2B Sandbox instance, sandbox_id, previous_sandbox_expired)
+        - sandbox: The E2B Sandbox instance
+        - sandbox_id: ID for state persistence
+        - previous_sandbox_expired: True if reconnection failed and a new sandbox was created
+          (indicates data loss from previous sandbox)
     """
     global _sandboxes
 
@@ -226,20 +230,16 @@ async def get_or_create_sandbox(
     if not e2b_api_key:
         log.warning("E2B_API_KEY not set - sandbox features will be limited")
 
+    # Track if we need to create a new sandbox because the previous one expired
+    previous_sandbox_expired = False
+
     # 1. Try to reconnect to existing sandbox (if ID provided)
     if existing_sandbox_id:
         log.info(f"[sandbox][RECONNECT] Attempting reconnection - existing_sandbox_id={existing_sandbox_id}, thread={thread_id}")
 
-        # First check in-memory cache
-        if thread_id in _sandboxes:
-            cached_sandbox = _sandboxes[thread_id]
-            # Verify it's the same sandbox
-            if hasattr(cached_sandbox, 'sandbox_id') and cached_sandbox.sandbox_id == existing_sandbox_id:
-                log.info(f"[sandbox][RECONNECT] Found matching sandbox in cache, sandbox_id={existing_sandbox_id}")
-                return cached_sandbox, existing_sandbox_id
-            else:
-                cached_id = getattr(cached_sandbox, 'sandbox_id', 'unknown')
-                log.info(f"[sandbox][RECONNECT] Cache mismatch - cached_id={cached_id} vs existing_id={existing_sandbox_id}")
+        # NOTE: We intentionally do NOT use the in-memory cache here even if present.
+        # The cached sandbox object may have a stale websocket connection (especially after timeout).
+        # Always call Sandbox.connect() to get a fresh connection that auto-resumes if paused.
 
         # Try to reconnect using E2B's connect API (auto-resumes if paused)
         try:
@@ -248,11 +248,13 @@ async def get_or_create_sandbox(
             # Update in-memory cache
             _sandboxes[thread_id] = sandbox
             log.info(f"[sandbox][RECONNECT] SUCCESS - Reconnected to sandbox_id={existing_sandbox_id}")
-            return sandbox, existing_sandbox_id
+            return sandbox, existing_sandbox_id, False  # Not expired, successful reconnect
         except Exception as e:
             log.warning(f"[sandbox][RECONNECT] FAILED - Could not reconnect to sandbox_id={existing_sandbox_id}")
             log.warning(f"[sandbox][RECONNECT] Error details: {type(e).__name__}: {e}")
-            log.info("[sandbox][RECONNECT] Will create a new sandbox and re-upload skills")
+            log.warning("[sandbox][RECONNECT] Previous sandbox expired (30-day retention limit) - creating new sandbox")
+            # Mark that the previous sandbox expired - the LLM should be notified about data loss
+            previous_sandbox_expired = True
             # Fall through to create new sandbox
 
     # 2. Check in-memory cache (for backwards compatibility during transition)
@@ -260,7 +262,7 @@ async def get_or_create_sandbox(
         cached_sandbox = _sandboxes[thread_id]
         sandbox_id = getattr(cached_sandbox, 'sandbox_id', 'unknown')
         log.info(f"[sandbox] Using cached sandbox {sandbox_id} for thread {thread_id}")
-        return cached_sandbox, sandbox_id
+        return cached_sandbox, sandbox_id, False  # Not expired, using cache
 
     # 3. Create new sandbox with auto-pause enabled
     # Auto-pause preserves sandbox state (filesystem + memory) when timeout expires
@@ -344,7 +346,8 @@ async def get_or_create_sandbox(
     _sandboxes[thread_id] = sandbox
     log.info(f"[sandbox] Initialized sandbox {new_sandbox_id} for thread {thread_id} with {len(skills)} skills")
 
-    return sandbox, new_sandbox_id
+    # Return whether the previous sandbox expired (only true if we tried to reconnect and failed)
+    return sandbox, new_sandbox_id, previous_sandbox_expired
 
 
 def get_sandbox(thread_id: str) -> Optional[Any]:
