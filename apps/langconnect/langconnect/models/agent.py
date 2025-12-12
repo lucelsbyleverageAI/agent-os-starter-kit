@@ -322,6 +322,7 @@ class RevokeAssistantAccessResponse(BaseModel):
     user_id: str = Field(..., description="User whose access was revoked")
     revoked: bool = Field(..., description="Whether access was successfully revoked")
     message: str = Field(..., description="Result message")
+    threads_archived: Optional[int] = Field(None, description="Number of threads marked as read-only (archived) due to permission revocation")
 
 
 class AssistantPermissionsResponse(BaseModel):

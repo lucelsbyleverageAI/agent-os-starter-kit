@@ -339,25 +339,42 @@ async def revoke_assistant_access(
         
         success = False
         message = "No access found to revoke"
-        
+        threads_archived = None
+
         if existing_permission:
             # Use permission manager to enforce owner/system rules
+            # Note: The database trigger mark_threads_on_permission_revoke() automatically:
+            # 1. Marks user's threads with this assistant as deprecated (read-only)
+            # 2. Increments the threads cache version for frontend refresh
             try:
                 success = await AssistantPermissionsManager.revoke_assistant_permission(assistant_id, user_id)
                 message = "Access successfully revoked" if success else "Failed to revoke access"
+
+                # If revocation succeeded, get the count of archived threads
+                if success:
+                    async with get_db_connection() as conn:
+                        threads_archived = await conn.fetchval(
+                            """
+                            SELECT COUNT(*) FROM langconnect.threads_mirror
+                            WHERE assistant_id = $1::uuid
+                              AND user_id = $2
+                              AND is_deprecated = TRUE
+                              AND deprecated_reason LIKE '%revoked%'
+                            """,
+                            assistant_id, user_id
+                        )
             except Exception as e:
                 log.error(f"Failed to revoke assistant permission: {e}")
                 message = f"Failed to revoke access: {str(e)}"
-        
-        
-        
-        log.info(f"Assistant access revocation for {user_id} on {assistant_id}: {message}")
-        
+
+        log.info(f"Assistant access revocation for {user_id} on {assistant_id}: {message} (threads_archived={threads_archived})")
+
         return RevokeAssistantAccessResponse(
             assistant_id=assistant_id,
             user_id=user_id,
             revoked=success,
-            message=message
+            message=message,
+            threads_archived=threads_archived
         )
         
     except HTTPException:
