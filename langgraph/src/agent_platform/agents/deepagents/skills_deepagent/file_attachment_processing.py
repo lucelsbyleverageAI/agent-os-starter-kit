@@ -199,24 +199,32 @@ def extract_file_attachments_to_sandbox(
         logger.info("[SKILLS_FILE_ATTACH] No messages in state")
         return Command(update={})
 
-    latest_message = messages[-1]
-    logger.info("[SKILLS_FILE_ATTACH] Latest message type: %s", type(latest_message).__name__)
+    # Find the last HumanMessage (not just last message)
+    # This handles the case where emit_initialization_status added an AIMessage
+    # before this node runs on the first message of a conversation
+    latest_human_message = None
+    for msg in reversed(messages):
+        if isinstance(msg, HumanMessage):
+            latest_human_message = msg
+            break
 
-    if not isinstance(latest_message, HumanMessage):
-        logger.info("[SKILLS_FILE_ATTACH] Latest message is not HumanMessage, skipping")
+    if not latest_human_message:
+        logger.info("[SKILLS_FILE_ATTACH] No HumanMessage found in messages, skipping")
         return Command(update={})
+
+    logger.info("[SKILLS_FILE_ATTACH] Found HumanMessage for attachment extraction")
 
     # Collect all text content from the message
     message_texts = []
 
-    logger.info("[SKILLS_FILE_ATTACH] Message content type: %s", type(latest_message.content).__name__)
+    logger.info("[SKILLS_FILE_ATTACH] Message content type: %s", type(latest_human_message.content).__name__)
 
-    if isinstance(latest_message.content, str):
-        message_texts.append(latest_message.content)
-        logger.info("[SKILLS_FILE_ATTACH] Content is string, length: %d", len(latest_message.content))
-    elif isinstance(latest_message.content, list):
-        logger.info("[SKILLS_FILE_ATTACH] Content is list with %d items", len(latest_message.content))
-        for i, content_item in enumerate(latest_message.content):
+    if isinstance(latest_human_message.content, str):
+        message_texts.append(latest_human_message.content)
+        logger.info("[SKILLS_FILE_ATTACH] Content is string, length: %d", len(latest_human_message.content))
+    elif isinstance(latest_human_message.content, list):
+        logger.info("[SKILLS_FILE_ATTACH] Content is list with %d items", len(latest_human_message.content))
+        for i, content_item in enumerate(latest_human_message.content):
             logger.info("[SKILLS_FILE_ATTACH] Item %d: type=%s", i, type(content_item).__name__)
             if isinstance(content_item, dict):
                 item_type = content_item.get('type', 'unknown')
@@ -442,17 +450,23 @@ def create_file_attachment_node(
         messages = state.get("messages", [])
         files_written = 0
 
-        if messages:
-            latest_message = messages[-1]
+        # Find the last HumanMessage (not just last message)
+        # This handles the case where emit_initialization_status added an AIMessage
+        # before this node runs on the first message of a conversation
+        latest_human_message = None
+        for msg in reversed(messages):
+            if isinstance(msg, HumanMessage):
+                latest_human_message = msg
+                break
 
-            if isinstance(latest_message, HumanMessage):
+        if latest_human_message:
                 # Collect all text content from the message
                 message_texts = []
 
-                if isinstance(latest_message.content, str):
-                    message_texts.append(latest_message.content)
-                elif isinstance(latest_message.content, list):
-                    for content_item in latest_message.content:
+                if isinstance(latest_human_message.content, str):
+                    message_texts.append(latest_human_message.content)
+                elif isinstance(latest_human_message.content, list):
+                    for content_item in latest_human_message.content:
                         if isinstance(content_item, dict) and content_item.get('type') == 'text':
                             message_texts.append(content_item.get('text', ''))
 
@@ -664,17 +678,23 @@ def create_file_attachment_nodes(
         messages = state.get("messages", [])
         files_written = 0
 
-        if messages:
-            latest_message = messages[-1]
+        # Find the last HumanMessage (not just last message)
+        # This handles the case where emit_initialization_status added an AIMessage
+        # before this node runs on the first message of a conversation
+        latest_human_message = None
+        for msg in reversed(messages):
+            if isinstance(msg, HumanMessage):
+                latest_human_message = msg
+                break
 
-            if isinstance(latest_message, HumanMessage):
+        if latest_human_message:
                 # Collect all text content from the message
                 message_texts = []
 
-                if isinstance(latest_message.content, str):
-                    message_texts.append(latest_message.content)
-                elif isinstance(latest_message.content, list):
-                    for content_item in latest_message.content:
+                if isinstance(latest_human_message.content, str):
+                    message_texts.append(latest_human_message.content)
+                elif isinstance(latest_human_message.content, list):
+                    for content_item in latest_human_message.content:
                         if isinstance(content_item, dict) and content_item.get('type') == 'text':
                             message_texts.append(content_item.get('text', ''))
 
