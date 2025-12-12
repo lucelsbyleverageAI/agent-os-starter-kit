@@ -1,6 +1,7 @@
 """Supabase Storage service for managing image uploads."""
 
 import logging
+import re
 from typing import Optional, BinaryIO
 from datetime import datetime
 from supabase import create_client
@@ -46,6 +47,32 @@ class StorageService:
             return url.replace(self.internal_url, self.public_url)
         return url
 
+    def _sanitize_filename(self, filename: str) -> str:
+        """Sanitize a filename for use in Supabase storage keys.
+
+        Supabase storage has restrictions on allowed characters in object keys.
+        This method removes or replaces problematic characters.
+
+        Args:
+            filename: Original filename
+
+        Returns:
+            Sanitized filename safe for storage keys
+        """
+        # Replace spaces with underscores
+        safe = filename.replace(" ", "_")
+        # Remove brackets, parentheses, and other problematic characters
+        # Keep only alphanumeric, underscores, hyphens, and dots
+        safe = re.sub(r'[^\w\-.]', '', safe)
+        # Collapse multiple underscores
+        safe = re.sub(r'_+', '_', safe)
+        # Remove leading/trailing underscores
+        safe = safe.strip('_')
+        # Ensure we have at least something
+        if not safe:
+            safe = "file"
+        return safe
+
     def _generate_storage_path(
         self,
         collection_uuid: str,
@@ -63,7 +90,7 @@ class StorageService:
             Storage path string
         """
         timestamp = datetime.utcnow().strftime("%Y%m%d_%H%M%S")
-        safe_filename = filename.replace(" ", "_")
+        safe_filename = self._sanitize_filename(filename)
         return f"{collection_uuid}/{timestamp}_{safe_filename}"
 
     async def upload_image(
@@ -141,7 +168,7 @@ class StorageService:
             Storage path string
         """
         timestamp = datetime.utcnow().strftime("%Y%m%d_%H%M%S_%f")
-        safe_filename = filename.replace(" ", "_")
+        safe_filename = self._sanitize_filename(filename)
         return f"{user_id}/{timestamp}_{safe_filename}"
 
     async def upload_chat_image(
@@ -213,7 +240,7 @@ class StorageService:
             Storage path string
         """
         timestamp = datetime.utcnow().strftime("%Y%m%d_%H%M%S_%f")
-        safe_filename = filename.replace(" ", "_")
+        safe_filename = self._sanitize_filename(filename)
         return f"{user_id}/{timestamp}_{safe_filename}"
 
     async def upload_support_image(
