@@ -987,7 +987,11 @@ export function Thread({ historyOpen = false, configOpen = false }: ThreadProps)
                     {threadDeprecatedInfo?.isDeprecated ? (
                       <div className={cn("rounded-2xl border bg-muted/50 p-6 text-center", chatWidth)}>
                         <p className="text-sm text-muted-foreground">
-                          This conversation is read-only as the agent has been deleted and cannot accept new messages.
+                          {threadDeprecatedInfo.deprecatedReason?.toLowerCase().includes('revoked')
+                            ? "This conversation is read-only as your access to this agent has been revoked."
+                            : threadDeprecatedInfo.deprecatedReason?.toLowerCase().includes('user account')
+                              ? "This conversation is read-only as the associated user account was deleted."
+                              : "This conversation is read-only as the agent has been deleted and cannot accept new messages."}
                         </p>
                       </div>
                     ) : (
