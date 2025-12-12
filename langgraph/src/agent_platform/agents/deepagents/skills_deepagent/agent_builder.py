@@ -28,7 +28,7 @@ except ImportError:
 from agent_platform.agents.deepagents.custom_react_agent import custom_create_react_agent
 from agent_platform.agents.deepagents.model import get_default_model
 from agent_platform.agents.deepagents.builder import SerializableSubAgent
-from agent_platform.utils.message_utils import create_image_preprocessor
+from agent_platform.utils.message_utils import create_image_preprocessor, create_orphan_resolution_hook
 
 
 StateSchema = TypeVar("StateSchema", bound=SkillsDeepAgentState)
@@ -101,21 +101,39 @@ def skills_agent_builder(
 
     image_hook = create_image_preprocessor(langconnect_api_url)
 
-    # Combine hooks: trim first, then process images
+    # Create orphan resolution hook (always enabled)
+    orphan_hook = create_orphan_resolution_hook()
+
+    # Combine hooks: ORPHAN RESOLUTION first, then TRIMMING, then IMAGE PROCESSING
+    # Order rationale:
+    # 1. Resolve orphans first (sanitize invalid message sequences from cancelled tool calls)
+    # 2. Trim (based on small storage path tokens, not massive base64 data)
+    # 3. Convert images to signed URLs (or base64 in local dev)
     combined_pre_hook = None
     if pre_model_hook and image_hook:
         async def combined_hook(state, config):
-            # 1. Trim first (when images are just storage paths ~50 tokens each)
-            trimming_result = pre_model_hook(state)
-            state = {**state, **trimming_result}
-            # 2. Then convert images to signed URLs (or base64 in local dev)
+            # 1. Resolve orphaned tool calls first
+            state = {**state, **orphan_hook(state)}
+            # 2. Trim (when images are just storage paths ~50 tokens each)
+            state = {**state, **pre_model_hook(state)}
+            # 3. Then convert images to signed URLs (or base64 in local dev)
             state = await image_hook(state, config)
             return state
         combined_pre_hook = combined_hook
     elif image_hook:
-        combined_pre_hook = image_hook
+        async def combined_hook(state, config):
+            state = {**state, **orphan_hook(state)}
+            state = await image_hook(state, config)
+            return state
+        combined_pre_hook = combined_hook
     elif pre_model_hook:
-        combined_pre_hook = pre_model_hook
+        def combined_hook(state):
+            state = {**state, **orphan_hook(state)}
+            state = {**state, **pre_model_hook(state)}
+            return state
+        combined_pre_hook = combined_hook
+    else:
+        combined_pre_hook = orphan_hook
 
     # Create task tool if sub-agents available
     if has_subagents:

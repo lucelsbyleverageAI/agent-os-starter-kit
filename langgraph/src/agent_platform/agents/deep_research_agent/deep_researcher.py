@@ -57,9 +57,19 @@ from agent_platform.utils.model_utils import (
     ModelConfig,
     RetryConfig,
 )
+from agent_platform.utils.message_utils import resolve_orphaned_tool_calls
 
 from agent_platform.sentry import get_logger
 logger = get_logger(__name__)
+
+
+def get_resolved_messages(messages):
+    """Resolve orphaned tool calls before model invocation.
+
+    This helper ensures that any cancelled tool calls in the message history
+    have synthetic ToolMessage responses, preventing API errors.
+    """
+    return resolve_orphaned_tool_calls(messages)
 
 async def clarify_with_user(state: AgentState, config: RunnableConfig) -> Command[Literal["write_research_brief", "__end__"]]:
     """Analyze user messages and ask clarifying questions if the research scope is unclear.
@@ -206,7 +216,7 @@ async def supervisor(state: SupervisorState, config: RunnableConfig) -> Command[
     )
     
     # Step 2: Generate supervisor response based on current context
-    supervisor_messages = state.get("supervisor_messages", [])
+    supervisor_messages = get_resolved_messages(state.get("supervisor_messages", []))
     response = await research_model.ainvoke(supervisor_messages)
     logger.debug("[DEEP_RESEARCH] supervisor_step_done=true")
     
@@ -407,7 +417,9 @@ async def researcher(state: ResearcherState, config: RunnableConfig) -> Command[
     )
     
     # Step 3: Generate researcher response with system context
-    messages = [SystemMessage(content=researcher_prompt)] + researcher_messages
+    # Resolve any orphaned tool calls in the researcher messages
+    resolved_researcher_messages = get_resolved_messages(researcher_messages)
+    messages = [SystemMessage(content=researcher_prompt)] + resolved_researcher_messages
     response = await research_model.ainvoke(messages)
     logger.debug("[DEEP_RESEARCH] researcher_step_done=true")
     
@@ -542,8 +554,10 @@ async def compress_research(state: ResearcherState, config: RunnableConfig):
         try:
             # Create system prompt focused on compression task
             compression_prompt = compress_research_system_prompt.format(date=get_today_str())
-            messages = [SystemMessage(content=compression_prompt)] + researcher_messages
-            
+            # Resolve any orphaned tool calls before model invocation
+            resolved_messages = get_resolved_messages(researcher_messages)
+            messages = [SystemMessage(content=compression_prompt)] + resolved_messages
+
             # Execute compression
             response = await synthesizer_model.ainvoke(messages)
             

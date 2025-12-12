@@ -7,6 +7,7 @@ import {
   CheckCircle,
   Loader2,
   AlertCircle,
+  XOctagon,
 } from "lucide-react";
 import { MinimalistBadge } from "@/components/ui/minimalist-badge";
 import { useFilePreviewOptional } from "@/features/chat/context/file-preview-context";
@@ -165,7 +166,30 @@ export function PublishFileTool({
     );
   }
 
-  // Error state
+  // Cancelled state (error with no result)
+  if (state === "error" && !toolResult) {
+    return (
+      <Card className="w-full p-4">
+        <div className="flex items-center gap-3">
+          <MinimalistBadge
+            icon={XOctagon}
+            tooltip="File publishing cancelled"
+            className="text-orange-500"
+          />
+          <div>
+            <h3 className="font-medium text-foreground">
+              Cancelled
+            </h3>
+            <p className="text-sm text-muted-foreground">
+              File publishing was cancelled before completion
+            </p>
+          </div>
+        </div>
+      </Card>
+    );
+  }
+
+  // Error state (actual failure)
   if (state === "error") {
     return (
       <Card className="w-full p-4">

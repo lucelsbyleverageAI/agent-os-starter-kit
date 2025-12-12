@@ -5,7 +5,7 @@ try:
     from .state import DeepAgentState
     from .interrupt import create_interrupt_hook, ToolInterruptConfig
     from .image_processing import dispatch_image_processing, process_single_image, continue_after_image_processing
-    from agent_platform.utils.message_utils import create_image_preprocessor
+    from agent_platform.utils.message_utils import create_image_preprocessor, create_orphan_resolution_hook
     from agent_platform.utils.prompt_utils import append_datetime_to_prompt
 except ImportError:
     from agent_platform.agents.deepagents.sub_agent import _create_task_tool, _create_sync_task_tool
@@ -14,7 +14,7 @@ except ImportError:
     from agent_platform.agents.deepagents.state import DeepAgentState
     from agent_platform.agents.deepagents.interrupt import create_interrupt_hook, ToolInterruptConfig
     from agent_platform.agents.deepagents.image_processing import dispatch_image_processing, process_single_image, continue_after_image_processing
-    from agent_platform.utils.message_utils import create_image_preprocessor
+    from agent_platform.utils.message_utils import create_image_preprocessor, create_orphan_resolution_hook
     from agent_platform.utils.prompt_utils import append_datetime_to_prompt
 from typing import Sequence, Union, Callable, Any, TypeVar, Type, Optional
 from langchain_core.tools import BaseTool, tool
@@ -131,22 +131,39 @@ def _agent_builder(
     # Create image preprocessor
     image_hook = create_image_preprocessor(langconnect_api_url)
 
-    # Combine with existing pre_model_hook
-    # IMPORTANT: Trim FIRST (when images are storage paths), THEN convert images
+    # Create orphan resolution hook (always enabled)
+    orphan_hook = create_orphan_resolution_hook()
+
+    # Combine hooks: ORPHAN RESOLUTION first, then TRIMMING, then IMAGE PROCESSING
+    # Order rationale:
+    # 1. Resolve orphans first (sanitize invalid message sequences from cancelled tool calls)
+    # 2. Trim (based on small storage path tokens, not massive base64 data)
+    # 3. Convert images to signed URLs (or base64 in local dev)
     combined_pre_hook = None
     if pre_model_hook and image_hook:
         async def combined_hook(state, config):
-            # 1. Trim first (when images are just storage paths ~50 tokens each)
-            trimming_result = pre_model_hook(state)  # Trimming hook is sync, no await
-            state = {**state, **trimming_result}
-            # 2. Then convert images to signed URLs (or base64 in local dev)
+            # 1. Resolve orphaned tool calls first
+            state = {**state, **orphan_hook(state)}
+            # 2. Trim (when images are just storage paths ~50 tokens each)
+            state = {**state, **pre_model_hook(state)}  # Trimming hook is sync, no await
+            # 3. Then convert images to signed URLs (or base64 in local dev)
             state = await image_hook(state, config)
             return state
         combined_pre_hook = combined_hook
     elif image_hook:
-        combined_pre_hook = image_hook
+        async def combined_hook(state, config):
+            state = {**state, **orphan_hook(state)}
+            state = await image_hook(state, config)
+            return state
+        combined_pre_hook = combined_hook
     elif pre_model_hook:
-        combined_pre_hook = pre_model_hook
+        def combined_hook(state):
+            state = {**state, **orphan_hook(state)}
+            state = {**state, **pre_model_hook(state)}
+            return state
+        combined_pre_hook = combined_hook
+    else:
+        combined_pre_hook = orphan_hook
 
     # Only create task tool if there are sub-agents available
     if has_subagents:

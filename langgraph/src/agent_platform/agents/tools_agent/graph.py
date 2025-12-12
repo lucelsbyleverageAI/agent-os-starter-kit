@@ -29,7 +29,7 @@ from agent_platform.utils.model_utils import (
     MessageTrimmingConfig,
     create_trimming_hook,
 )
-from agent_platform.utils.message_utils import create_image_preprocessor
+from agent_platform.utils.message_utils import create_image_preprocessor, create_orphan_resolution_hook
 
 # Import agent-specific configuration and state
 from agent_platform.agents.tools_agent.config import GraphConfigPydantic, DEFAULT_RECURSION_LIMIT
@@ -331,26 +331,42 @@ async def graph(config: RunnableConfig):
     # Create image preprocessor
     image_hook = create_image_preprocessor(langconnect_api_url)
 
-    # Combine hooks: TRIMMING first (based on storage paths), THEN image processing
-    # This ensures trimming decisions are based on the small storage path tokens,
-    # not the massive base64 data that comes from image conversion in local dev.
+    # Combine hooks: ORPHAN RESOLUTION first, then TRIMMING, then IMAGE PROCESSING
+    # Order rationale:
+    # 1. Resolve orphans first (sanitize invalid message sequences from cancelled tool calls)
+    # 2. Trim (based on small storage path tokens, not massive base64 data)
+    # 3. Convert images to signed URLs (or base64 in local dev)
+    orphan_hook = create_orphan_resolution_hook()
+
     combined_hook = None
     if trimming_hook and image_hook:
         async def combined_pre_model_hook(state, config):
-            # 1. Trim first (when images are just storage paths ~50 tokens each)
-            trimming_result = trimming_hook(state)
-            state = {**state, **trimming_result}
-            # 2. Then convert images to signed URLs (or base64 in local dev)
+            # 1. Resolve orphaned tool calls first
+            state = {**state, **orphan_hook(state)}
+            # 2. Trim (when images are just storage paths ~50 tokens each)
+            state = {**state, **trimming_hook(state)}
+            # 3. Then convert images to signed URLs (or base64 in local dev)
             state = await image_hook(state, config)
             return state
         combined_hook = combined_pre_model_hook
     elif image_hook:
-        combined_hook = image_hook
+        async def combined_pre_model_hook(state, config):
+            state = {**state, **orphan_hook(state)}
+            state = await image_hook(state, config)
+            return state
+        combined_hook = combined_pre_model_hook
     elif trimming_hook:
-        combined_hook = trimming_hook
+        def combined_pre_model_hook(state):
+            state = {**state, **orphan_hook(state)}
+            state = {**state, **trimming_hook(state)}
+            return state
+        combined_hook = combined_pre_model_hook
+    else:
+        combined_hook = orphan_hook
 
     logger.info(
-        "[TOOLS_AGENT] hooks_configured image=%s trimming=%s",
+        "[TOOLS_AGENT] hooks_configured orphan=%s image=%s trimming=%s",
+        True,  # Always enabled
         image_hook is not None,
         trimming_hook is not None
     )

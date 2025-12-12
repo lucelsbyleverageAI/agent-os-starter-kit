@@ -1,6 +1,7 @@
 import { v4 as uuidv4 } from "uuid";
 import {
   ReactNode,
+  useCallback,
   useEffect,
   useMemo,
   useRef,
@@ -50,6 +51,11 @@ import {
   setThreadMessageCache,
   invalidateThreadCache,
 } from "@/features/chat/utils/thread-message-cache";
+import {
+  findPendingToolCalls,
+  createCancelledToolMessage,
+} from "@/features/chat/utils/tool-call-helpers";
+import { createClient } from "@/lib/client";
 
 // Helper function to get time-based greeting
 function getTimeBasedGreeting(): string {
@@ -593,6 +599,67 @@ export function Thread({ historyOpen = false, configOpen = false }: ThreadProps)
     }
   }, [messages, threadId, session?.accessToken, agentId, agents, hasUserActivityInSession]);
 
+  /**
+   * Handle stopping the stream and inject cancelled tool messages.
+   *
+   * When a user cancels during tool execution, we inject synthetic ToolMessages
+   * so the UI shows "Cancelled" state instead of showing a loading spinner indefinitely.
+   */
+  const handleStop = useCallback(async () => {
+    // Capture pending tool calls BEFORE stopping (stream.messages may change after stop)
+    const pendingToolCalls = findPendingToolCalls(stream.messages);
+
+    // Stop the stream to cancel the run
+    stream.stop();
+
+    if (pendingToolCalls.length === 0 || !threadId) {
+      // No pending tool calls or no thread, nothing more to do
+      return;
+    }
+
+    // Get deployment ID from the current agent
+    const currentAgent = agents.find((a) => a.assistant_id === agentId);
+    if (!currentAgent?.deploymentId) {
+      console.warn("[handleStop] Cannot inject cancelled messages: no deploymentId found");
+      return;
+    }
+
+    // Create synthetic cancelled ToolMessages
+    const cancelledMessages = pendingToolCalls.map(({ toolCallId, toolName }) =>
+      createCancelledToolMessage(toolCallId, toolName)
+    );
+
+    console.log(
+      `[handleStop] Injecting ${cancelledMessages.length} cancelled tool message(s) for thread ${threadId}`
+    );
+
+    // Helper to attempt state update with retries
+    // The run may take a moment to actually stop after we call stream.stop()
+    const attemptUpdate = async (retriesLeft: number, delayMs: number): Promise<void> => {
+      try {
+        const client = createClient(currentAgent.deploymentId, session?.accessToken ?? undefined);
+        await client.threads.updateState(threadId, {
+          values: { messages: cancelledMessages },
+        });
+        console.log("[handleStop] Successfully injected cancelled tool messages");
+      } catch (error: any) {
+        // HTTP 409 means run is still in-flight, retry after delay
+        if (error?.status === 409 && retriesLeft > 0) {
+          console.log(`[handleStop] Run still in-flight, retrying in ${delayMs}ms (${retriesLeft} retries left)`);
+          await new Promise((resolve) => setTimeout(resolve, delayMs));
+          return attemptUpdate(retriesLeft - 1, delayMs * 1.5); // Exponential backoff
+        }
+        // Don't fail the stop action if injection fails - the backend orphan
+        // resolution will handle it on next message anyway
+        console.error("[handleStop] Failed to inject cancelled tool messages:", error);
+      }
+    };
+
+    // Wait a moment for the run to stop, then attempt update with retries
+    await new Promise((resolve) => setTimeout(resolve, 300));
+    await attemptUpdate(5, 500); // 5 retries, starting at 500ms delay
+  }, [stream, threadId, agentId, agents, session?.accessToken]);
+
   const handleSubmit = (e: FormEvent) => {
     e.preventDefault();
 
@@ -768,6 +835,12 @@ export function Thread({ historyOpen = false, configOpen = false }: ThreadProps)
   // Show loading when: we have a threadId (not new chat) AND no messages AND not showing cached messages
   const shouldShowLoading = threadId && !hasMessages && !showingCachedMessages;
 
+  // Pre-filter messages that shouldn't be rendered, and find the last AI message ID
+  // This allows us to only show loading state for the current run, not historical messages
+  // Without this, cancelled tool calls from previous runs would show loading spinners during new runs
+  const filteredMessages = messages.filter((m: Message) => !m.id?.startsWith(DO_NOT_RENDER_ID_PREFIX));
+  const lastAIMessageId = filteredMessages.filter((m: Message) => m.type === "ai").pop()?.id;
+
   return (
     <FilePreviewProvider threadId={threadId}>
       <SubAgentPreviewProvider threadId={threadId}>
@@ -840,7 +913,7 @@ export function Thread({ historyOpen = false, configOpen = false }: ThreadProps)
                     handleFileUpload={handleFileUpload}
                     isLoading={isLoading}
                     hasInput={hasInput}
-                    onStop={() => stream.stop()}
+                    onStop={handleStop}
                   />
                 </div>
               </div>
@@ -858,9 +931,7 @@ export function Thread({ historyOpen = false, configOpen = false }: ThreadProps)
                   )}
                   content={
                   <>
-                {messages
-                  .filter((m: Message) => !m.id?.startsWith(DO_NOT_RENDER_ID_PREFIX))
-                  .map((message: Message, index: number) =>
+                {filteredMessages.map((message: Message, index: number) =>
                     message.type === "human" ? (
                       <HumanMessage
                         key={message.id || `${message.type}-${index}`}
@@ -871,7 +942,9 @@ export function Thread({ historyOpen = false, configOpen = false }: ThreadProps)
                       <AssistantMessage
                         key={message.id || `${message.type}-${index}`}
                         message={message}
-                        isLoading={isLoading}
+                        // Only pass isLoading to the last AI message (current run)
+                        // This prevents historical cancelled tool calls from showing spinners
+                        isLoading={isLoading && message.id === lastAIMessageId}
                         handleRegenerate={handleRegenerate}
                       />
                     ),
@@ -935,7 +1008,7 @@ export function Thread({ historyOpen = false, configOpen = false }: ThreadProps)
                         handleFileUpload={handleFileUpload}
                         isLoading={isLoading}
                         hasInput={hasInput}
-                        onStop={() => stream.stop()}
+                        onStop={handleStop}
                       />
                     )}
                   </div>

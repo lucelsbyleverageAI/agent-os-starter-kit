@@ -1,7 +1,7 @@
 import React, { useState } from "react";
 import { ToolComponentProps } from "../../types";
 import { Card } from "@/components/ui/card";
-import { ChevronDown, ChevronRight, Loader2, CheckCircle, XCircle, MessageSquare } from "lucide-react";
+import { ChevronDown, ChevronRight, Loader2, CheckCircle, XCircle, MessageSquare, XOctagon } from "lucide-react";
 import { MinimalistBadge } from "@/components/ui/minimalist-badge";
 import { getToolDisplayName } from "../../utils";
 import { ToolArgumentsTable, ToolResultDisplay } from "../shared";
@@ -54,6 +54,10 @@ export function SimpleToolCall({
       }
       return `Tool Complete: ${toolDisplayName}`;
     }
+    // Error state with no result means cancelled
+    if (state === 'error' && !toolResult) {
+      return `Cancelled: ${toolDisplayName}`;
+    }
     return `Agent is using the following tool: ${toolDisplayName}`;
   };
 
@@ -79,6 +83,17 @@ export function SimpleToolCall({
         <MinimalistBadge
           icon={CheckCircle}
           tooltip="Tool execution completed"
+        />
+      );
+    }
+
+    // Error state with no result means cancelled
+    if (state === 'error' && !toolResult) {
+      return (
+        <MinimalistBadge
+          icon={XOctagon}
+          tooltip="Tool execution was cancelled"
+          className="text-orange-500"
         />
       );
     }

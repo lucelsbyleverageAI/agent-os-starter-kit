@@ -9,6 +9,7 @@ import {
   AlertCircle,
   ChevronRight,
   ChevronDown,
+  XOctagon,
 } from "lucide-react";
 import { Badge } from "@/components/ui/badge";
 import { cn } from "@/lib/utils";
@@ -17,6 +18,40 @@ import { useSubAgentPreviewOptional } from "@/features/chat/context/subagent-pre
 interface TaskArgs {
   description?: string;
   subagent_type?: string;
+}
+
+/**
+ * Detect if the tool result is from a cancelled tool call.
+ * This happens when a thread is cancelled during tool execution.
+ * The frontend injects synthetic ToolMessages with {"status": "cancelled", ...}
+ */
+function isCancelledToolCall(toolResult?: any): boolean {
+  if (!toolResult?.content) return false;
+  try {
+    let content = toolResult.content;
+
+    // Handle array of content blocks (Claude/Anthropic format)
+    // Format: [{ text: "...", type: "text", index: 0 }]
+    if (Array.isArray(content)) {
+      const textBlock = content.find(
+        (block: any) => typeof block === "object" && block !== null && "text" in block
+      );
+      if (textBlock) {
+        content = textBlock.text;
+      } else {
+        content = JSON.stringify(content);
+      }
+    }
+
+    if (typeof content !== 'string') {
+      content = JSON.stringify(content);
+    }
+
+    const parsed = JSON.parse(content);
+    return parsed?.status === 'cancelled';
+  } catch {
+    return false;
+  }
 }
 
 export function TaskTool({
@@ -153,7 +188,55 @@ export function TaskTool({
     );
   }
 
-  // Error state
+  // Cancelled state (error with no result)
+  if (state === "error" && !toolResult) {
+    return (
+      <Card className="w-full p-4">
+        <div className="flex items-start gap-3">
+          <div className="flex-shrink-0 h-8 w-8 rounded-full bg-orange-100 flex items-center justify-center mt-0.5">
+            <XOctagon className="h-4 w-4 text-orange-500" />
+          </div>
+          <div className="flex-1 min-w-0">
+            <div className="flex items-center gap-2">
+              <span className="text-sm font-medium text-foreground">
+                Task cancelled
+              </span>
+              <Badge variant="secondary" className="text-xs">
+                {subagentType}
+              </Badge>
+            </div>
+            <div className="mt-0.5">
+              {isDescriptionLong ? (
+                <button
+                  onClick={toggleDescription}
+                  className="flex items-start gap-1 text-left w-full group"
+                >
+                  <ChevronDown
+                    className={cn(
+                      "h-3.5 w-3.5 text-muted-foreground flex-shrink-0 mt-0.5 transition-transform",
+                      !isDescriptionExpanded && "-rotate-90"
+                    )}
+                  />
+                  <p className={cn(
+                    "text-sm text-muted-foreground",
+                    !isDescriptionExpanded && "line-clamp-1"
+                  )}>
+                    {taskDescription}
+                  </p>
+                </button>
+              ) : (
+                <p className="text-sm text-muted-foreground">
+                  {taskDescription}
+                </p>
+              )}
+            </div>
+          </div>
+        </div>
+      </Card>
+    );
+  }
+
+  // Error state (actual failure with result)
   if (state === "error") {
     return (
       <Card className="w-full p-4">
@@ -206,7 +289,56 @@ export function TaskTool({
     );
   }
 
-  // Completed state
+  // Cancelled state (detected from content - synthetic cancelled ToolMessage)
+  // This handles the case where frontend injects {"status":"cancelled",...} on cancellation
+  if (state === "completed" && isCancelledToolCall(toolResult)) {
+    return (
+      <Card className="w-full p-4">
+        <div className="flex items-start gap-3">
+          <div className="flex-shrink-0 h-8 w-8 rounded-full bg-orange-100 flex items-center justify-center mt-0.5">
+            <XOctagon className="h-4 w-4 text-orange-500" />
+          </div>
+          <div className="flex-1 min-w-0">
+            <div className="flex items-center gap-2">
+              <span className="text-sm font-medium text-foreground">
+                Task cancelled
+              </span>
+              <Badge variant="secondary" className="text-xs">
+                {subagentType}
+              </Badge>
+            </div>
+            <div className="mt-0.5">
+              {isDescriptionLong ? (
+                <button
+                  onClick={toggleDescription}
+                  className="flex items-start gap-1 text-left w-full group"
+                >
+                  <ChevronDown
+                    className={cn(
+                      "h-3.5 w-3.5 text-muted-foreground flex-shrink-0 mt-0.5 transition-transform",
+                      !isDescriptionExpanded && "-rotate-90"
+                    )}
+                  />
+                  <p className={cn(
+                    "text-sm text-muted-foreground",
+                    !isDescriptionExpanded && "line-clamp-1"
+                  )}>
+                    {taskDescription}
+                  </p>
+                </button>
+              ) : (
+                <p className="text-sm text-muted-foreground">
+                  {taskDescription}
+                </p>
+              )}
+            </div>
+          </div>
+        </div>
+      </Card>
+    );
+  }
+
+  // Completed state (actual success)
   return (
     <Card
       className="w-full overflow-hidden py-0 gap-0 cursor-pointer hover:bg-accent/50 transition-colors"

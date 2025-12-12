@@ -87,6 +87,294 @@ def clean_orphaned_tool_calls(messages: List[BaseMessage]) -> List[BaseMessage]:
     return messages
 
 
+# ==================== Orphaned Tool Call Resolution ====================
+
+# Standard content for cancelled tool messages - frontend can detect this
+CANCELLED_TOOL_CALL_CONTENT = json.dumps({
+    "status": "cancelled",
+    "message": "Tool execution was cancelled before completion."
+})
+
+
+def resolve_orphaned_tool_calls(messages: List[BaseMessage]) -> List[BaseMessage]:
+    """
+    Resolve orphaned tool calls by inserting synthetic ToolMessages for cancelled calls.
+
+    Instead of removing orphaned tool calls (which leaves UI in loading state),
+    this function inserts ToolMessages with cancellation status, allowing:
+    - API compatibility (every tool_call has a ToolMessage)
+    - UI to render "cancelled" state instead of infinite spinner
+
+    This also cleans up malformed tool calls (e.g., empty names) that would cause API errors.
+
+    This commonly happens during thread cancellation where tool calls are made
+    but the thread is cancelled before tool execution completes.
+
+    Args:
+        messages: List of BaseMessage objects to process
+
+    Returns:
+        List with synthetic ToolMessages inserted after AIMessages with orphaned tool_calls,
+        and malformed tool calls removed from AIMessages.
+
+    Example:
+        >>> from langchain_core.messages import AIMessage, HumanMessage
+        >>> messages = [
+        ...     HumanMessage(content="Search for cats"),
+        ...     AIMessage(content="", tool_calls=[{"id": "call_123", "name": "search", "args": {}}]),
+        ...     HumanMessage(content="Actually, cancel that")  # No ToolMessage response!
+        ... ]
+        >>> resolved = resolve_orphaned_tool_calls(messages)
+        >>> # A synthetic ToolMessage with cancelled status will be inserted
+    """
+    if not messages:
+        return messages
+
+    # Step 1: Build sets of tool call IDs and response IDs
+    # Also track malformed tool calls (empty names) to filter them out
+    tool_call_ids_made = {}  # id -> (tool_name, index of AIMessage)
+    tool_call_ids_responded = {}  # id -> index of ToolMessage
+    malformed_tool_call_ids = set()  # Tool calls with empty names
+    malformed_tool_call_count = 0  # Track total count (set dedupes)
+    out_of_order_tool_message_ids = set()  # ToolMessages that come before their AIMessage
+
+    # Log all AIMessages with tool_calls for debugging
+    ai_messages_with_tools = []
+
+    for i, message in enumerate(messages):
+        if isinstance(message, AIMessage) and message.tool_calls:
+            # Log every AIMessage with tool_calls for debugging
+            tool_call_summary = [
+                f"{{name={tc.get('name', '')!r}, id={tc.get('id', '')!r}}}"
+                for tc in message.tool_calls
+            ]
+            ai_messages_with_tools.append(f"[{i}]: {len(message.tool_calls)} tool_calls: {tool_call_summary}")
+
+            for j, tool_call in enumerate(message.tool_calls):
+                tool_name = tool_call.get("name", "")
+                tool_id = tool_call.get("id", "")
+
+                # Check for malformed tool calls (empty name or id)
+                if not tool_name or not tool_id:
+                    malformed_tool_call_count += 1
+                    malformed_tool_call_ids.add(tool_id or f"malformed-{i}-{j}")
+                    logger.warning(
+                        "[RESOLVE_ORPHANS] Found malformed tool call at message %d, tool_call[%d]: name=%r, id=%r",
+                        i, j, tool_name, tool_id
+                    )
+                else:
+                    tool_call_ids_made[tool_id] = (tool_name, i)
+        elif isinstance(message, ToolMessage):
+            tool_call_ids_responded[message.tool_call_id] = i
+
+    # Log summary of all AIMessages with tool_calls
+    if ai_messages_with_tools:
+        logger.info(
+            "[RESOLVE_ORPHANS] Found %d AIMessage(s) with tool_calls: %s",
+            len(ai_messages_with_tools),
+            "; ".join(ai_messages_with_tools)
+        )
+
+    # Step 2: Find orphaned tool call IDs (valid tool calls without responses)
+    orphaned_ids = set(tool_call_ids_made.keys()) - set(tool_call_ids_responded.keys())
+
+    # Also find orphaned ToolMessages (ToolMessages without matching AIMessage tool_calls)
+    # This can happen when frontend injects cancelled ToolMessages but the AIMessage
+    # was never persisted (cancelled before write)
+    orphaned_tool_message_ids = set(tool_call_ids_responded.keys()) - set(tool_call_ids_made.keys())
+
+    # Find out-of-order ToolMessages (ToolMessages that come BEFORE their AIMessage)
+    # OpenAI requires tool messages to follow their corresponding AI message
+    for tool_call_id, tool_msg_index in tool_call_ids_responded.items():
+        if tool_call_id in tool_call_ids_made:
+            ai_msg_index = tool_call_ids_made[tool_call_id][1]
+            if tool_msg_index < ai_msg_index:
+                out_of_order_tool_message_ids.add(tool_call_id)
+                logger.warning(
+                    "[RESOLVE_ORPHANS] Found out-of-order ToolMessage: tool_call_id=%s "
+                    "(ToolMessage at index %d, AIMessage at index %d)",
+                    tool_call_id, tool_msg_index, ai_msg_index
+                )
+
+    # IMPORTANT: Treat out-of-order tool_calls as orphaned too!
+    # Since we'll remove their ToolMessages (wrong position), the AIMessage tool_calls
+    # need synthetic cancellation responses inserted after them.
+    if out_of_order_tool_message_ids:
+        orphaned_ids = orphaned_ids | out_of_order_tool_message_ids
+        logger.info(
+            "[RESOLVE_ORPHANS] Added %d out-of-order tool_call(s) to orphaned set for synthetic responses",
+            len(out_of_order_tool_message_ids)
+        )
+
+    has_orphans = len(orphaned_ids) > 0
+    has_malformed = malformed_tool_call_count > 0
+    has_orphaned_tool_messages = len(orphaned_tool_message_ids) > 0
+    has_out_of_order = len(out_of_order_tool_message_ids) > 0
+
+    if not has_orphans and not has_malformed and not has_orphaned_tool_messages and not has_out_of_order:
+        return messages  # No issues to fix
+
+    if has_orphans:
+        logger.info("[RESOLVE_ORPHANS] Found %d orphaned tool call(s): %s", len(orphaned_ids), list(orphaned_ids))
+    if has_malformed:
+        logger.info("[RESOLVE_ORPHANS] Found %d malformed tool call(s) to remove", malformed_tool_call_count)
+    if has_orphaned_tool_messages:
+        logger.info("[RESOLVE_ORPHANS] Found %d orphaned ToolMessage(s) to remove: %s", len(orphaned_tool_message_ids), list(orphaned_tool_message_ids))
+    if has_out_of_order:
+        logger.info("[RESOLVE_ORPHANS] Found %d out-of-order ToolMessage(s) to remove: %s", len(out_of_order_tool_message_ids), list(out_of_order_tool_message_ids))
+
+    # Step 3: Build new message list
+    # - Filter out malformed tool calls from AIMessages
+    # - Insert synthetic ToolMessages after orphaned AIMessages
+    # - Filter out orphaned ToolMessages (those without matching AIMessage tool_calls)
+    # - Filter out ToolMessages that come BEFORE their AIMessage (ordering violation)
+    valid_tool_call_ids = set(tool_call_ids_made.keys())  # Set of valid tool call IDs from AIMessages
+    result = []
+    orphaned_tool_messages_removed = 0
+    out_of_order_tool_messages_removed = 0
+
+    for i, message in enumerate(messages):
+        if isinstance(message, AIMessage) and message.tool_calls:
+            # Filter out malformed tool calls (empty name or id)
+            valid_tool_calls = [
+                tc for tc in message.tool_calls
+                if tc.get("name") and tc.get("id")
+            ]
+
+            # If we filtered out any tool calls, create a new AIMessage
+            if len(valid_tool_calls) != len(message.tool_calls):
+                # Create a copy of the message with only valid tool calls
+                if valid_tool_calls:
+                    # Has some valid tool calls remaining
+                    new_message = AIMessage(
+                        content=message.content,
+                        tool_calls=valid_tool_calls,
+                        id=message.id,
+                    )
+                    result.append(new_message)
+                elif message.content:
+                    # No valid tool calls but has content - keep as regular AI message
+                    new_message = AIMessage(
+                        content=message.content,
+                        id=message.id,
+                    )
+                    result.append(new_message)
+                # else: skip message entirely (no content, no valid tool calls)
+            else:
+                # No filtering needed, keep original
+                result.append(message)
+
+            # Insert synthetic responses for orphaned tool calls
+            for tool_call in valid_tool_calls:
+                if tool_call["id"] in orphaned_ids:
+                    synthetic_response = ToolMessage(
+                        content=CANCELLED_TOOL_CALL_CONTENT,
+                        tool_call_id=tool_call["id"],
+                        name=tool_call.get("name", "unknown"),
+                    )
+                    result.append(synthetic_response)
+                    logger.info(
+                        "[RESOLVE_ORPHANS] Inserted cancelled ToolMessage for %s (id=%s)",
+                        tool_call.get("name"),
+                        tool_call["id"]
+                    )
+
+        elif isinstance(message, ToolMessage):
+            # Filter out orphaned ToolMessages (those without matching AIMessage tool_calls)
+            # This can happen when frontend injects cancelled ToolMessages but the AIMessage
+            # was never persisted (cancelled before write)
+            if message.tool_call_id not in valid_tool_call_ids:
+                logger.info(
+                    "[RESOLVE_ORPHANS] Removing orphaned ToolMessage: name=%s, tool_call_id=%s",
+                    message.name,
+                    message.tool_call_id
+                )
+                orphaned_tool_messages_removed += 1
+                continue  # Skip this orphaned ToolMessage
+
+            # Filter out out-of-order ToolMessages (those that come BEFORE their AIMessage)
+            # OpenAI requires tool messages to follow their corresponding AI message
+            if message.tool_call_id in out_of_order_tool_message_ids:
+                logger.info(
+                    "[RESOLVE_ORPHANS] Removing out-of-order ToolMessage: name=%s, tool_call_id=%s",
+                    message.name,
+                    message.tool_call_id
+                )
+                out_of_order_tool_messages_removed += 1
+                continue  # Skip this out-of-order ToolMessage
+
+            result.append(message)
+
+        else:
+            result.append(message)
+
+    if orphaned_tool_messages_removed > 0:
+        logger.info("[RESOLVE_ORPHANS] Removed %d orphaned ToolMessage(s)", orphaned_tool_messages_removed)
+    if out_of_order_tool_messages_removed > 0:
+        logger.info("[RESOLVE_ORPHANS] Removed %d out-of-order ToolMessage(s)", out_of_order_tool_messages_removed)
+
+    # Log final result structure for debugging
+    result_summary = []
+    for i, msg in enumerate(result):
+        if isinstance(msg, AIMessage) and msg.tool_calls:
+            tc_summary = [f"{{name={tc.get('name', '')!r}, id={tc.get('id', '')[:20] if tc.get('id') else ''}...}}" for tc in msg.tool_calls]
+            result_summary.append(f"[{i}] AIMessage({len(msg.tool_calls)} tool_calls: {tc_summary})")
+        elif isinstance(msg, AIMessage):
+            result_summary.append(f"[{i}] AIMessage(no tool_calls)")
+        elif isinstance(msg, ToolMessage):
+            result_summary.append(f"[{i}] ToolMessage(name={msg.name}, id={msg.tool_call_id[:20] if msg.tool_call_id else ''}...)")
+        else:
+            result_summary.append(f"[{i}] {type(msg).__name__}")
+
+    logger.info(
+        "[RESOLVE_ORPHANS] Result: %d messages: %s",
+        len(result),
+        "; ".join(result_summary)
+    )
+
+    return result
+
+
+def create_orphan_resolution_hook():
+    """
+    Create a pre-model hook that resolves orphaned tool calls with synthetic responses.
+
+    This hook should be applied FIRST in the hook chain (before trimming and image processing)
+    to ensure all subsequent hooks see a valid message sequence.
+
+    Usage:
+        orphan_hook = create_orphan_resolution_hook()
+
+        # Compose with other hooks
+        async def combined_hook(state, config):
+            state = {**state, **orphan_hook(state)}  # Resolve orphans first
+            state = {**state, **trimming_hook(state)}
+            state = await image_hook(state, config)
+            return state
+
+    Returns:
+        Sync hook function compatible with pre_model_hook composition
+    """
+    def orphan_resolution_hook(state):
+        """Resolve orphaned tool calls before model invocation."""
+        # Check for llm_input_messages first (set by other hooks), fall back to messages
+        messages_key = "llm_input_messages" if "llm_input_messages" in state else "messages"
+        messages = state.get(messages_key, [])
+
+        if not messages:
+            return state
+
+        try:
+            resolved_messages = resolve_orphaned_tool_calls(messages)
+            return {"llm_input_messages": resolved_messages}
+        except Exception as e:
+            logger.exception("[ORPHAN_HOOK] Error resolving orphaned tool calls: %s", e)
+            # On error, return original state to prevent breaking the agent
+            return state
+
+    return orphan_resolution_hook
+
+
 # ==================== collection_read_image Tool Result Processing ====================
 
 async def convert_collection_read_image_to_multimodal(messages: List[BaseMessage]) -> List[BaseMessage]:

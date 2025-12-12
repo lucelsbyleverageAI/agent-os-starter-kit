@@ -806,8 +806,10 @@ def create_trimming_hook(config: MessageTrimmingConfig):
     """
     def pre_model_hook(state):
         """Trim messages before sending to model"""
+        # Check llm_input_messages first (may be set by previous hooks like orphan resolution)
+        messages = state.get("llm_input_messages") or state.get("messages", [])
         trimmed_messages = trim_message_history(
-            messages=state["messages"],
+            messages=messages,
             config=config,
             model=None,  # Use approximate counting in hooks for speed
         )
