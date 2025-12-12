@@ -40,9 +40,30 @@ export function TaskTool({
   // Get response content
   let responseContent: string | null = null;
   if (state === "completed" && toolResult?.content) {
-    responseContent = typeof toolResult.content === "string"
-      ? toolResult.content
-      : JSON.stringify(toolResult.content, null, 2);
+    const content = toolResult.content;
+    if (typeof content === "string") {
+      responseContent = content;
+    } else if (Array.isArray(content)) {
+      // Handle array of content blocks (Claude/Anthropic format)
+      // Format: [{ text: "...", type: "text", index: 0 }]
+      const textParts: string[] = [];
+      for (const block of content) {
+        if (
+          typeof block === "object" &&
+          block !== null &&
+          "text" in block &&
+          typeof (block as { text: unknown }).text === "string"
+        ) {
+          textParts.push((block as { text: string }).text);
+        }
+      }
+      responseContent = textParts.length > 0
+        ? textParts.join("\n")
+        : JSON.stringify(content, null, 2);
+    } else {
+      // Fallback for other object types
+      responseContent = JSON.stringify(content, null, 2);
+    }
   }
 
   // Handler to open preview
