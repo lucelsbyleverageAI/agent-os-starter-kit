@@ -152,6 +152,7 @@ jobs:
         working-directory: apps/web
         run: yarn build
         env:
+          NODE_OPTIONS: --max_old_space_size=4096
           # Use dummy values for build-time env vars
           NEXT_PUBLIC_SUPABASE_URL: http://localhost:8000
           NEXT_PUBLIC_SUPABASE_ANON_KEY: dummy-key-for-build
