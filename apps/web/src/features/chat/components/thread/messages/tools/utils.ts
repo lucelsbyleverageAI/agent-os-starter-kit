@@ -14,15 +14,15 @@ export function matchToolCallsWithResults(
   isLoading: boolean
 ): ToolCallWithResult[] {
   // Filter out incomplete/empty tool calls that might appear during streaming
-  const validToolCalls = toolCalls.filter(toolCall => 
+  const validToolCalls = toolCalls.filter(toolCall =>
     toolCall.name && toolCall.name.length > 0
   );
-  
+
   // Find all tool results in the thread
   const toolResults = messages.filter(
     (msg): msg is ToolMessage => msg.type === "tool"
   );
-  
+
   return validToolCalls.map((toolCall, index) => {
     // Try to find corresponding tool result
     const toolResult = toolResults.find(

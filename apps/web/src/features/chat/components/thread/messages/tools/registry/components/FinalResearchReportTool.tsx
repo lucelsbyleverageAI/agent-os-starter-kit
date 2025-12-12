@@ -12,7 +12,7 @@ import {
   ChevronRight
 } from "lucide-react";
 import { MinimalistBadge } from "@/components/ui/minimalist-badge";
-import { CheckCircle, Loader2, AlertCircle } from "lucide-react";
+import { CheckCircle, Loader2, AlertCircle, XOctagon } from "lucide-react";
 import ReactMarkdown from "react-markdown";
 import remarkGfm from "remark-gfm";
 import remarkMath from "remark-math";
@@ -453,7 +453,30 @@ export function FinalResearchReportTool({
     );
   }
 
-  // Error state
+  // Cancelled state (error with no result)
+  if (state === "error" && !toolResult) {
+    return (
+      <Card className="w-full p-4">
+        <div className="flex items-center gap-3">
+          <MinimalistBadge
+            icon={XOctagon}
+            tooltip="Report generation cancelled"
+            className="text-orange-500"
+          />
+          <div>
+            <h3 className="font-medium text-foreground">
+              Cancelled
+            </h3>
+            <p className="text-sm text-muted-foreground">
+              Research report generation was cancelled
+            </p>
+          </div>
+        </div>
+      </Card>
+    );
+  }
+
+  // Error state (actual failure)
   if (state === "error") {
     return (
       <Card className="w-full p-4">

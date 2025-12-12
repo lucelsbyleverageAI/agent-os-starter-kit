@@ -1,7 +1,7 @@
 import React, { useState } from "react";
 import { ToolComponentProps } from "../../types";
 import { Card } from "@/components/ui/card";
-import { Loader2, ChevronDown, ChevronUp, Globe, CheckCircle } from "lucide-react";
+import { Loader2, ChevronDown, ChevronUp, Globe, CheckCircle, XOctagon } from "lucide-react";
 import { MinimalistBadge } from "@/components/ui/minimalist-badge";
 
 interface ParsedToolResult {
@@ -95,9 +95,28 @@ export function ResearchProgressTool({
   // Determine if still loading - should spin while research is in progress
   // Research is ongoing if we're in loading state OR if step < 5 (final step)
   const isLoading = (state === 'loading' || streaming) || (data.step < 5);
-  
 
-  
+  // Cancelled state (error with no result)
+  if (state === 'error' && !toolResult) {
+    return (
+      <Card className="w-full p-4">
+        <div className="flex items-center gap-3">
+          <MinimalistBadge
+            icon={XOctagon}
+            tooltip="Research cancelled"
+            className="text-orange-500"
+          />
+          <div>
+            <h3 className="font-medium text-sm">Research Cancelled</h3>
+            <p className="text-xs text-muted-foreground">
+              Research was stopped before completion
+            </p>
+          </div>
+        </div>
+      </Card>
+    );
+  }
+
   return (
     <Card className="w-full p-4 space-y-3">
         {/* Header with spinner, message, and expand button */}
