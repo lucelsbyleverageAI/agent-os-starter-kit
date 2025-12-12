@@ -18,6 +18,7 @@ import { cn } from "@/lib/utils";
 import { useQueryState } from "nuqs";
 import { Skeleton } from "@/components/ui/skeleton";
 import { useAgents } from "@/hooks/use-agents";
+import type { Agent } from "@/types/agent";
 import {
   Tooltip,
   TooltipContent,
@@ -46,6 +47,7 @@ import {
   AlertDialogTitle,
 } from "@/components/ui/alert-dialog";
 import { Input } from "@/components/ui/input";
+import { Textarea } from "@/components/ui/textarea";
 import { Label } from "@/components/ui/label";
 import { canUserEditAssistant, isUserDefaultAssistant } from "@/lib/agent-utils";
 import { useAuthContext } from "@/providers/Auth";
@@ -172,6 +174,12 @@ export const ConfigurationSidebar = forwardRef<
     openNameAndDescriptionAlertDialog,
     setOpenNameAndDescriptionAlertDialog,
   ] = useState(false);
+  const [commitMessageDialogOpen, setCommitMessageDialogOpen] = useState(false);
+  const [commitMessage, setCommitMessage] = useState("");
+  const [pendingConfigData, setPendingConfigData] = useState<{
+    completeConfig: Record<string, any>;
+    selectedAgent: Agent;
+  } | null>(null);
 
   const { toolSearchTerm, debouncedSetSearchTerm } =
     useSearchTools(tools, {
@@ -317,8 +325,33 @@ export const ConfigurationSidebar = forwardRef<
       return;
     }
 
+    // Ensure we have a full agent (not lightweight) before saving
+    if ('_isLightweight' in selectedAgent && selectedAgent._isLightweight) {
+      console.error(`❌ [ConfigSidebar] Cannot save lightweight agent - should have been hydrated`);
+      toast.error("Failed to save config.", {
+        richColors: true,
+        description: "Agent data not fully loaded. Please try again.",
+      });
+      return;
+    }
+
     const completeConfig = store.getAgentConfig(agentId);
 
+    // Store pending config data and show commit message dialog
+    setPendingConfigData({
+      completeConfig,
+      selectedAgent: selectedAgent as Agent,
+    });
+    setCommitMessage("");
+    setCommitMessageDialogOpen(true);
+  };
+
+  const handleSaveWithCommitMessage = async (skipCommitMessage: boolean = false) => {
+    if (!pendingConfigData || !agentId || !deploymentId) return;
+
+    setCommitMessageDialogOpen(false);
+
+    const { completeConfig, selectedAgent } = pendingConfigData;
 
     const result = await updateAgent(agentId, deploymentId, {
       name: selectedAgent.name,
@@ -326,10 +359,12 @@ export const ConfigurationSidebar = forwardRef<
       config: completeConfig,
       tags: tags || [],
       metadata: selectedAgent.metadata || undefined,
+      commitMessage: skipCommitMessage ? undefined : (commitMessage.trim() || undefined),
     });
-    
 
-    
+    setPendingConfigData(null);
+    setCommitMessage("");
+
     if (!result.ok) {
       console.error(`❌ [ConfigSidebar] Update agent failed:`, result);
       const message = agentMessages.config.saveError();
@@ -884,6 +919,49 @@ export const ConfigurationSidebar = forwardRef<
         setOpen={setOpenNameAndDescriptionAlertDialog}
         handleSave={handleSave}
       />
+
+      {/* Commit Message Modal */}
+      <AlertDialog open={commitMessageDialogOpen} onOpenChange={setCommitMessageDialogOpen}>
+        <AlertDialogContent className="sm:max-w-md">
+          <AlertDialogHeader>
+            <AlertDialogTitle>Save Changes</AlertDialogTitle>
+            <AlertDialogDescription>
+              Add an optional message to describe your changes. This helps track version history.
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <div className="space-y-4 py-4">
+            <div className="space-y-2">
+              <Label htmlFor="commit-message">
+                Change description <span className="text-xs text-muted-foreground">(optional)</span>
+              </Label>
+              <Textarea
+                id="commit-message"
+                value={commitMessage}
+                onChange={(e) => setCommitMessage(e.target.value)}
+                placeholder="e.g., Updated system prompt, Added new tools..."
+                rows={3}
+              />
+            </div>
+          </div>
+          <AlertDialogFooter>
+            <AlertDialogCancel onClick={() => {
+              setPendingConfigData(null);
+              setCommitMessage("");
+            }}>
+              Cancel
+            </AlertDialogCancel>
+            <Button
+              variant="outline"
+              onClick={() => handleSaveWithCommitMessage(true)}
+            >
+              Skip
+            </Button>
+            <AlertDialogAction onClick={() => handleSaveWithCommitMessage(false)}>
+              Save
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
     </div>
   );
 });
