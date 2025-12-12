@@ -191,14 +191,14 @@ async def get_or_create_sandbox(
     pip_packages: Optional[List[str]] = None,
     timeout: int = 3600,  # Max 1 hour for hobby tier
     existing_sandbox_id: Optional[str] = None,  # For reconnection from state
-) -> Tuple[Any, str]:
+) -> Tuple[Any, str, bool]:
     """
     Get existing sandbox (reconnect/resume) or create new one with skills uploaded.
 
     This function implements E2B sandbox lifecycle management:
     1. If existing_sandbox_id is provided, attempt to reconnect (auto-resumes if paused)
     2. If reconnection fails or no ID provided, create a new sandbox
-    3. Returns both the sandbox instance and its ID for state persistence
+    3. Returns sandbox instance, ID for state persistence, and whether previous sandbox expired
 
     Args:
         thread_id: Unique identifier for this thread/conversation
@@ -210,7 +210,11 @@ async def get_or_create_sandbox(
         existing_sandbox_id: E2B sandbox ID from previous request (for reconnection)
 
     Returns:
-        Tuple of (E2B Sandbox instance, sandbox_id for state persistence)
+        Tuple of (E2B Sandbox instance, sandbox_id, previous_sandbox_expired)
+        - sandbox: The E2B Sandbox instance
+        - sandbox_id: ID for state persistence
+        - previous_sandbox_expired: True if reconnection failed and a new sandbox was created
+          (indicates data loss from previous sandbox)
     """
     global _sandboxes
 
@@ -226,27 +230,31 @@ async def get_or_create_sandbox(
     if not e2b_api_key:
         log.warning("E2B_API_KEY not set - sandbox features will be limited")
 
+    # Track if we need to create a new sandbox because the previous one expired
+    previous_sandbox_expired = False
+
     # 1. Try to reconnect to existing sandbox (if ID provided)
     if existing_sandbox_id:
-        # First check in-memory cache
-        if thread_id in _sandboxes:
-            cached_sandbox = _sandboxes[thread_id]
-            # Verify it's the same sandbox
-            if hasattr(cached_sandbox, 'sandbox_id') and cached_sandbox.sandbox_id == existing_sandbox_id:
-                log.info(f"[sandbox] Using cached sandbox {existing_sandbox_id} for thread {thread_id}")
-                return cached_sandbox, existing_sandbox_id
+        log.info(f"[sandbox][RECONNECT] Attempting reconnection - existing_sandbox_id={existing_sandbox_id}, thread={thread_id}")
+
+        # NOTE: We intentionally do NOT use the in-memory cache here even if present.
+        # The cached sandbox object may have a stale websocket connection (especially after timeout).
+        # Always call Sandbox.connect() to get a fresh connection that auto-resumes if paused.
 
         # Try to reconnect using E2B's connect API (auto-resumes if paused)
         try:
-            log.info(f"[sandbox] Attempting to reconnect to sandbox {existing_sandbox_id}")
+            log.info(f"[sandbox][RECONNECT] Calling Sandbox.connect({existing_sandbox_id}) - this will auto-resume if paused")
             sandbox = Sandbox.connect(existing_sandbox_id, api_key=e2b_api_key)
             # Update in-memory cache
             _sandboxes[thread_id] = sandbox
-            log.info(f"[sandbox] Successfully reconnected to sandbox {existing_sandbox_id}")
-            return sandbox, existing_sandbox_id
+            log.info(f"[sandbox][RECONNECT] SUCCESS - Reconnected to sandbox_id={existing_sandbox_id}")
+            return sandbox, existing_sandbox_id, False  # Not expired, successful reconnect
         except Exception as e:
-            log.warning(f"[sandbox] Failed to reconnect to sandbox {existing_sandbox_id}: {e}")
-            log.info("[sandbox] Will create a new sandbox and re-upload skills")
+            log.warning(f"[sandbox][RECONNECT] FAILED - Could not reconnect to sandbox_id={existing_sandbox_id}")
+            log.warning(f"[sandbox][RECONNECT] Error details: {type(e).__name__}: {e}")
+            log.warning("[sandbox][RECONNECT] Previous sandbox expired (30-day retention limit) - creating new sandbox")
+            # Mark that the previous sandbox expired - the LLM should be notified about data loss
+            previous_sandbox_expired = True
             # Fall through to create new sandbox
 
     # 2. Check in-memory cache (for backwards compatibility during transition)
@@ -254,7 +262,7 @@ async def get_or_create_sandbox(
         cached_sandbox = _sandboxes[thread_id]
         sandbox_id = getattr(cached_sandbox, 'sandbox_id', 'unknown')
         log.info(f"[sandbox] Using cached sandbox {sandbox_id} for thread {thread_id}")
-        return cached_sandbox, sandbox_id
+        return cached_sandbox, sandbox_id, False  # Not expired, using cache
 
     # 3. Create new sandbox with auto-pause enabled
     # Auto-pause preserves sandbox state (filesystem + memory) when timeout expires
@@ -262,10 +270,14 @@ async def get_or_create_sandbox(
     # Get custom template ID (if set) - uses pre-built template with document processing libraries
     template_id = os.environ.get("E2B_TEMPLATE_ID")
 
+    # Log all creation parameters for debugging
+    log.info(f"[sandbox][CREATE] Starting sandbox creation for thread={thread_id}")
+    log.info(f"[sandbox][CREATE] Parameters: timeout={timeout}s ({timeout/60:.1f} min), auto_pause=True, template_id={template_id or 'default'}")
+
     # Create new sandbox with auto_pause=True (with custom template if configured)
     # Using beta_create for auto-pause feature (preserves state on timeout)
     if template_id:
-        log.info(f"[sandbox] Creating sandbox with custom template: {template_id} (auto_pause=True)")
+        log.info(f"[sandbox][CREATE] Calling Sandbox.beta_create with custom template: {template_id}")
         sandbox = Sandbox.beta_create(
             template=template_id,
             timeout=timeout,
@@ -273,7 +285,7 @@ async def get_or_create_sandbox(
             api_key=e2b_api_key
         )
     else:
-        log.info("[sandbox] Creating sandbox with default E2B code-interpreter template (auto_pause=True)")
+        log.info("[sandbox][CREATE] Calling Sandbox.beta_create with default E2B code-interpreter template")
         sandbox = Sandbox.beta_create(
             timeout=timeout,
             auto_pause=True,
@@ -281,7 +293,7 @@ async def get_or_create_sandbox(
         )
 
     new_sandbox_id = sandbox.sandbox_id
-    log.info(f"[sandbox] Created new sandbox {new_sandbox_id} for thread {thread_id}")
+    log.info(f"[sandbox][CREATE] SUCCESS - Created sandbox_id={new_sandbox_id} for thread={thread_id} with timeout={timeout}s")
 
     # NOTE: Directory structure is pre-created in the E2B template (e2b.Dockerfile)
     # This saves ~1-2 seconds by avoiding multiple API calls on first message
@@ -334,7 +346,8 @@ async def get_or_create_sandbox(
     _sandboxes[thread_id] = sandbox
     log.info(f"[sandbox] Initialized sandbox {new_sandbox_id} for thread {thread_id} with {len(skills)} skills")
 
-    return sandbox, new_sandbox_id
+    # Return whether the previous sandbox expired (only true if we tried to reconnect and failed)
+    return sandbox, new_sandbox_id, previous_sandbox_expired
 
 
 def get_sandbox(thread_id: str) -> Optional[Any]:
@@ -347,7 +360,13 @@ def get_sandbox(thread_id: str) -> Optional[Any]:
     Returns:
         Sandbox instance or None if not found
     """
-    return _sandboxes.get(thread_id)
+    cached = _sandboxes.get(thread_id)
+    if cached:
+        sandbox_id = getattr(cached, 'sandbox_id', 'unknown')
+        log.info(f"[sandbox][get_sandbox] Returning cached sandbox_id={sandbox_id} for thread={thread_id}")
+    else:
+        log.info(f"[sandbox][get_sandbox] No cached sandbox found for thread={thread_id}")
+    return cached
 
 
 def cleanup_sandbox(thread_id: str):
@@ -452,7 +471,11 @@ def create_sandbox_tools(thread_id: str) -> Tuple[Any, Any]:
         """
         sandbox_instance = get_sandbox(thread_id)
         if not sandbox_instance:
+            log.warning(f"[sandbox][run_code] No sandbox instance found for thread={thread_id}")
             return "Error: Sandbox not initialized for this thread"
+
+        sandbox_id = getattr(sandbox_instance, 'sandbox_id', 'unknown')
+        log.info(f"[sandbox][run_code] Executing code on sandbox_id={sandbox_id}, thread={thread_id}, language={language}")
 
         try:
             execution = sandbox_instance.run_code(
@@ -494,9 +517,13 @@ def create_sandbox_tools(thread_id: str) -> Tuple[Any, Any]:
             if len(output) > max_length:
                 output = output[:max_length] + f"\n... (truncated, {len(output)} total chars)"
 
+            log.info(f"[sandbox][run_code] Execution completed successfully on sandbox_id={sandbox_id}")
             return output or "(no output)"
 
         except Exception as e:
+            log.error(f"[sandbox][run_code] EXECUTION FAILED on sandbox_id={sandbox_id}")
+            log.error(f"[sandbox][run_code] Error type: {type(e).__name__}")
+            log.error(f"[sandbox][run_code] Error message: {e}")
             return f"Error executing code: {e}"
 
     @tool
@@ -536,7 +563,11 @@ def create_sandbox_tools(thread_id: str) -> Tuple[Any, Any]:
         """
         sandbox_instance = get_sandbox(thread_id)
         if not sandbox_instance:
+            log.warning(f"[sandbox][run_command] No sandbox instance found for thread={thread_id}")
             return "Error: Sandbox not initialized for this thread"
+
+        sandbox_id = getattr(sandbox_instance, 'sandbox_id', 'unknown')
+        log.info(f"[sandbox][run_command] Executing command on sandbox_id={sandbox_id}, thread={thread_id}")
 
         try:
             result = sandbox_instance.commands.run(
@@ -562,9 +593,13 @@ def create_sandbox_tools(thread_id: str) -> Tuple[Any, Any]:
             if len(output) > max_length:
                 output = output[:max_length] + f"\n... (truncated, {len(output)} total chars)"
 
+            log.info(f"[sandbox][run_command] Command completed successfully on sandbox_id={sandbox_id}")
             return output or "(no output)"
 
         except Exception as e:
+            log.error(f"[sandbox][run_command] EXECUTION FAILED on sandbox_id={sandbox_id}")
+            log.error(f"[sandbox][run_command] Error type: {type(e).__name__}")
+            log.error(f"[sandbox][run_command] Error message: {e}")
             return f"Error executing command: {e}"
 
     return run_code, run_command

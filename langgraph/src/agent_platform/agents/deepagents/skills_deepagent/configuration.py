@@ -74,10 +74,10 @@ class SandboxConfig(BaseModel):
     """E2B sandbox configuration."""
 
     timeout_seconds: int = Field(
-        default=600,
+        default=3600,
         ge=60,
         le=3600,
-        description="Sandbox timeout in seconds (60-3600)"
+        description="Sandbox timeout in seconds (60-3600). Default is 1 hour (max for E2B hobby tier)."
     )
     pip_packages: List[str] = Field(
         default_factory=list,

@@ -13,7 +13,7 @@ Files are downloaded from Supabase Storage and written to /sandbox/user_uploads/
 import re
 import httpx
 from typing import Annotated, Optional, List, Dict, Any, Tuple, Callable
-from langchain_core.messages import HumanMessage, AIMessage, ToolMessage
+from langchain_core.messages import HumanMessage, AIMessage, ToolMessage, SystemMessage
 from langgraph.types import Command
 from langgraph.prebuilt import InjectedState
 from agent_platform.sentry import get_logger
@@ -400,9 +400,9 @@ def create_file_attachment_node(
             logger.info("[SKILLS_FILE_ATTACH] No existing sandbox_id in state, will create new sandbox")
 
         try:
-            # get_or_create_sandbox now returns (sandbox, sandbox_id)
+            # get_or_create_sandbox now returns (sandbox, sandbox_id, previous_sandbox_expired)
             # It will try to reconnect if existing_sandbox_id is provided
-            sandbox, sandbox_id = await get_or_create_sandbox(
+            sandbox, sandbox_id, previous_sandbox_expired = await get_or_create_sandbox(
                 thread_id=thread_id,
                 skills=skills or [],
                 langconnect_url=langconnect_url,
@@ -412,13 +412,30 @@ def create_file_attachment_node(
                 existing_sandbox_id=existing_sandbox_id,
             )
             logger.info(
-                "[SKILLS_FILE_ATTACH] Sandbox ready: %s (reconnected=%s)",
+                "[SKILLS_FILE_ATTACH] Sandbox ready: %s (reconnected=%s, previous_expired=%s)",
                 sandbox_id,
-                sandbox_id == existing_sandbox_id
+                sandbox_id == existing_sandbox_id,
+                previous_sandbox_expired
             )
         except Exception as e:
             logger.error("[SKILLS_FILE_ATTACH] Failed to initialize sandbox: %s", e)
             raise RuntimeError(f"Sandbox initialization failed: {e}")
+
+        # Track if we need to notify the LLM about sandbox expiration
+        sandbox_expired_notification = None
+        if previous_sandbox_expired:
+            logger.warning(
+                "[SKILLS_FILE_ATTACH] Previous sandbox expired - will notify LLM about data loss"
+            )
+            sandbox_expired_notification = SystemMessage(
+                content=(
+                    "[SYSTEM NOTICE: Your previous sandbox environment has expired after 30 days of inactivity. "
+                    f"A new sandbox has been created (ID: {sandbox_id}). "
+                    "IMPORTANT: Any files, data, or work from previous sessions in the sandbox are NO LONGER AVAILABLE. "
+                    "If the user references previous work or files, inform them that the sandbox has been reset "
+                    "and offer to help them recreate or re-upload their data.]"
+                )
+            )
 
         # 2. Process file attachments (rest of the original logic)
         # Now that sandbox is initialized, process attachments
@@ -508,8 +525,16 @@ def create_file_attachment_node(
             files_written
         )
 
+        # Build state update with sandbox_id and optional expiration notification
+        state_update = {"sandbox_id": sandbox_id}
+
+        # If the previous sandbox expired, inject a system message to notify the LLM
+        if sandbox_expired_notification:
+            state_update["messages"] = [sandbox_expired_notification]
+            logger.info("[SKILLS_FILE_ATTACH] Injected sandbox expiration notification into messages")
+
         # Return sandbox_id in state for persistence across requests
-        return Command(update={"sandbox_id": sandbox_id})
+        return Command(update=state_update)
 
     return file_attachment_node
 
@@ -598,9 +623,9 @@ def create_file_attachment_nodes(
             logger.info("[SKILLS_FILE_ATTACH] No existing sandbox_id in state, will create new sandbox")
 
         try:
-            # get_or_create_sandbox returns (sandbox, sandbox_id)
+            # get_or_create_sandbox returns (sandbox, sandbox_id, previous_sandbox_expired)
             # It will try to reconnect if existing_sandbox_id is provided
-            sandbox, sandbox_id = await get_or_create_sandbox(
+            sandbox, sandbox_id, previous_sandbox_expired = await get_or_create_sandbox(
                 thread_id=thread_id,
                 skills=skills or [],
                 langconnect_url=langconnect_url,
@@ -610,13 +635,30 @@ def create_file_attachment_nodes(
                 existing_sandbox_id=existing_sandbox_id,
             )
             logger.info(
-                "[SKILLS_FILE_ATTACH] Sandbox ready: %s (reconnected=%s)",
+                "[SKILLS_FILE_ATTACH] Sandbox ready: %s (reconnected=%s, previous_expired=%s)",
                 sandbox_id,
-                sandbox_id == existing_sandbox_id
+                sandbox_id == existing_sandbox_id,
+                previous_sandbox_expired
             )
         except Exception as e:
             logger.error("[SKILLS_FILE_ATTACH] Failed to initialize sandbox: %s", e)
             raise RuntimeError(f"Sandbox initialization failed: {e}")
+
+        # Track if we need to notify the LLM about sandbox expiration
+        sandbox_expired_notification = None
+        if previous_sandbox_expired:
+            logger.warning(
+                "[SKILLS_FILE_ATTACH] Previous sandbox expired - will notify LLM about data loss"
+            )
+            sandbox_expired_notification = SystemMessage(
+                content=(
+                    "[SYSTEM NOTICE: Your previous sandbox environment has expired after 30 days of inactivity. "
+                    f"A new sandbox has been created (ID: {sandbox_id}). "
+                    "IMPORTANT: Any files, data, or work from previous sessions in the sandbox are NO LONGER AVAILABLE. "
+                    "If the user references previous work or files, inform them that the sandbox has been reset "
+                    "and offer to help them recreate or re-upload their data.]"
+                )
+            )
 
         # Process file attachments
         messages = state.get("messages", [])
@@ -708,6 +750,9 @@ def create_file_attachment_nodes(
         # Build return update
         update: Dict[str, Any] = {"sandbox_id": sandbox_id}
 
+        # Collect messages to add
+        messages_to_add = []
+
         # If first run, emit completion message to close loading UI
         if is_first_run:
             completion_message = ToolMessage(
@@ -715,8 +760,16 @@ def create_file_attachment_nodes(
                 tool_call_id=tool_call_id,
                 name="sandbox_initialization"
             )
-            update["messages"] = [completion_message]
+            messages_to_add.append(completion_message)
             logger.info("[SKILLS_FILE_ATTACH] Emitted completion message for loading UI")
+
+        # If the previous sandbox expired, inject a system message to notify the LLM
+        if sandbox_expired_notification:
+            messages_to_add.append(sandbox_expired_notification)
+            logger.info("[SKILLS_FILE_ATTACH] Injected sandbox expiration notification into messages")
+
+        if messages_to_add:
+            update["messages"] = messages_to_add
 
         return Command(update=update)
 
