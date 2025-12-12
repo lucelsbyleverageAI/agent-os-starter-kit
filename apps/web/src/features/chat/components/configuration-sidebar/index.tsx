@@ -15,6 +15,7 @@ import { ConfigFieldSkills } from "@/features/chat/components/configuration-side
 import { ConfigSection } from "@/features/chat/components/configuration-sidebar/config-section";
 import { useConfigStore } from "@/features/chat/hooks/use-config-store";
 import { cn } from "@/lib/utils";
+import { logger } from "@/lib/logger";
 import { useQueryState } from "nuqs";
 import { Skeleton } from "@/components/ui/skeleton";
 import { useAgents } from "@/hooks/use-agents";
@@ -347,7 +348,14 @@ export const ConfigurationSidebar = forwardRef<
   };
 
   const handleSaveWithCommitMessage = async (skipCommitMessage: boolean = false) => {
-    if (!pendingConfigData || !agentId || !deploymentId) return;
+    if (!pendingConfigData || !agentId || !deploymentId) {
+      logger.warn('[ConfigSidebar] handleSaveWithCommitMessage called without required data', {
+        hasPendingConfigData: !!pendingConfigData,
+        agentId,
+        deploymentId,
+      });
+      return;
+    }
 
     setCommitMessageDialogOpen(false);
 
@@ -366,7 +374,7 @@ export const ConfigurationSidebar = forwardRef<
     setCommitMessage("");
 
     if (!result.ok) {
-      console.error(`❌ [ConfigSidebar] Update agent failed:`, result);
+      logger.error('[ConfigSidebar] Update agent failed:', result);
       const message = agentMessages.config.saveError();
       notify.error(message.title, {
         description: message.description,
@@ -386,7 +394,7 @@ export const ConfigurationSidebar = forwardRef<
       invalidateAssistantListCache();
       await refreshAgents(true);
     } catch (cacheError) {
-      console.warn("Cache invalidation failed:", cacheError);
+      logger.warn("Cache invalidation failed:", cacheError);
     }
   };
 
@@ -921,7 +929,17 @@ export const ConfigurationSidebar = forwardRef<
       />
 
       {/* Commit Message Modal */}
-      <AlertDialog open={commitMessageDialogOpen} onOpenChange={setCommitMessageDialogOpen}>
+      <AlertDialog
+        open={commitMessageDialogOpen}
+        onOpenChange={(open) => {
+          setCommitMessageDialogOpen(open);
+          if (!open) {
+            // Clean up when modal closes (ESC, click outside, etc.)
+            setPendingConfigData(null);
+            setCommitMessage("");
+          }
+        }}
+      >
         <AlertDialogContent className="sm:max-w-md">
           <AlertDialogHeader>
             <AlertDialogTitle>Save Changes</AlertDialogTitle>
