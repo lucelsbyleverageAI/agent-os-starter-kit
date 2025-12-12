@@ -6,7 +6,9 @@ import React, {
   ReactNode,
   useState,
   useRef,
-  useMemo
+  useMemo,
+  useEffect,
+  useCallback
 } from "react";
 import { useStream } from "@langchain/langgraph-sdk/react";
 import { type Message } from "@langchain/langgraph-sdk";
@@ -81,7 +83,9 @@ const StreamSession = ({
     apiUrl: deploymentUrl,
     assistantId: agentId,
     threadId: threadId ?? null,
-    // Note: current SDK options do not expose streamMode; rely on defaults
+    // Enable automatic reconnection to active runs when component remounts
+    // This uses sessionStorage to store run IDs and auto-rejoins on mount
+    reconnectOnMount: true,
     onCustomEvent: (event, options) => {
       // Handle n8n streaming chunks emitted from the backend
       if (event && typeof event === "object" && (event as any).n8n_chunk) {
@@ -130,7 +134,82 @@ const StreamSession = ({
     },
   });
 
+  // Track the initial threadId at mount time to distinguish:
+  // - Mounting with existing threadId (user navigated to existing thread) → check for active runs
+  // - threadId changing from null (new thread created during session) → don't check
+  const initialThreadIdRef = useRef<string | null | undefined>(undefined);
+  const hasCheckedActiveRunsRef = useRef(false);
 
+  // Capture initial threadId on first render only
+  if (initialThreadIdRef.current === undefined) {
+    initialThreadIdRef.current = threadId;
+  }
+
+  // Memoize the joinStream function reference to prevent effect re-runs
+  const joinStreamRef = useCallback(
+    (runId: string) => streamValue.joinStream(runId),
+    [streamValue.joinStream]
+  );
+
+  // Check for active runs ONLY when mounting with an existing threadId
+  // This handles cross-session scenarios where the run ID isn't in sessionStorage
+  // (e.g., browser was closed, opened in new tab, or backend-initiated runs)
+  useEffect(() => {
+    // Only check if:
+    // 1. We have a threadId
+    // 2. We mounted with this threadId (not created during session)
+    // 3. We haven't already checked for this mount
+    // 4. We're not already loading/streaming
+    const mountedWithExistingThread = initialThreadIdRef.current === threadId && threadId !== null;
+
+    if (!threadId || !streamValue.client || hasCheckedActiveRunsRef.current || !mountedWithExistingThread) {
+      return;
+    }
+
+    // Skip if already streaming (e.g., reconnectOnMount already handled it)
+    if (streamValue.isLoading) {
+      console.log('[Stream] Already loading, skipping active run check');
+      hasCheckedActiveRunsRef.current = true;
+      return;
+    }
+
+    const checkAndJoinActiveRun = async () => {
+      // Double-check we're not loading before making the API call
+      if (streamValue.isLoading) {
+        console.log('[Stream] Stream became active, skipping active run check');
+        return;
+      }
+
+      try {
+        // Check for running or pending runs on this thread
+        const [runningRuns, pendingRuns] = await Promise.all([
+          streamValue.client.runs.list(threadId, { status: "running", limit: 1 }),
+          streamValue.client.runs.list(threadId, { status: "pending", limit: 1 }),
+        ]);
+
+        const activeRuns = [...runningRuns, ...pendingRuns];
+
+        if (activeRuns.length > 0) {
+          // Sort by created_at desc to get most recent active run
+          const latestRun = activeRuns.sort(
+            (a, b) => new Date(b.created_at).getTime() - new Date(a.created_at).getTime()
+          )[0];
+
+          console.log(`[Stream] Found active run ${latestRun.run_id}, joining stream...`);
+          await joinStreamRef(latestRun.run_id);
+        }
+      } catch (error) {
+        // Non-fatal: if check fails, user can still interact with thread normally
+        console.warn('[Stream] Error checking for active runs:', error);
+      }
+    };
+
+    hasCheckedActiveRunsRef.current = true;
+
+    // Small delay to let initial history load complete and avoid race conditions
+    const timer = setTimeout(checkAndJoinActiveRun, 500);
+    return () => clearTimeout(timer);
+  }, [threadId, streamValue.client, streamValue.isLoading, joinStreamRef]);
 
   return (
     <StreamContext.Provider value={streamValue}>
