@@ -2,7 +2,14 @@
 -- Purpose: Allow users to view past threads even after losing assistant access
 -- Related Issue: https://github.com/lucelsbyleverageAI/agent-os-starter-kit/issues/142
 
+-- Add index for efficient thread lookup during permission revocation
+-- This partial index only includes non-deprecated threads (the common query pattern)
+CREATE INDEX IF NOT EXISTS idx_threads_mirror_assistant_user_not_deprecated
+ON langconnect.threads_mirror(assistant_id, user_id)
+WHERE is_deprecated = FALSE;
+
 -- Create function to mark threads as deprecated when permission is revoked
+-- Uses SECURITY DEFINER to ensure proper privileges for thread updates
 CREATE OR REPLACE FUNCTION langconnect.mark_threads_on_permission_revoke()
 RETURNS TRIGGER AS $$
 DECLARE
@@ -30,7 +37,7 @@ BEGIN
 
   RETURN OLD;
 END;
-$$ LANGUAGE plpgsql;
+$$ LANGUAGE plpgsql SECURITY DEFINER;
 
 -- Create trigger to run BEFORE permission deletion
 -- This ensures threads are marked before the permission row is removed

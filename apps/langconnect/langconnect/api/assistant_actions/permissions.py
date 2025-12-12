@@ -342,6 +342,23 @@ async def revoke_assistant_access(
         threads_archived = None
 
         if existing_permission:
+            # Count active threads BEFORE deletion to accurately report how many will be archived
+            # This avoids race conditions with the LIKE '%revoked%' query approach
+            try:
+                async with get_db_connection() as conn:
+                    threads_to_archive = await conn.fetchval(
+                        """
+                        SELECT COUNT(*) FROM langconnect.threads_mirror
+                        WHERE assistant_id = $1::uuid
+                          AND user_id = $2
+                          AND is_deprecated = FALSE
+                        """,
+                        assistant_id, user_id
+                    )
+            except Exception as e:
+                log.warning(f"Failed to count threads before revocation: {e}")
+                threads_to_archive = None
+
             # Use permission manager to enforce owner/system rules
             # Note: The database trigger mark_threads_on_permission_revoke() automatically:
             # 1. Marks user's threads with this assistant as deprecated (read-only)
@@ -350,24 +367,17 @@ async def revoke_assistant_access(
                 success = await AssistantPermissionsManager.revoke_assistant_permission(assistant_id, user_id)
                 message = "Access successfully revoked" if success else "Failed to revoke access"
 
-                # If revocation succeeded, get the count of archived threads
+                # Report the count of threads that were archived by the trigger
                 if success:
-                    async with get_db_connection() as conn:
-                        threads_archived = await conn.fetchval(
-                            """
-                            SELECT COUNT(*) FROM langconnect.threads_mirror
-                            WHERE assistant_id = $1::uuid
-                              AND user_id = $2
-                              AND is_deprecated = TRUE
-                              AND deprecated_reason LIKE '%revoked%'
-                            """,
-                            assistant_id, user_id
-                        )
+                    threads_archived = threads_to_archive
             except Exception as e:
                 log.error(f"Failed to revoke assistant permission: {e}")
                 message = f"Failed to revoke access: {str(e)}"
 
-        log.info(f"Assistant access revocation for {user_id} on {assistant_id}: {message} (threads_archived={threads_archived})")
+        log_msg = f"Assistant access revocation for {user_id} on {assistant_id}: {message}"
+        if threads_archived is not None:
+            log_msg += f" (threads_archived={threads_archived})"
+        log.info(log_msg)
 
         return RevokeAssistantAccessResponse(
             assistant_id=assistant_id,
