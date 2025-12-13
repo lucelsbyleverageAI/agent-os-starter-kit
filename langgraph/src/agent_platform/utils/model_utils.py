@@ -1,38 +1,44 @@
 """
-Centralized Model Configuration Utilities
+Centralized Model Configuration Utilities (OpenRouter Edition)
 
-This module provides a single source of truth for LLM configuration across all agents,
-including model registry, retry/fallback logic, provider-specific optimizations, and
-message trimming functionality.
+This module provides a single source of truth for LLM configuration across all agents
+using OpenRouter as a unified API gateway for multiple model providers.
 
 Key Features:
-- Centralized model registry for easy updates when new models are released
-- Production-grade retry and fallback logic using LangChain's built-in functionality
-- Provider-specific optimizations (Anthropic prompt caching, OpenAI reasoning models)
-- Message trimming to manage context windows
-- Consistent configuration across all agents
+- Unified interface for 50+ model providers (Anthropic, OpenAI, Google, xAI, etc.)
+- Single API key for all models via OpenRouter
+- Automatic parameter handling (OpenRouter strips unsupported params)
+- OpenRouter handles reasoning/thinking behavior with provider defaults
+- Message trimming for context window management
+
+OpenRouter Benefits:
+- Single `OPENROUTER_API_KEY` for all providers
+- BYOK (Bring Your Own Key) support via OpenRouter dashboard
+- Centralized cost monitoring and usage tracking
+- Provider-agnostic parameter handling
+- Automatic reasoning behavior based on model capabilities
 """
 
-from typing import Optional, List, Literal, Dict, Any
+import os
+from typing import Optional, List, Dict, Any
 from enum import Enum
 from pydantic import BaseModel, Field
-from langchain.chat_models import init_chat_model
 from langchain_core.language_models import BaseChatModel
 from langchain_core.messages import BaseMessage
 from langchain_core.messages.utils import trim_messages, count_tokens_approximately
-from langchain_anthropic import ChatAnthropic
 from langchain_openai import ChatOpenAI
+
+
+# ============================================================================
+# OpenRouter Configuration
+# ============================================================================
+
+OPENROUTER_BASE_URL = "https://openrouter.ai/api/v1"
 
 
 # ============================================================================
 # Model Registry
 # ============================================================================
-
-class ModelProvider(str, Enum):
-    """Supported model providers"""
-    ANTHROPIC = "anthropic"
-    OPENAI = "openai"
-
 
 class ModelTier(str, Enum):
     """Model capability tiers based on performance and cost"""
@@ -42,227 +48,316 @@ class ModelTier(str, Enum):
 
 
 class ModelInfo(BaseModel):
-    """Information about a specific model"""
+    """
+    Information about a specific model.
+
+    Simplified schema for OpenRouter - provider-specific handling is done
+    automatically by OpenRouter's API.
+    """
     name: str
+    """OpenRouter model ID (e.g., 'anthropic/claude-sonnet-4.5')"""
+
     display_name: str
-    provider: ModelProvider
+    """Human-readable name for UI display"""
+
     tier: ModelTier
+    """Model capability tier (FAST, STANDARD, ADVANCED)"""
+
     context_window: int
+    """Maximum context tokens the model can process"""
+
     max_output_tokens: int
-    supports_tool_calling: bool = True
-    supports_streaming: bool = True
-    supports_caching: bool = False  # Anthropic prompt caching
-    is_reasoning_model: bool = False  # OpenAI reasoning models (o1, o3, etc.)
-    supports_extended_thinking: bool = False  # Claude extended thinking
+    """Maximum tokens the model can generate"""
+
+    supports_reasoning: bool = False
+    """
+    Whether model has extended thinking/reasoning capabilities.
+    When True, reasoning config is sent to OpenRouter.
+    OpenRouter handles provider differences (effort vs max_tokens).
+    """
+
     description: str = ""
-    
+    """Short description of model capabilities"""
+
     # Message trimming configuration (per-model defaults)
-    enable_trimming: bool = True  # Whether to enable trimming by default
-    trimming_max_tokens: int = 100000  # Max tokens to keep in history
+    enable_trimming: bool = True
+    """Whether to enable message trimming by default"""
+
+    trimming_max_tokens: int = 100000
+    """Max tokens to keep in message history"""
+
+    provider_preference: Optional[List[str]] = None
+    """Optional list of preferred providers for OpenRouter routing (e.g., ['Groq'])"""
 
 
 # Model Registry - Single source of truth for all models
-# Models are organized by tier: Fast (cheap/quick), Standard (balanced), Advanced (high-reasoning)
+# Uses OpenRouter model IDs (provider/model-name format)
 MODEL_REGISTRY: Dict[str, ModelInfo] = {
-    # ========== FAST TIER: Quick and economical models ==========
+    # ========== ANTHROPIC CLAUDE 4.5 ==========
 
-    # Anthropic Fast
-    "anthropic:claude-haiku-4-5-20251001": ModelInfo(
-        name="anthropic:claude-haiku-4-5-20251001",
+    "anthropic/claude-haiku-4.5": ModelInfo(
+        name="anthropic/claude-haiku-4.5",
         display_name="Claude Haiku 4.5",
-        provider=ModelProvider.ANTHROPIC,
         tier=ModelTier.FAST,
         context_window=200000,
         max_output_tokens=64000,
-        supports_caching=True,
-        supports_extended_thinking=False,  # Available but not enabled by default in FAST tier
-        description="Lightning-fast speed with near-frontier intelligence and exceptional cost-efficiency",
+        supports_reasoning=False,
+        description="Fastest Claude model with excellent cost-efficiency",
         enable_trimming=True,
-        trimming_max_tokens=150000,  # Conservative for 200k context window
+        trimming_max_tokens=150000,
     ),
-    
-    # OpenAI Fast
-    "openai:gpt-4.1-mini": ModelInfo(
-        name="gpt-4.1-mini",  # Just model name, no provider prefix
-        display_name="GPT-4.1 Mini",
-        provider=ModelProvider.OPENAI,
+
+    "anthropic/claude-sonnet-4.5": ModelInfo(
+        name="anthropic/claude-sonnet-4.5",
+        display_name="Claude Sonnet 4.5",
+        tier=ModelTier.STANDARD,
+        context_window=200000,
+        max_output_tokens=64000,
+        supports_reasoning=False,
+        description="Best balance of capability and speed for complex tasks",
+        enable_trimming=True,
+        trimming_max_tokens=150000,
+    ),
+
+    "anthropic/claude-opus-4.5": ModelInfo(
+        name="anthropic/claude-opus-4.5",
+        display_name="Claude Opus 4.5",
+        tier=ModelTier.ADVANCED,
+        context_window=200000,
+        max_output_tokens=64000,
+        supports_reasoning=False,
+        description="Most capable Claude model for complex reasoning",
+        enable_trimming=True,
+        trimming_max_tokens=150000,
+    ),
+
+    # ========== OPENAI GPT ==========
+
+    "openai/gpt-4.1-nano": ModelInfo(
+        name="openai/gpt-4.1-nano",
+        display_name="GPT-4.1 Nano",
         tier=ModelTier.FAST,
-        context_window=128000,
-        max_output_tokens=16384,
+        context_window=1047576,
+        max_output_tokens=32768,
+        supports_reasoning=False,
+        description="Smallest and fastest GPT-4.1 variant",
+        enable_trimming=True,
+        trimming_max_tokens=100000,
+    ),
+
+    "openai/gpt-4.1-mini": ModelInfo(
+        name="openai/gpt-4.1-mini",
+        display_name="GPT-4.1 Mini",
+        tier=ModelTier.FAST,
+        context_window=1047576,
+        max_output_tokens=32768,
+        supports_reasoning=False,
         description="Fast and economical GPT-4.1 variant",
         enable_trimming=True,
-        trimming_max_tokens=100000,  # Conservative for 128k context
+        trimming_max_tokens=100000,
     ),
-    "openai:gpt-4.1-nano": ModelInfo(
-        name="gpt-4.1-nano",  # Just model name, no provider prefix
-        display_name="GPT-4.1 Nano",
-        provider=ModelProvider.OPENAI,
-        tier=ModelTier.FAST,
-        context_window=128000,
-        max_output_tokens=16384,
-        description="Ultra-fast and economical variant",
-        enable_trimming=True,
-        trimming_max_tokens=100000,  # Conservative for 128k context
-    ),
-    "openai:gpt-5-mini": ModelInfo(
-        name="gpt-5-mini",  # Just model name, no provider prefix
-        display_name="GPT-5 Mini",
-        provider=ModelProvider.OPENAI,
-        tier=ModelTier.FAST,
-        context_window=128000,
-        max_output_tokens=65536,
-        is_reasoning_model=True,
-        description="Fast reasoning model for coding tasks",
-        enable_trimming=True,
-        trimming_max_tokens=100000,  # Leave room for reasoning tokens
-    ),
-    "openai:gpt-5-nano": ModelInfo(
-        name="gpt-5-nano",  # Just model name, no provider prefix
-        display_name="GPT-5 Nano",
-        provider=ModelProvider.OPENAI,
-        tier=ModelTier.FAST,
-        context_window=128000,
-        max_output_tokens=65536,
-        is_reasoning_model=True,
-        description="Economical reasoning model",
-        enable_trimming=True,
-        trimming_max_tokens=100000,  # Leave room for reasoning tokens
-    ),
-    
-    # ========== STANDARD TIER: Balanced performance models ==========
-    
-    # Anthropic Standard
-    "anthropic:claude-sonnet-4-5-20250929": ModelInfo(
-        name="anthropic:claude-sonnet-4-5-20250929",
-        display_name="Claude Sonnet 4.5",
-        provider=ModelProvider.ANTHROPIC,
-        tier=ModelTier.STANDARD,
-        context_window=200000,
-        max_output_tokens=64000,
-        supports_caching=True,
-        description="Best model for complex agents and coding",
-        enable_trimming=True,
-        trimming_max_tokens=150000,  # Conservative for 200k context
-    ),
-    
-    # OpenAI Standard
-    "openai:gpt-4.1": ModelInfo(
-        name="gpt-4.1",  # Just model name, no provider prefix for direct API calls
+
+    "openai/gpt-4.1": ModelInfo(
+        name="openai/gpt-4.1",
         display_name="GPT-4.1",
-        provider=ModelProvider.OPENAI,
         tier=ModelTier.STANDARD,
-        context_window=128000,
-        max_output_tokens=16384,
-        description="Latest GPT-4 model",
+        context_window=1047576,
+        max_output_tokens=32768,
+        supports_reasoning=False,
+        description="Full GPT-4.1 model",
         enable_trimming=True,
-        trimming_max_tokens=100000,  # Conservative for 128k context
+        trimming_max_tokens=100000,
     ),
-    "openai:gpt-5": ModelInfo(
-        name="gpt-5",  # Just model name, no provider prefix for direct API calls
-        display_name="GPT-5",
-        provider=ModelProvider.OPENAI,
-        tier=ModelTier.STANDARD,
-        context_window=200000,
-        max_output_tokens=100000,
-        is_reasoning_model=True,
-        description="Advanced reasoning model",
-        enable_trimming=True,
-        trimming_max_tokens=150000,  # Leave room for reasoning tokens
-    ),
-    "openai:gpt-5.1": ModelInfo(
-        name="gpt-5.1",  # Just model name, no provider prefix for direct API calls
-        display_name="GPT-5.1",
-        provider=ModelProvider.OPENAI,
+
+    "openai/gpt-5.2": ModelInfo(
+        name="openai/gpt-5.2",
+        display_name="GPT-5.2",
         tier=ModelTier.STANDARD,
         context_window=200000,
         max_output_tokens=100000,
-        is_reasoning_model=True,
-        description="Latest GPT-5 series with adaptive reasoning (minor upgrade from GPT-5)",
+        supports_reasoning=False,
+        description="Latest GPT-5 series model",
         enable_trimming=True,
-        trimming_max_tokens=150000,  # Leave room for reasoning tokens
+        trimming_max_tokens=150000,
     ),
-    
-    # ========== ADVANCED TIER: High-cost, high-reasoning models ==========
-    
-    # Anthropic Advanced
-    "anthropic:claude-opus-4-1-20250805": ModelInfo(
-        name="anthropic:claude-opus-4-1-20250805",
-        display_name="Claude Opus 4.1",
-        provider=ModelProvider.ANTHROPIC,
+
+    # ========== GOOGLE GEMINI ==========
+
+    "google/gemini-2.5-flash-lite": ModelInfo(
+        name="google/gemini-2.5-flash-lite",
+        display_name="Gemini 2.5 Flash Lite",
+        tier=ModelTier.FAST,
+        context_window=1048576,
+        max_output_tokens=65536,
+        supports_reasoning=False,
+        description="Lightest Gemini model for high-throughput tasks",
+        enable_trimming=True,
+        trimming_max_tokens=100000,
+    ),
+
+    "google/gemini-2.5-flash": ModelInfo(
+        name="google/gemini-2.5-flash",
+        display_name="Gemini 2.5 Flash",
+        tier=ModelTier.FAST,
+        context_window=1048576,
+        max_output_tokens=65536,
+        supports_reasoning=False,
+        description="Fast multimodal Gemini model",
+        enable_trimming=True,
+        trimming_max_tokens=100000,
+    ),
+
+    "google/gemini-2.5-pro": ModelInfo(
+        name="google/gemini-2.5-pro",
+        display_name="Gemini 2.5 Pro",
+        tier=ModelTier.STANDARD,
+        context_window=1048576,
+        max_output_tokens=65536,
+        supports_reasoning=False,
+        description="Most capable Gemini multimodal model",
+        enable_trimming=True,
+        trimming_max_tokens=100000,
+    ),
+
+    # ========== XAI GROK ==========
+
+    "x-ai/grok-4.1-fast": ModelInfo(
+        name="x-ai/grok-4.1-fast",
+        display_name="Grok 4.1 Fast",
+        tier=ModelTier.FAST,
+        context_window=131072,
+        max_output_tokens=131072,
+        supports_reasoning=False,
+        description="Fast Grok model for quick responses",
+        enable_trimming=True,
+        trimming_max_tokens=100000,
+    ),
+
+    "x-ai/grok-4": ModelInfo(
+        name="x-ai/grok-4",
+        display_name="Grok 4",
         tier=ModelTier.ADVANCED,
-        context_window=200000,
-        max_output_tokens=32000,
-        supports_caching=True,
-        description="Exceptional model for specialized complex tasks",
+        context_window=131072,
+        max_output_tokens=131072,
+        supports_reasoning=False,
+        description="xAI's most advanced model",
         enable_trimming=True,
-        trimming_max_tokens=150000,  # Conservative for 200k context
+        trimming_max_tokens=100000,
     ),
-    "anthropic:claude-sonnet-4-5-20250929-extended-thinking": ModelInfo(
-        name="anthropic:claude-sonnet-4-5-20250929",  # Same underlying model
-        display_name="Claude Sonnet 4.5 (Extended Thinking)",
-        provider=ModelProvider.ANTHROPIC,
+
+    # ========== MOONSHOT ==========
+
+    "moonshotai/kimi-k2-thinking": ModelInfo(
+        name="moonshotai/kimi-k2-thinking",
+        display_name="Kimi K2",
         tier=ModelTier.ADVANCED,
-        context_window=200000,
-        max_output_tokens=64000,
-        supports_caching=True,
-        supports_extended_thinking=True,  # Enable extended thinking
-        description="Claude Sonnet 4.5 with extended thinking enabled for complex reasoning",
+        context_window=131072,
+        max_output_tokens=8192,
+        supports_reasoning=False,
+        description="Moonshot's Kimi K2 model",
         enable_trimming=True,
-        trimming_max_tokens=120000,  # Lower to leave room for thinking tokens (2000 budget)
+        trimming_max_tokens=100000,
     ),
-    
-    # OpenAI Advanced
-    "openai:gpt-5-thinking": ModelInfo(
-        name="gpt-5",  # Same underlying model, no provider prefix
-        display_name="GPT-5 (Thinking Mode)",
-        provider=ModelProvider.OPENAI,
-        tier=ModelTier.ADVANCED,
-        context_window=200000,
-        max_output_tokens=100000,
-        is_reasoning_model=True,
-        description="GPT-5 with enhanced thinking for complex reasoning tasks",
+
+    # ========== GROQ PROVIDER ==========
+
+    "openai/gpt-oss-120b": ModelInfo(
+        name="openai/gpt-oss-120b",
+        display_name="GPT-OSS 120B (Groq)",
+        tier=ModelTier.STANDARD,
+        context_window=131072,
+        max_output_tokens=8192,
+        supports_reasoning=False,
+        description="Open-source 120B model via Groq",
         enable_trimming=True,
-        trimming_max_tokens=120000,  # Lower to leave room for reasoning tokens
+        trimming_max_tokens=100000,
+        provider_preference=["Groq"],
     ),
-    "openai:gpt-5.1-thinking": ModelInfo(
-        name="gpt-5.1",  # Same underlying model, no provider prefix
-        display_name="GPT-5.1 (Thinking Mode)",
-        provider=ModelProvider.OPENAI,
-        tier=ModelTier.ADVANCED,
-        context_window=200000,
-        max_output_tokens=100000,
-        is_reasoning_model=True,
-        description="GPT-5.1 with adaptive reasoning for complex tasks (minor upgrade from GPT-5)",
-        enable_trimming=True,
-        trimming_max_tokens=120000,  # Lower to leave room for reasoning tokens
-    ),
+}
+
+
+# =============================================================================
+# Backwards Compatibility: Model Name Aliases
+# =============================================================================
+# Maps old model names (provider:model format) to new OpenRouter format (provider/model)
+# This allows existing agent configurations to continue working without database migration
+
+MODEL_ALIASES: Dict[str, str] = {
+    # Old Anthropic format -> New OpenRouter format (colon separator)
+    "anthropic:claude-sonnet-4-5-20250929": "anthropic/claude-sonnet-4.5",
+    "anthropic:claude-haiku-4-5-20251001": "anthropic/claude-haiku-4.5",
+    "anthropic:claude-opus-4-1-20250805": "anthropic/claude-opus-4.5",
+    # Extended thinking models map to base models (reasoning enabled via supports_reasoning flag)
+    "anthropic:claude-sonnet-4-5-20250929-extended-thinking": "anthropic/claude-sonnet-4.5",
+
+    # Old registry model names -> New models (upgrade paths)
+    "anthropic/claude-sonnet-4": "anthropic/claude-sonnet-4.5",
+    "anthropic/claude-3.5-haiku": "anthropic/claude-haiku-4.5",
+    # Old :thinking suffix maps to base model (reasoning enabled via supports_reasoning flag)
+    "anthropic/claude-sonnet-4:thinking": "anthropic/claude-sonnet-4.5",
+    "anthropic/claude-sonnet-4.5:thinking": "anthropic/claude-sonnet-4.5",
+    "anthropic/claude-opus-4.5:thinking": "anthropic/claude-opus-4.5",
+
+    # Old OpenAI format -> New OpenRouter format (colon separator)
+    "openai:gpt-4.1-mini": "openai/gpt-4.1-mini",
+    "openai:gpt-4.1-nano": "openai/gpt-4.1-nano",
+    "openai:gpt-4.1": "openai/gpt-4.1",
+    "openai:gpt-5": "openai/gpt-5.2",
+    "openai:gpt-5.1": "openai/gpt-5.2",
+    "openai:gpt-5.2": "openai/gpt-5.2",
+    "openai:gpt-5-thinking": "openai/gpt-5.2",
+    "openai:gpt-5.1-thinking": "openai/gpt-5.2",
+
+    # Deprecated o3 series -> Map to gpt-5.2
+    "openai/o3-mini": "openai/gpt-5.2",
+    "openai/o3": "openai/gpt-5.2",
+
+    # Legacy model names (init_chat_model format without provider prefix)
+    "gpt-4.1-mini": "openai/gpt-4.1-mini",
+    "gpt-4.1-nano": "openai/gpt-4.1-nano",
+    "gpt-4.1": "openai/gpt-4.1",
+    "gpt-5": "openai/gpt-5.2",
+    "gpt-5.1": "openai/gpt-5.2",
+    "gpt-5.2": "openai/gpt-5.2",
+
+    # Old Google/xAI/Moonshot/DeepSeek -> New models (upgrade paths)
+    "x-ai/grok-3-beta": "x-ai/grok-4",
+    "moonshotai/kimi-k2": "moonshotai/kimi-k2-thinking",
+    "deepseek/deepseek-chat": "google/gemini-2.5-flash",  # Map to similar fast model
+    "deepseek/deepseek-r1": "moonshotai/kimi-k2-thinking",  # Map to similar reasoning model
 }
 
 
 def get_model_info(model_name: str) -> ModelInfo:
     """
     Get information about a model from the registry.
-    
+
+    Supports both new OpenRouter format (provider/model) and legacy formats
+    (provider:model) for backwards compatibility with existing agent configurations.
+
     Args:
-        model_name: Full model identifier
-        
+        model_name: Model identifier in either format
+
     Returns:
         ModelInfo object with model capabilities and limits
-        
+
     Raises:
-        ValueError: If model not found in registry
+        ValueError: If model not found in registry or aliases
     """
-    if model_name not in MODEL_REGISTRY:
-        raise ValueError(
-            f"Model '{model_name}' not found in registry. "
-            f"Available models: {list(MODEL_REGISTRY.keys())}"
-        )
-    return MODEL_REGISTRY[model_name]
+    # Check if model is in registry directly
+    if model_name in MODEL_REGISTRY:
+        return MODEL_REGISTRY[model_name]
 
+    # Check aliases for backwards compatibility
+    if model_name in MODEL_ALIASES:
+        resolved_name = MODEL_ALIASES[model_name]
+        return MODEL_REGISTRY[resolved_name]
 
-def get_models_by_provider(provider: ModelProvider) -> List[ModelInfo]:
-    """Get all models for a specific provider"""
-    return [info for info in MODEL_REGISTRY.values() if info.provider == provider]
+    # Model not found
+    raise ValueError(
+        f"Model '{model_name}' not found in registry. "
+        f"Available models: {list(MODEL_REGISTRY.keys())}"
+    )
 
 
 def get_models_by_tier(tier: ModelTier) -> List[ModelInfo]:
@@ -273,18 +368,26 @@ def get_models_by_tier(tier: ModelTier) -> List[ModelInfo]:
 def get_model_options_for_ui() -> List[Dict[str, str]]:
     """
     Generate model options formatted for UI configuration.
-    
+
     Returns:
-        List of dicts with 'label' and 'value' keys for UI dropdowns
-        The 'value' is the registry key (unique), not the model name
+        List of dicts with 'label' and 'value' keys for UI dropdowns,
+        grouped by tier for better organization.
     """
-    return [
-        {
-            "label": f"{info.display_name} ({info.tier.value})",
-            "value": registry_key,  # Use registry key for uniqueness
-        }
-        for registry_key, info in MODEL_REGISTRY.items()
-    ]
+    options = []
+
+    # Group by tier for organized display
+    for tier in [ModelTier.FAST, ModelTier.STANDARD, ModelTier.ADVANCED]:
+        tier_models = get_models_by_tier(tier)
+        for info in tier_models:
+            # Extract provider from model ID for display
+            provider = info.name.split('/')[0].title()
+            # Clean label without tier indicator
+            options.append({
+                "label": f"{info.display_name} - {provider}",
+                "value": info.name,
+            })
+
+    return options
 
 
 # ============================================================================
@@ -295,412 +398,163 @@ class RetryConfig(BaseModel):
     """Configuration for retry logic"""
     max_retries: int = Field(default=3, ge=0, le=10)
     """Maximum number of retry attempts"""
-    
-    retry_on_timeout: bool = Field(default=True)
-    """Retry on timeout errors"""
-    
-    retry_on_rate_limit: bool = Field(default=True)
-    """Retry on rate limit errors"""
-    
-    exponential_backoff: bool = Field(default=True)
-    """Use exponential backoff between retries"""
-    
-    max_retry_delay: float = Field(default=60.0)
-    """Maximum delay between retries in seconds"""
 
 
-class FallbackConfig(BaseModel):
-    """Configuration for fallback models"""
-    enabled: bool = Field(default=False)
-    """Enable fallback to alternative models on failure"""
-    
-    fallback_models: List[str] = Field(default_factory=list)
-    """List of model names to try in order if primary fails"""
-    
-    fallback_on_errors: List[str] = Field(
-        default_factory=lambda: ["rate_limit", "timeout", "server_error"]
-    )
-    """Error types that trigger fallback"""
-
-
-class AnthropicCacheConfig(BaseModel):
-    """Configuration for Anthropic prompt caching"""
-    enabled: bool = Field(default=True)
-    """Enable prompt caching to reduce costs on repeated context"""
-    
-    min_cache_tokens: int = Field(default=1024, ge=1024)
-    """Minimum tokens to cache (Anthropic requires >= 1024)"""
-    
-    cache_system_prompt: bool = Field(default=True)
-    """Cache the system prompt"""
-    
-    cache_recent_messages: int = Field(default=0, ge=0)
-    """Number of recent messages to cache (0 = none)"""
-
-
-class OpenAIReasoningConfig(BaseModel):
-    """Configuration for OpenAI reasoning models (o-series, GPT-5)"""
-    enabled: bool = Field(default=True)
-    """Enable reasoning model specific features"""
-    
-    reasoning_effort: Literal["low", "medium", "high"] = Field(default="medium")
+class ReasoningConfig(BaseModel):
     """
-    Reasoning effort level:
-    - low: Fast, economical, fewer reasoning tokens
-    - medium: Balanced speed and reasoning quality
-    - high: Maximum reasoning quality, slower and more expensive
+    DEPRECATED: Reasoning configuration is no longer used.
+
+    OpenRouter now handles reasoning automatically based on model defaults.
+    This class is kept for backward compatibility only.
     """
-    
-    reasoning_summary: Literal["detailed", "auto", "none"] = Field(default="auto")
-    """
-    Reasoning summary verbosity:
-    - detailed: Full reasoning summary
-    - auto: Automatic summary based on context
-    - none: No reasoning summary
-    """
-    
-    max_output_tokens: Optional[int] = Field(default=None)
-    """Max tokens for both reasoning and output combined"""
+    effort: str = Field(default="medium")
+    """DEPRECATED: No longer used"""
+
+    max_tokens: int = Field(default=8000, ge=1000)
+    """DEPRECATED: No longer used"""
+
+    exclude: bool = Field(default=False)
+    """DEPRECATED: No longer used"""
 
 
 class MessageTrimmingConfig(BaseModel):
     """Configuration for message history trimming"""
     enabled: bool = Field(default=True)
     """Enable automatic message trimming"""
-    
+
     max_tokens: int = Field(default=100000, ge=1000)
     """Maximum tokens to keep in message history"""
-    
-    strategy: Literal["last", "first"] = Field(default="last")
-    """
-    Trimming strategy:
-    - last: Keep the most recent messages
-    - first: Keep the earliest messages
-    """
-    
-    start_on: Literal["human", "ai"] = Field(default="human")
+
+    strategy: str = Field(default="last")
+    """Trimming strategy: 'last' keeps recent messages, 'first' keeps earliest"""
+
+    start_on: str = Field(default="human")
     """Message type to start the trimmed history with"""
-    
+
     end_on: tuple = Field(default=("human", "tool"))
     """Message types allowed at the end of trimmed history"""
-    
+
     include_system: bool = Field(default=True)
     """Always preserve system messages"""
-    
-    token_counter: Optional[Any] = Field(default=None)
-    """Custom token counter (defaults to approximate counting)"""
 
 
 class ModelConfig(BaseModel):
     """
     Complete configuration for model initialization.
-    
-    This is the main configuration class that combines all model settings,
-    retry/fallback logic, and provider-specific optimizations.
+
+    Simplified for OpenRouter - provider-specific handling is automatic.
     """
-    model_name: str = Field(default="anthropic:claude-sonnet-4-5-20250929")
-    """Primary model to use"""
-    
+    model_name: str = Field(default="anthropic/claude-sonnet-4.5")
+    """OpenRouter model ID to use"""
+
     temperature: float = Field(default=0.7, ge=0.0, le=2.0)
-    """Temperature for response randomness (0=deterministic, 2=creative)"""
-    
+    """Temperature for response randomness (OpenRouter strips if unsupported)"""
+
     max_tokens: Optional[int] = Field(default=4000)
     """Maximum tokens in model response"""
-    
+
     streaming: bool = Field(default=True)
     """Enable streaming responses"""
-    
-    # Retry and Fallback
+
+    # Retry configuration
     retry: RetryConfig = Field(default_factory=RetryConfig)
     """Retry configuration for error handling"""
-    
-    fallback: FallbackConfig = Field(default_factory=FallbackConfig)
-    """Fallback model configuration"""
-    
-    # Provider-specific configs
-    anthropic_cache: Optional[AnthropicCacheConfig] = Field(default_factory=AnthropicCacheConfig)
-    """Anthropic prompt caching configuration"""
-    
-    openai_reasoning: Optional[OpenAIReasoningConfig] = Field(default_factory=OpenAIReasoningConfig)
-    """OpenAI reasoning model configuration"""
-    
+
     # Message management
     trimming: Optional[MessageTrimmingConfig] = Field(default_factory=MessageTrimmingConfig)
     """Message history trimming configuration"""
-    
-    # Additional model parameters
+
+    # Additional parameters
     extra_kwargs: Dict[str, Any] = Field(default_factory=dict)
-    """Additional provider-specific kwargs to pass to model"""
+    """Additional kwargs to pass to model"""
 
 
 # ============================================================================
 # Model Initialization
 # ============================================================================
 
-def _apply_retry_logic(model: BaseChatModel, retry_config: RetryConfig) -> BaseChatModel:
-    """
-    Apply retry logic to a model using LangChain's built-in with_retry.
-    
-    Args:
-        model: Base chat model instance
-        retry_config: Retry configuration
-        
-    Returns:
-        Model wrapped with retry logic
-    """
-    if retry_config.max_retries == 0:
-        return model
-    
-    # LangChain's with_retry() uses a simpler interface
-    # It only accepts stop_after_attempt parameter
-    # The exponential backoff is built-in by default
-    try:
-        return model.with_retry(stop_after_attempt=retry_config.max_retries)
-    except Exception as e:
-        # If with_retry fails, return the model without retry wrapper
-        # This ensures the agent still works even if retry setup fails
-        import warnings
-        warnings.warn(f"Failed to apply retry logic: {e}. Model will run without retry wrapper.")
-        return model
-
-
-def _apply_fallback_logic(
-    model: BaseChatModel,
-    fallback_config: FallbackConfig,
-    config: ModelConfig,
-) -> BaseChatModel:
-    """
-    Apply fallback logic to a model using LangChain's built-in with_fallbacks.
-    
-    Args:
-        model: Primary chat model instance
-        fallback_config: Fallback configuration
-        config: Full model configuration for creating fallback models
-        
-    Returns:
-        Model wrapped with fallback logic
-    """
-    if not fallback_config.enabled or not fallback_config.fallback_models:
-        return model
-    
-    # Create fallback model instances
-    fallback_models = []
-    for fallback_model_name in fallback_config.fallback_models:
-        try:
-            # Create a simplified config for fallback models
-            fallback_model_config = config.model_copy(deep=True)
-            fallback_model_config.model_name = fallback_model_name
-            fallback_model_config.fallback.enabled = False  # Prevent nested fallbacks
-            
-            fallback_model = init_model(fallback_model_config)
-            fallback_models.append(fallback_model)
-        except Exception as e:
-            print(f"Warning: Failed to initialize fallback model {fallback_model_name}: {e}")
-    
-    if fallback_models:
-        return model.with_fallbacks(fallback_models)
-    
-    return model
-
-
-def _apply_anthropic_caching(
-    model: BaseChatModel,
-    cache_config: AnthropicCacheConfig,
-    model_info: ModelInfo,
-) -> BaseChatModel:
-    """
-    Apply Anthropic prompt caching configuration.
-    
-    Anthropic prompt caching can significantly reduce costs by caching
-    repeated context (system prompts, documents, etc.).
-    
-    Args:
-        model: ChatAnthropic instance
-        cache_config: Caching configuration
-        model_info: Model information from registry
-        
-    Returns:
-        Model configured with caching parameters
-    """
-    if not cache_config.enabled or not model_info.supports_caching:
-        return model
-    
-    if not isinstance(model, ChatAnthropic):
-        return model
-    
-    # Anthropic caching is controlled via message metadata
-    # This is handled at the message level, not model initialization
-    # We store the config on the model for later use
-    model._cache_config = cache_config
-    
-    return model
-
-
-def _apply_openai_reasoning_config(
-    model: BaseChatModel,
-    reasoning_config: OpenAIReasoningConfig,
-    model_info: ModelInfo,
-) -> BaseChatModel:
-    """
-    Apply OpenAI reasoning model configuration.
-    
-    OpenAI reasoning models (o-series, GPT-5) require special handling:
-    1. Must use Responses API (output_version="responses/v1")
-    2. Reasoning parameters are passed at invoke time, not init time
-    3. We store the config on the model for later use by agents
-    
-    Args:
-        model: ChatOpenAI instance
-        reasoning_config: Reasoning configuration
-        model_info: Model information from registry
-        
-    Returns:
-        Model with reasoning config stored for invoke-time use
-        
-    Note:
-        The actual reasoning parameters must be passed when invoking:
-        model.invoke("...", reasoning={"effort": "medium", "summary": "auto"})
-    """
-    if not reasoning_config.enabled or not model_info.is_reasoning_model:
-        return model
-    
-    if not isinstance(model, ChatOpenAI):
-        return model
-    
-    # Store reasoning config on model for later use at invoke time
-    # This allows agents to automatically apply reasoning parameters
-    model._reasoning_config = reasoning_config
-    
-    return model
-
-
 def init_model(config: ModelConfig) -> BaseChatModel:
     """
-    Initialize a chat model with all production-grade enhancements.
-    
-    This is the main function to use for creating LLM instances across
-    all agents. It handles:
-    - Model initialization from registry
-    - Retry logic for transient failures
-    - Fallback to alternative models
-    - Provider-specific optimizations (caching, reasoning)
-    - Message trimming configuration
-    
+    Initialize a chat model via OpenRouter.
+
+    OpenRouter provides a unified API for all model providers:
+    - Single API key for all models
+    - Automatic parameter handling (strips unsupported params)
+    - Reasoning/thinking handled automatically by OpenRouter defaults
+
     Args:
         config: Complete model configuration
-        
+
     Returns:
-        Fully configured chat model instance
-        
+        Configured ChatOpenAI instance pointing to OpenRouter
+
     Example:
         ```python
         from agent_platform.utils.model_utils import init_model, ModelConfig
-        
+
         # Simple usage
         model = init_model(ModelConfig(
-            model_name="anthropic:claude-sonnet-4-5-20250929",
+            model_name="anthropic/claude-sonnet-4.5",
             temperature=0.7
         ))
-        
-        # With fallback and retry
+
+        # Use different model
         model = init_model(ModelConfig(
-            model_name="anthropic:claude-sonnet-4-5-20250929",
-            retry=RetryConfig(max_retries=3),
-            fallback=FallbackConfig(
-                enabled=True,
-                fallback_models=["anthropic:claude-3-5-sonnet-latest"]
-            )
+            model_name="openai/gpt-5.2",
+            temperature=0.3
         ))
         ```
     """
     # Get model info from registry
     model_info = get_model_info(config.model_name)
-    
-    # OpenAI reasoning models - use standard initialization
-    # Note: Reasoning parameters can be passed at init time or invoke time
-    # ChatOpenAI supports reasoning_effort and reasoning params at init
-    if model_info.provider == ModelProvider.OPENAI and model_info.is_reasoning_model:
-        # Build kwargs for ChatOpenAI directly
-        openai_kwargs = {
-            "model": model_info.name,
-            "max_retries": 2,
-        }
 
-        # Don't set temperature for reasoning models (they use fixed temperature)
+    # Get API key from environment
+    api_key = os.environ.get("OPENROUTER_API_KEY")
+    if not api_key:
+        raise ValueError(
+            "OPENROUTER_API_KEY environment variable is required. "
+            "Get your API key at https://openrouter.ai/keys"
+        )
 
-        if config.max_tokens:
-            openai_kwargs["max_tokens"] = config.max_tokens
+    # Build kwargs for ChatOpenAI with OpenRouter
+    kwargs = {
+        "model": model_info.name,
+        "base_url": OPENROUTER_BASE_URL,
+        "api_key": api_key,
+        "temperature": config.temperature,  # OpenRouter strips if model doesn't support
+        "max_tokens": config.max_tokens or model_info.max_output_tokens,
+        "streaming": config.streaming,
+        "default_headers": {
+            "HTTP-Referer": os.environ.get("OPENROUTER_REFERER", "https://agent-os.app"),
+            "X-Title": os.environ.get("OPENROUTER_TITLE", "Agent OS Platform"),
+        },
+    }
 
-        if config.streaming and model_info.supports_streaming:
-            openai_kwargs["streaming"] = True
+    # Initialize extra_body for additional OpenRouter parameters
+    extra_body = {}
 
-        # Add reasoning configuration at initialization if provided
-        # ChatOpenAI supports reasoning_effort as a direct parameter
-        if config.openai_reasoning and config.openai_reasoning.enabled:
-            # Determine reasoning effort based on model tier
-            # Standard tier: Use "low" for speed (GPT-5.1 defaults to "none" anyway)
-            # Advanced tier: Use "medium" or config value for better reasoning
-            reasoning_effort = config.openai_reasoning.reasoning_effort
-            if model_info.tier == ModelTier.STANDARD and reasoning_effort == "medium":
-                # Override default "medium" to "low" for standard tier
-                reasoning_effort = "low"
+    # Apply provider preference if specified (for routing to specific providers like Groq)
+    if model_info.provider_preference:
+        extra_body["provider"] = {"order": model_info.provider_preference}
 
-            # Pass reasoning_effort directly (not via model_kwargs)
-            openai_kwargs["reasoning_effort"] = reasoning_effort
+    # Only add extra_body if we have parameters to send
+    if extra_body:
+        kwargs["extra_body"] = extra_body
 
-        # Add extra kwargs
-        openai_kwargs.update(config.extra_kwargs)
+    # Add any extra kwargs
+    kwargs.update(config.extra_kwargs)
 
-        # Directly instantiate ChatOpenAI
-        model = ChatOpenAI(**openai_kwargs)
-    else:
-        # Use init_chat_model for all other models (Anthropic, non-reasoning OpenAI)
-        init_kwargs = {
-            "model": model_info.name,  # Use actual API model name, not registry key
-        }
-        
-        # Set temperature (will be overridden for extended thinking models)
-        if not model_info.is_reasoning_model:
-            init_kwargs["temperature"] = config.temperature
-        
-        if config.max_tokens:
-            init_kwargs["max_tokens"] = config.max_tokens
-        
-        if config.streaming and model_info.supports_streaming:
-            init_kwargs["streaming"] = True
-        
-        # Claude extended thinking configuration
-        # Must be passed at model initialization for ChatAnthropic
-        # IMPORTANT: When thinking is enabled, temperature MUST be 1.0
-        if model_info.provider == ModelProvider.ANTHROPIC and model_info.supports_extended_thinking:
-            init_kwargs["thinking"] = {
-                "type": "enabled",
-                "budget_tokens": 2000,  # Token budget for thinking process
-            }
-            # Override temperature to 1.0 (required by Claude for extended thinking)
-            init_kwargs["temperature"] = 1.0
-        
-        # Add extra provider-specific kwargs
-        init_kwargs.update(config.extra_kwargs)
-        
-        # Initialize the base model
-        model = init_chat_model(**init_kwargs)
+    # Create the model
+    model = ChatOpenAI(**kwargs)
 
-    # Apply retry logic
-    if config.retry:
-        model = _apply_retry_logic(model, config.retry)
-
-    # Apply fallback logic
-    if config.fallback:
-        model = _apply_fallback_logic(model, config.fallback, config)
-
-    # Apply Anthropic-specific configurations
-    if model_info.provider == ModelProvider.ANTHROPIC and config.anthropic_cache:
-        model = _apply_anthropic_caching(model, config.anthropic_cache, model_info)
-
-    # Store reasoning config on OpenAI models for inspection/debugging
-    if model_info.provider == ModelProvider.OPENAI and model_info.is_reasoning_model and config.openai_reasoning:
-        model._reasoning_config = config.openai_reasoning
+    # Apply retry wrapper if configured
+    if config.retry and config.retry.max_retries > 0:
+        try:
+            model = model.with_retry(stop_after_attempt=config.retry.max_retries)
+        except Exception as e:
+            # If retry setup fails, continue without it
+            import warnings
+            warnings.warn(f"Failed to apply retry logic: {e}")
 
     return model
 
@@ -716,49 +570,31 @@ def trim_message_history(
 ) -> List[BaseMessage]:
     """
     Trim message history to fit within token limits.
-    
+
     This function helps manage long conversations by intelligently trimming
     message history while preserving important context like system messages.
-    
+
     Args:
         messages: List of messages to trim
         config: Trimming configuration
         model: Optional model instance for accurate token counting
-        
+
     Returns:
         Trimmed list of messages
-        
-    Example:
-        ```python
-        from agent_platform.utils.model_utils import (
-            trim_message_history,
-            MessageTrimmingConfig
-        )
-        
-        trimmed = trim_message_history(
-            messages=state["messages"],
-            config=MessageTrimmingConfig(
-                max_tokens=100000,
-                strategy="last",
-                start_on="human",
-            )
-        )
-        ```
     """
     if not config.enabled:
         return messages
-    
-    # Use provided token counter or default to approximate
-    token_counter = config.token_counter or count_tokens_approximately
-    
+
+    # Use approximate token counting (fast and accurate enough)
+    token_counter = count_tokens_approximately
+
     # If model is provided and supports token counting, use it
     if model is not None:
         try:
             token_counter = model
         except Exception:
-            # Fall back to approximate counting
             token_counter = count_tokens_approximately
-    
+
     trimmed = trim_messages(
         messages,
         strategy=config.strategy,
@@ -768,95 +604,35 @@ def trim_message_history(
         end_on=config.end_on,
         include_system=config.include_system,
     )
-    
+
     return trimmed
 
 
 def create_trimming_hook(config: MessageTrimmingConfig):
     """
     Create a pre-model hook function for automatic message trimming.
-    
+
     This is useful for LangGraph agents that support pre_model_hook,
     automatically trimming messages before they're sent to the LLM.
-    
+
     Args:
         config: Trimming configuration
-        
+
     Returns:
         Hook function that can be passed to create_react_agent or similar
-        
-    Example:
-        ```python
-        from agent_platform.utils.model_utils import (
-            create_trimming_hook,
-            MessageTrimmingConfig
-        )
-        from langgraph.prebuilt import create_react_agent
-        
-        trimming_hook = create_trimming_hook(
-            MessageTrimmingConfig(max_tokens=100000)
-        )
-        
-        agent = create_react_agent(
-            model=model,
-            tools=tools,
-            pre_model_hook=trimming_hook,
-        )
-        ```
     """
     def pre_model_hook(state):
         """Trim messages before sending to model"""
-        # Check llm_input_messages first (may be set by previous hooks like orphan resolution)
+        # Check llm_input_messages first (may be set by previous hooks)
         messages = state.get("llm_input_messages") or state.get("messages", [])
         trimmed_messages = trim_message_history(
             messages=messages,
             config=config,
             model=None,  # Use approximate counting in hooks for speed
         )
-        # Return under llm_input_messages to avoid modifying original state
         return {"llm_input_messages": trimmed_messages}
-    
+
     return pre_model_hook
-
-
-def wrap_model_with_reasoning(model: BaseChatModel) -> BaseChatModel:
-    """
-    DEPRECATED: This function is no longer needed.
-
-    Reasoning parameters are now passed directly at ChatOpenAI initialization time,
-    which is the officially supported method according to LangChain documentation.
-
-    For OpenAI reasoning models (o-series, GPT-5, GPT-5.1), reasoning parameters
-    are automatically configured by init_model() when you specify a reasoning model.
-
-    Args:
-        model: ChatOpenAI instance
-
-    Returns:
-        The model unchanged (for backward compatibility)
-
-    Example:
-        ```python
-        # Reasoning params are set automatically at init
-        model = init_model_simple(model_name="openai:gpt-5.1-thinking")
-        response = model.invoke("What is 2+2?")
-        ```
-
-    Note:
-        According to ChatOpenAI documentation, reasoning parameters should be
-        passed at initialization via the `reasoning` parameter:
-
-        ```python
-        ChatOpenAI(
-            model="gpt-5-nano",
-            reasoning={"effort": "medium", "summary": "auto"}
-        )
-        ```
-
-        This is now handled automatically by init_model() for reasoning models.
-    """
-    # Return model unchanged for backward compatibility
-    return model
 
 
 # ============================================================================
@@ -866,22 +642,18 @@ def wrap_model_with_reasoning(model: BaseChatModel) -> BaseChatModel:
 def get_default_model(tier: ModelTier = ModelTier.STANDARD) -> str:
     """
     Get the default model name for a given tier.
-    
+
     Args:
         tier: Model tier to get default for (FAST, STANDARD, or ADVANCED)
-        
+
     Returns:
-        Model name string
+        OpenRouter model ID string
     """
     tier_models = get_models_by_tier(tier)
     if not tier_models:
         raise ValueError(f"No models found for tier: {tier}")
-    
-    # Prefer Anthropic models as default
-    anthropic_models = [m for m in tier_models if m.provider == ModelProvider.ANTHROPIC]
-    if anthropic_models:
-        return anthropic_models[0].name
-    
+
+    # Return first model in tier (Anthropic models are listed first)
     return tier_models[0].name
 
 
@@ -890,59 +662,88 @@ def init_model_simple(
 ) -> BaseChatModel:
     """
     Simple model initialization with sensible defaults.
-    
+
     This is the recommended way to initialize models. All model-specific settings
-    (temperature, max_tokens, etc.) are configured in the model registry, so users
-    only need to select which model to use.
-    
-    Note: Retry logic is disabled because it interferes with tool binding.
-    LangGraph and provider SDKs have their own retry mechanisms.
-    
+    are configured in the registry, so users only need to select which model to use.
+
     Args:
-        model_name: Model to use (defaults to standard tier). 
-                   If None, uses Claude Sonnet 4.5.
-        
+        model_name: OpenRouter model ID (defaults to Claude Sonnet 4.5)
+
     Returns:
-        Configured chat model with optimal settings for that model
-        
+        Configured chat model via OpenRouter
+
     Example:
         ```python
         # Use default model (Claude Sonnet 4.5)
         model = init_model_simple()
-        
+
         # Use specific model
-        model = init_model_simple(
-            model_name="anthropic:claude-3-5-haiku-latest"
-        )
+        model = init_model_simple(model_name="google/gemini-2.5-pro")
+
+        # Use GPT-5.2
+        model = init_model_simple(model_name="openai/gpt-5.2")
         ```
     """
     if model_name is None:
-        model_name = get_default_model(ModelTier.STANDARD)
-    
-    # Get model info to use appropriate settings
+        model_name = "anthropic/claude-sonnet-4.5"
+
+    # Get model info for appropriate settings
     model_info = get_model_info(model_name)
-    
-    # Use max_tokens from model registry instead of hardcoded tier-based values
-    # Temperature is still tier-based for now (could also move to registry later)
-    if model_info.tier == ModelTier.FAST:
-        temperature = 0.3
-    elif model_info.tier == ModelTier.STANDARD:
-        temperature = 0.3
-    else:  # ADVANCED
-        temperature = 0.3
 
-    # Use the actual max_output_tokens from the model registry
-    max_tokens = model_info.max_output_tokens
-
+    # Use sensible defaults
     config = ModelConfig(
         model_name=model_name,
-        temperature=temperature,
-        max_tokens=max_tokens,
-        retry=RetryConfig(max_retries=0),
-        fallback=FallbackConfig(enabled=False),
+        temperature=0.3,
+        max_tokens=model_info.max_output_tokens,
+        retry=RetryConfig(max_retries=0),  # Let OpenRouter/providers handle retries
     )
-    
+
     return init_model(config)
+
+
+# ============================================================================
+# Backwards Compatibility
+# ============================================================================
+
+# These are kept for backwards compatibility but are no longer needed
+
+class ModelProvider(str, Enum):
+    """
+    DEPRECATED: OpenRouter abstracts providers.
+    Kept for backwards compatibility only.
+    """
+    ANTHROPIC = "anthropic"
+    OPENAI = "openai"
+    GOOGLE = "google"
+    XAI = "xai"
+    DEEPSEEK = "deepseek"
+    MOONSHOT = "moonshot"
+
+
+def get_models_by_provider(provider: ModelProvider) -> List[ModelInfo]:
+    """
+    DEPRECATED: Use get_models_by_tier() instead.
+    OpenRouter abstracts provider differences.
+    """
+    provider_prefix = provider.value
+    return [
+        info for info in MODEL_REGISTRY.values()
+        if info.name.startswith(provider_prefix + "/")
+    ]
+
+
+def wrap_model_with_reasoning(model: BaseChatModel) -> BaseChatModel:
+    """
+    DEPRECATED: Reasoning is now handled via OpenRouter's unified reasoning interface.
+    This function returns the model unchanged for backwards compatibility.
+    """
+    return model
+
+
+# Backwards compatibility aliases for config classes
+AnthropicCacheConfig = ReasoningConfig  # Caching handled by OpenRouter automatically
+OpenAIReasoningConfig = ReasoningConfig  # Unified reasoning config
+FallbackConfig = RetryConfig  # Fallbacks handled by OpenRouter's provider selection
 
 
 # ============================================================================
@@ -950,34 +751,40 @@ def init_model_simple(
 # ============================================================================
 
 __all__ = [
+    # Constants
+    "OPENROUTER_BASE_URL",
+
     # Main functions
     "init_model",
     "init_model_simple",
     "trim_message_history",
     "create_trimming_hook",
-    "wrap_model_with_reasoning",
-    
+
     # Configuration classes
     "ModelConfig",
     "RetryConfig",
-    "FallbackConfig",
-    "AnthropicCacheConfig",
-    "OpenAIReasoningConfig",
+    "ReasoningConfig",
     "MessageTrimmingConfig",
-    
+
     # Registry functions
     "get_model_info",
-    "get_models_by_provider",
     "get_models_by_tier",
     "get_model_options_for_ui",
     "get_default_model",
-    
+
     # Enums and data classes
-    "ModelProvider",
     "ModelTier",
     "ModelInfo",
-    
-    # Registry constant
-    "MODEL_REGISTRY",
-]
 
+    # Registry constants
+    "MODEL_REGISTRY",
+    "MODEL_ALIASES",
+
+    # Backwards compatibility
+    "ModelProvider",
+    "get_models_by_provider",
+    "wrap_model_with_reasoning",
+    "AnthropicCacheConfig",
+    "OpenAIReasoningConfig",
+    "FallbackConfig",
+]

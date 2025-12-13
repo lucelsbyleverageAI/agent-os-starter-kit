@@ -163,7 +163,7 @@ def make_model(cfg: GraphConfigPydantic):
     # Initialize without retry wrapper to allow .bind_tools() to work
     return init_model(
         ModelConfig(
-            model_name="openai:gpt-4.1",
+            model_name="openai/gpt-4.1",
             retry=RetryConfig(max_retries=0),  # Disable retry wrapper for .bind_tools()
         )
     )

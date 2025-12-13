@@ -80,7 +80,7 @@ def create_react_agent_with_approval(
 
     Example:
         ```python
-        from langchain_anthropic import ChatAnthropic
+        from agent_platform.utils.model_utils import init_model_simple
         from langchain_core.tools import tool
 
         @tool
@@ -88,7 +88,7 @@ def create_react_agent_with_approval(
             \"\"\"Perform a dangerous operation.\"\"\"
             return f"Executed: {x}"
 
-        model = ChatAnthropic(model="claude-3-5-sonnet-20241022")
+        model = init_model_simple(model_name="anthropic/claude-sonnet-4")
         agent = create_react_agent_with_approval(
             model=model,
             tools=[dangerous_operation],

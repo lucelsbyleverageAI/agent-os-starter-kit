@@ -245,11 +245,11 @@ class Configuration(BaseModel):
     )
     # Model Configuration
     summarization_model: str = Field(
-        default="openai:gpt-4.1-mini",
+        default="openai/gpt-4.1-mini",
         metadata={
             "x_oap_ui_config": {
                 "type": "select",
-                "default": "openai:gpt-4.1-mini",
+                "default": "openai/gpt-4.1-mini",
                 "description": "Model for summarizing research results from Tavily search results. Temperature and max_tokens are configured automatically per model.",
                 "options": get_model_options_for_ui(),
             }
@@ -268,33 +268,33 @@ class Configuration(BaseModel):
         }
     )
     research_model: str = Field(
-        default="openai:gpt-4.1-mini",
+        default="openai/gpt-4.1-mini",
         metadata={
             "x_oap_ui_config": {
                 "type": "select",
-                "default": "openai:gpt-4.1-mini",
+                "default": "openai/gpt-4.1-mini",
                 "description": "Model for conducting research. Temperature and max_tokens are configured automatically per model. NOTE: Make sure your Researcher Model supports the selected search API.",
                 "options": get_model_options_for_ui(),
             }
         }
     )
     compression_model: str = Field(
-        default="openai:gpt-4.1-mini",
+        default="openai/gpt-4.1-mini",
         metadata={
             "x_oap_ui_config": {
                 "type": "select",
-                "default": "openai:gpt-4.1-mini",
+                "default": "openai/gpt-4.1-mini",
                 "description": "Model for compressing research findings from sub-agents. Temperature and max_tokens are configured automatically per model. NOTE: Make sure your Compression Model supports the selected search API.",
                 "options": get_model_options_for_ui(),
             }
         }
     )
     final_report_model: str = Field(
-        default="openai:gpt-4.1-mini",
+        default="openai/gpt-4.1-mini",
         metadata={
             "x_oap_ui_config": {
                 "type": "select",
-                "default": "openai:gpt-4.1-mini",
+                "default": "openai/gpt-4.1-mini",
                 "description": "Model for writing the final report from all research findings. Temperature and max_tokens are configured automatically per model.",
                 "options": get_model_options_for_ui(),
             }

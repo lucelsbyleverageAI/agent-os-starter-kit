@@ -252,7 +252,7 @@ async def _get_agents(
     # Only add general-purpose agent if enabled
     if include_general_purpose:
         # Create trimming hook for general-purpose agent
-        gp_model_name = model if isinstance(model, str) else "anthropic:claude-sonnet-4-5-20250929"
+        gp_model_name = model if isinstance(model, str) else "anthropic/claude-sonnet-4"
         gp_model_info = get_model_info(gp_model_name)
         gp_trimming_hook = None
 
@@ -370,7 +370,7 @@ async def _get_agents(
 
         # Fallback to parent model name or default
         if not sub_model_name:
-            sub_model_name = model if isinstance(model, str) else "anthropic:claude-sonnet-4-5-20250929"
+            sub_model_name = model if isinstance(model, str) else "anthropic/claude-sonnet-4"
 
         sub_model_info = get_model_info(sub_model_name)
         sub_trimming_hook = None

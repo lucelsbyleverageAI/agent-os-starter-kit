@@ -8,9 +8,8 @@ packages = [{include = "agent_platform", from = "src"}]
 [tool.poetry.dependencies]
 python = ">=3.11.0,<3.13"
 langgraph = "0.6.11"
-langchain-anthropic = "0.3.13"
 langchain-core = ">=0.3.64"
-langchain-openai = "0.3.16"
+langchain-openai = "0.3.16"  # Used for all models via OpenRouter
 pydantic = "^2.11.7"
 langchain = ">=0.3.25"
 mcp = "^1.9.2"
