@@ -48,6 +48,7 @@ try:
     # SSE cost capture for OpenRouter streaming responses
     from agent_platform.utils.sse_cost_capture import (
         set_current_run_id,
+        get_current_run_id,
         get_and_clear_captured_cost,
         get_and_clear_captured_model,
         get_and_clear_captured_tokens,
@@ -56,6 +57,7 @@ try:
 except Exception:  # pragma: no cover
     SSE_COST_CAPTURE_AVAILABLE = False
     set_current_run_id = None  # type: ignore
+    get_current_run_id = None  # type: ignore
     get_and_clear_captured_cost = None  # type: ignore
     get_and_clear_captured_model = None  # type: ignore
     get_and_clear_captured_tokens = None  # type: ignore
@@ -466,8 +468,18 @@ def custom_create_react_agent(
         run_id = run_context.get("run_id", "unknown")
 
         # Set run_id for SSE cost capture before model invocation
-        if SSE_COST_CAPTURE_AVAILABLE and set_current_run_id:
+        # Only set if we have a valid run_id - preserves inherited ContextVar for sub-agents
+        if SSE_COST_CAPTURE_AVAILABLE and set_current_run_id and run_id != "unknown":
             set_current_run_id(run_id)
+
+        # Determine effective run_id for cost capture retrieval
+        # If local run_id is "unknown", try to inherit from ContextVar (parent agent's run_id)
+        effective_run_id = run_id
+        if run_id == "unknown" and SSE_COST_CAPTURE_AVAILABLE and get_current_run_id:
+            inherited_run_id = get_current_run_id()
+            if inherited_run_id and inherited_run_id != "unknown":
+                effective_run_id = inherited_run_id
+                logger.info("[call_model] Using inherited run_id from parent: %s", effective_run_id)
 
         if is_dynamic_model:
             dynamic_model = _resolve_model(state, runtime)
@@ -481,33 +493,33 @@ def custom_create_react_agent(
             if not usage:
                 usage = {"prompt_tokens": 0, "completion_tokens": 0, "total_tokens": 0, "cost": 0.0}
 
-            # Get tokens from SSE capture as fallback
+            # Get tokens from SSE capture as fallback (use effective_run_id for sub-agent inheritance)
             if SSE_COST_CAPTURE_AVAILABLE and get_and_clear_captured_tokens:
-                captured_tokens = get_and_clear_captured_tokens(run_id)
+                captured_tokens = get_and_clear_captured_tokens(effective_run_id)
                 if captured_tokens and captured_tokens.get("total_tokens", 0) > 0:
                     if usage.get("total_tokens", 0) == 0:
                         usage["prompt_tokens"] = captured_tokens["prompt_tokens"]
                         usage["completion_tokens"] = captured_tokens["completion_tokens"]
                         usage["total_tokens"] = captured_tokens["total_tokens"]
 
-            # Include captured cost from SSE stream (get_and_clear to avoid double-counting)
+            # Include captured cost from SSE stream (use effective_run_id for sub-agent inheritance)
             if SSE_COST_CAPTURE_AVAILABLE and get_and_clear_captured_cost:
-                captured_cost = get_and_clear_captured_cost(run_id)
+                captured_cost = get_and_clear_captured_cost(effective_run_id)
                 if captured_cost is not None and captured_cost > 0:
                     usage["cost"] = captured_cost
                     logger.info("[call_model] Using captured SSE cost: $%.6f", captured_cost)
 
             # Only proceed if we have some usage data
             if usage.get("total_tokens", 0) > 0 or usage.get("cost", 0.0) > 0:
-                # Accumulate for potential end-of-run summary
-                if run_id not in _usage_accumulators:
-                    _usage_accumulators[run_id] = UsageAccumulator()
-                _usage_accumulators[run_id].add(usage)
+                # Accumulate for potential end-of-run summary (use effective_run_id)
+                if effective_run_id not in _usage_accumulators:
+                    _usage_accumulators[effective_run_id] = UsageAccumulator()
+                _usage_accumulators[effective_run_id].add(usage)
                 logger.info(
                     "[call_model] Usage tracked: %d tokens, $%.6f (run_id=%s)",
                     usage.get("total_tokens", 0),
                     usage.get("cost", 0.0),
-                    run_id
+                    effective_run_id
                 )
                 # Record to LangConnect immediately (fire-and-forget via asyncio)
                 import asyncio
@@ -515,7 +527,7 @@ def custom_create_react_agent(
                     # Get model name: prefer captured model from SSE stream, fall back to response metadata
                     model_name = "unknown"
                     if SSE_COST_CAPTURE_AVAILABLE and get_and_clear_captured_model:
-                        captured_model = get_and_clear_captured_model(run_id)
+                        captured_model = get_and_clear_captured_model(effective_run_id)
                         if captured_model:
                             model_name = captured_model
                             logger.info("[call_model] Using captured SSE model: %s", model_name)
@@ -523,7 +535,7 @@ def custom_create_react_agent(
                         model_name = getattr(response, "response_metadata", {}).get("model", "unknown")
                     asyncio.create_task(record_usage(
                         thread_id=run_context.get("thread_id", "unknown"),
-                        run_id=run_id,
+                        run_id=effective_run_id,
                         model_name=model_name,
                         usage_data=usage,
                         user_id=run_context.get("user_id", "unknown"),
@@ -584,8 +596,18 @@ def custom_create_react_agent(
         run_id = run_context.get("run_id", "unknown")
 
         # Set run_id for SSE cost capture before model invocation
-        if SSE_COST_CAPTURE_AVAILABLE and set_current_run_id:
+        # Only set if we have a valid run_id - preserves inherited ContextVar for sub-agents
+        if SSE_COST_CAPTURE_AVAILABLE and set_current_run_id and run_id != "unknown":
             set_current_run_id(run_id)
+
+        # Determine effective run_id for cost capture retrieval
+        # If local run_id is "unknown", try to inherit from ContextVar (parent agent's run_id)
+        effective_run_id = run_id
+        if run_id == "unknown" and SSE_COST_CAPTURE_AVAILABLE and get_current_run_id:
+            inherited_run_id = get_current_run_id()
+            if inherited_run_id and inherited_run_id != "unknown":
+                effective_run_id = inherited_run_id
+                logger.info("[acall_model] Using inherited run_id from parent: %s", effective_run_id)
 
         if is_dynamic_model:
             dynamic_model = await _aresolve_model(state, runtime)
@@ -599,33 +621,33 @@ def custom_create_react_agent(
             if not usage:
                 usage = {"prompt_tokens": 0, "completion_tokens": 0, "total_tokens": 0, "cost": 0.0}
 
-            # Get tokens from SSE capture as fallback
+            # Get tokens from SSE capture as fallback (use effective_run_id for sub-agent inheritance)
             if SSE_COST_CAPTURE_AVAILABLE and get_and_clear_captured_tokens:
-                captured_tokens = get_and_clear_captured_tokens(run_id)
+                captured_tokens = get_and_clear_captured_tokens(effective_run_id)
                 if captured_tokens and captured_tokens.get("total_tokens", 0) > 0:
                     if usage.get("total_tokens", 0) == 0:
                         usage["prompt_tokens"] = captured_tokens["prompt_tokens"]
                         usage["completion_tokens"] = captured_tokens["completion_tokens"]
                         usage["total_tokens"] = captured_tokens["total_tokens"]
 
-            # Include captured cost from SSE stream (get_and_clear to avoid double-counting)
+            # Include captured cost from SSE stream (use effective_run_id for sub-agent inheritance)
             if SSE_COST_CAPTURE_AVAILABLE and get_and_clear_captured_cost:
-                captured_cost = get_and_clear_captured_cost(run_id)
+                captured_cost = get_and_clear_captured_cost(effective_run_id)
                 if captured_cost is not None and captured_cost > 0:
                     usage["cost"] = captured_cost
                     logger.info("[acall_model] Using captured SSE cost: $%.6f", captured_cost)
 
             # Only proceed if we have some usage data
             if usage.get("total_tokens", 0) > 0 or usage.get("cost", 0.0) > 0:
-                # Accumulate for potential end-of-run summary
-                if run_id not in _usage_accumulators:
-                    _usage_accumulators[run_id] = UsageAccumulator()
-                _usage_accumulators[run_id].add(usage)
+                # Accumulate for potential end-of-run summary (use effective_run_id)
+                if effective_run_id not in _usage_accumulators:
+                    _usage_accumulators[effective_run_id] = UsageAccumulator()
+                _usage_accumulators[effective_run_id].add(usage)
                 logger.info(
                     "[acall_model] Usage tracked: %d tokens, $%.6f (run_id=%s)",
                     usage.get("total_tokens", 0),
                     usage.get("cost", 0.0),
-                    run_id
+                    effective_run_id
                 )
                 # Record to LangConnect immediately (fire-and-forget)
                 import asyncio
@@ -633,7 +655,7 @@ def custom_create_react_agent(
                     # Get model name: prefer captured model from SSE stream, fall back to response metadata
                     model_name = "unknown"
                     if SSE_COST_CAPTURE_AVAILABLE and get_and_clear_captured_model:
-                        captured_model = get_and_clear_captured_model(run_id)
+                        captured_model = get_and_clear_captured_model(effective_run_id)
                         if captured_model:
                             model_name = captured_model
                             logger.info("[acall_model] Using captured SSE model: %s", model_name)
@@ -641,7 +663,7 @@ def custom_create_react_agent(
                         model_name = getattr(response, "response_metadata", {}).get("model", "unknown")
                     asyncio.create_task(record_usage(
                         thread_id=run_context.get("thread_id", "unknown"),
-                        run_id=run_id,
+                        run_id=effective_run_id,
                         model_name=model_name,
                         usage_data=usage,
                         user_id=run_context.get("user_id", "unknown"),

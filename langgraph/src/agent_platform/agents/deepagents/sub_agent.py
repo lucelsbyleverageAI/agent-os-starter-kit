@@ -481,8 +481,9 @@ Available agent types and the tools they have access to:
         # Create a new state dict for the sub-agent invocation
         sub_agent_state = state.copy()
         sub_agent_state["messages"] = [HumanMessage(content=description)]
-        # Pass config so sub-agent can access run_id for cost tracking
-        result = await sub_agent.ainvoke(sub_agent_state, config)
+        # Don't pass config to sub-agent to prevent streaming callbacks from leaking
+        # Cost tracking still works via ContextVar inheritance (see custom_react_agent.py)
+        result = await sub_agent.ainvoke(sub_agent_state)
         return Command(
             update={
                 "files": result.get("files", {}),
@@ -579,8 +580,9 @@ Available agent types and the tools they have access to:
         # Create a new state dict for the sub-agent invocation
         sub_agent_state = state.copy()
         sub_agent_state["messages"] = [HumanMessage(content=description)]
-        # Pass config so sub-agent can access run_id for cost tracking
-        result = sub_agent.invoke(sub_agent_state, config)
+        # Don't pass config to sub-agent to prevent streaming callbacks from leaking
+        # Cost tracking still works via ContextVar inheritance (see custom_react_agent.py)
+        result = sub_agent.invoke(sub_agent_state)
         return Command(
             update={
                 "files": result.get("files", {}),
