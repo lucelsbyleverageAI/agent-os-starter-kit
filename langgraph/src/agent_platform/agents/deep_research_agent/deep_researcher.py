@@ -61,11 +61,31 @@ from agent_platform.utils.message_utils import resolve_orphaned_tool_calls
 
 # SSE cost capture for OpenRouter streaming responses
 try:
-    from agent_platform.utils.sse_cost_capture import set_current_run_id
+    from agent_platform.utils.sse_cost_capture import (
+        set_current_run_id,
+        get_and_clear_captured_cost,
+        get_and_clear_captured_model,
+    )
     SSE_COST_CAPTURE_AVAILABLE = True
 except Exception:  # pragma: no cover
     SSE_COST_CAPTURE_AVAILABLE = False
     set_current_run_id = None  # type: ignore
+    get_and_clear_captured_cost = None  # type: ignore
+    get_and_clear_captured_model = None  # type: ignore
+
+# Usage tracking for cost monitoring
+try:
+    from agent_platform.utils.usage_tracking import (
+        extract_run_context,
+        record_usage,
+        extract_usage_from_response,
+    )
+    USAGE_TRACKING_AVAILABLE = True
+except Exception:  # pragma: no cover
+    USAGE_TRACKING_AVAILABLE = False
+    extract_run_context = None  # type: ignore
+    record_usage = None  # type: ignore
+    extract_usage_from_response = None  # type: ignore
 
 from agent_platform.sentry import get_logger
 logger = get_logger(__name__)
@@ -87,6 +107,85 @@ def _set_run_id_for_cost_capture(config: RunnableConfig) -> None:
         "unknown"
     )
     set_current_run_id(run_id)
+
+
+async def _record_model_usage(
+    response,
+    config: RunnableConfig,
+    model_name: str,
+) -> None:
+    """Record usage from a model response to LangConnect.
+
+    This function extracts usage data from the model response and records it
+    to LangConnect for cost tracking. It uses SSE-captured cost as the primary
+    source (more accurate), falling back to response metadata.
+
+    Args:
+        response: The model response (AIMessage or structured output)
+        config: Runtime configuration containing run context
+        model_name: The configured model name (may be overridden by actual model)
+    """
+    if not USAGE_TRACKING_AVAILABLE:
+        return
+
+    try:
+        run_context = extract_run_context(config)
+        run_id = run_context.get("run_id")
+        thread_id = run_context.get("thread_id")
+        user_id = run_context.get("user_id")
+
+        if not all([run_id, thread_id, user_id]):
+            logger.debug(
+                "[DEEP_RESEARCH] Missing context for usage recording: "
+                "run_id=%s, thread_id=%s, user_id=%s",
+                run_id, thread_id, user_id
+            )
+            return
+
+        # Extract usage from response
+        usage_data = {"prompt_tokens": 0, "completion_tokens": 0, "total_tokens": 0, "cost": 0.0}
+
+        # Handle structured output responses (have a raw attribute with the AIMessage)
+        actual_response = getattr(response, "raw", response) if hasattr(response, "raw") else response
+        if actual_response and extract_usage_from_response:
+            extracted = extract_usage_from_response(actual_response)
+            if extracted:
+                usage_data.update(extracted)
+
+        # Get cost from SSE capture (more accurate than response metadata)
+        # Use get_and_clear to get only the incremental cost for this specific call
+        if SSE_COST_CAPTURE_AVAILABLE and get_and_clear_captured_cost:
+            captured_cost = get_and_clear_captured_cost(run_id)
+            if captured_cost is not None and captured_cost > 0:
+                usage_data["cost"] = captured_cost
+
+        # Get actual model name from SSE capture
+        # Use get_and_clear to reset for the next call
+        actual_model = model_name
+        if SSE_COST_CAPTURE_AVAILABLE and get_and_clear_captured_model:
+            captured_model = get_and_clear_captured_model(run_id)
+            if captured_model:
+                actual_model = captured_model
+
+        # Only record if we have some usage data
+        if usage_data["total_tokens"] > 0 or usage_data["cost"] > 0:
+            logger.debug(
+                "[DEEP_RESEARCH] Recording usage: model=%s, tokens=%d, cost=$%.6f",
+                actual_model, usage_data["total_tokens"], usage_data["cost"]
+            )
+            await record_usage(
+                thread_id=thread_id,
+                run_id=run_id,
+                model_name=actual_model,
+                usage_data=usage_data,
+                user_id=user_id,
+                assistant_id=run_context.get("assistant_id"),
+                graph_name="deep_research_agent",
+            )
+
+    except Exception as e:
+        # Don't fail the agent if usage recording fails
+        logger.warning("[DEEP_RESEARCH] Error recording usage: %s", e)
 
 
 def get_resolved_messages(messages):
@@ -138,7 +237,8 @@ async def clarify_with_user(state: AgentState, config: RunnableConfig) -> Comman
     # Set run_id for SSE cost capture before model invocation
     _set_run_id_for_cost_capture(config)
     response = await clarification_model.ainvoke([HumanMessage(content=prompt_content)])
-    
+    await _record_model_usage(response, config, configurable.research_model)
+
     # Step 4: Route based on clarification analysis
     if response.need_clarification:
         logger.info("[DEEP_RESEARCH] clarification_needed=true")
@@ -191,6 +291,7 @@ async def write_research_brief(state: AgentState, config: RunnableConfig) -> Com
     # Set run_id for SSE cost capture before model invocation
     _set_run_id_for_cost_capture(config)
     response = await research_model.ainvoke([HumanMessage(content=prompt_content)])
+    await _record_model_usage(response, config, configurable.research_model)
     logger.info("[DEEP_RESEARCH] research_brief_generated=true")
     
     # Step 3: Initialize supervisor with research brief and instructions
@@ -250,6 +351,7 @@ async def supervisor(state: SupervisorState, config: RunnableConfig) -> Command[
     # Set run_id for SSE cost capture before model invocation
     _set_run_id_for_cost_capture(config)
     response = await research_model.ainvoke(supervisor_messages)
+    await _record_model_usage(response, config, configurable.research_model)
     logger.debug("[DEEP_RESEARCH] supervisor_step_done=true")
     
     # Step 3: Update state and proceed to tool execution
@@ -455,6 +557,7 @@ async def researcher(state: ResearcherState, config: RunnableConfig) -> Command[
     # Set run_id for SSE cost capture before model invocation
     _set_run_id_for_cost_capture(config)
     response = await research_model.ainvoke(messages)
+    await _record_model_usage(response, config, configurable.research_model)
     logger.debug("[DEEP_RESEARCH] researcher_step_done=true")
     
     # Step 4: Update state and proceed to tool execution
@@ -596,7 +699,8 @@ async def compress_research(state: ResearcherState, config: RunnableConfig):
             _set_run_id_for_cost_capture(config)
             # Execute compression
             response = await synthesizer_model.ainvoke(messages)
-            
+            await _record_model_usage(response, config, configurable.compression_model)
+
             # Extract raw notes from all tool and AI messages
             raw_notes_content = "\n".join([
                 str(message.content) 
@@ -699,7 +803,10 @@ async def final_report_generation(state: AgentState, config: RunnableConfig):
             final_report = await writer_model.ainvoke([
                 HumanMessage(content=final_report_prompt)
             ])
-            
+
+            # Record usage for cost tracking
+            await _record_model_usage(final_report, config, configurable.final_report_model)
+
             # Return successful report generation
             logger.info("[DEEP_RESEARCH] final_report_generated=true")
             return {

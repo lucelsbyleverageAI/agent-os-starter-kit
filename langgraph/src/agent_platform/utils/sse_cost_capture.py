@@ -60,7 +60,7 @@ def get_current_run_id() -> Optional[str]:
 
 def get_captured_cost(run_id: str) -> Optional[float]:
     """
-    Get the captured cost for a run.
+    Get the captured cost for a run (without clearing).
 
     Args:
         run_id: The LangGraph run ID
@@ -69,6 +69,27 @@ def get_captured_cost(run_id: str) -> Optional[float]:
         The accumulated cost in USD, or None if no cost was captured
     """
     return _captured_costs.get(run_id)
+
+
+def get_and_clear_captured_cost(run_id: str) -> Optional[float]:
+    """
+    Get the captured cost for a run and clear it.
+
+    Use this after each model call to get only the incremental cost
+    for that specific call, preventing double-counting when recording
+    to the database.
+
+    Args:
+        run_id: The LangGraph run ID
+
+    Returns:
+        The cost in USD since last clear, or None if no cost was captured
+    """
+    cost = _captured_costs.pop(run_id, None)
+    _captured_cost_chunks.pop(run_id, None)  # Also clear chunk tracking
+    if cost is not None:
+        logger.debug("[CostCapture] Retrieved and cleared cost $%.6f for run %s", cost, run_id)
+    return cost
 
 
 def add_captured_cost(run_id: str, cost: float, chunk_id: Optional[str] = None) -> None:
@@ -120,7 +141,7 @@ def clear_captured_cost(run_id: str) -> None:
 
 def get_captured_model(run_id: str) -> Optional[str]:
     """
-    Get the captured model name for a run.
+    Get the captured model name for a run (without clearing).
 
     Args:
         run_id: The LangGraph run ID
@@ -129,6 +150,25 @@ def get_captured_model(run_id: str) -> Optional[str]:
         The model name, or None if no model was captured
     """
     return _captured_models.get(run_id)
+
+
+def get_and_clear_captured_model(run_id: str) -> Optional[str]:
+    """
+    Get the captured model name for a run and clear it.
+
+    Use this alongside get_and_clear_captured_cost() to get the model
+    that was actually used for a specific call.
+
+    Args:
+        run_id: The LangGraph run ID
+
+    Returns:
+        The model name, or None if no model was captured
+    """
+    model = _captured_models.pop(run_id, None)
+    if model is not None:
+        logger.debug("[CostCapture] Retrieved and cleared model '%s' for run %s", model, run_id)
+    return model
 
 
 def set_captured_model(run_id: str, model: str) -> None:
@@ -208,9 +248,11 @@ __all__ = [
     "set_current_run_id",
     "get_current_run_id",
     "get_captured_cost",
+    "get_and_clear_captured_cost",
     "add_captured_cost",
     "clear_captured_cost",
     "get_captured_model",
+    "get_and_clear_captured_model",
     "set_captured_model",
     "parse_sse_for_cost",
 ]

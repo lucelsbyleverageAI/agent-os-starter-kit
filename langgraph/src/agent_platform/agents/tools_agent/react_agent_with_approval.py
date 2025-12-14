@@ -41,9 +41,8 @@ from agent_platform.utils.usage_tracking import (
 )
 from agent_platform.utils.sse_cost_capture import (
     set_current_run_id,
-    get_captured_cost,
-    get_captured_model,
-    clear_captured_cost,
+    get_and_clear_captured_cost,
+    get_and_clear_captured_model,
 )
 from agent_platform.sentry import get_logger
 
@@ -201,11 +200,7 @@ def create_react_agent_with_approval(
         logger.info("[call_model] run_context: %s", run_context)
 
         # Costs are captured automatically at HTTP level from SSE stream
-        captured_cost = get_captured_cost(run_id)
-        if captured_cost is not None and captured_cost > 0:
-            logger.info("[call_model] Cost captured from SSE: $%.6f", captured_cost)
-        else:
-            logger.debug("[call_model] No cost captured yet (captured when streaming completes)")
+        # and recorded once at end of run in record_accumulated_usage
 
         if usage:
             # Get or create accumulator for this run
@@ -430,8 +425,9 @@ def create_react_agent_with_approval(
 
                 if total_usage.get("total_tokens", 0) > 0:
                     # Get model name: prefer captured model from SSE stream, fall back to configurable
+                    # Use get_and_clear to clean up after retrieval
                     configurable = config.get("configurable", {})
-                    captured_model = get_captured_model(run_id)
+                    captured_model = get_and_clear_captured_model(run_id)
                     if captured_model:
                         model_name = captured_model
                         logger.info(
@@ -443,7 +439,8 @@ def create_react_agent_with_approval(
 
                     # Get cost captured from SSE stream by sse_cost_capture module
                     # The cost is extracted from the final SSE chunk before LangChain strips it
-                    captured_cost = get_captured_cost(run_id)
+                    # Use get_and_clear to clean up after retrieval
+                    captured_cost = get_and_clear_captured_cost(run_id)
 
                     if captured_cost is not None and captured_cost > 0:
                         total_usage["cost"] = captured_cost
@@ -476,9 +473,8 @@ def create_react_agent_with_approval(
                         total_usage.get("call_count", 0),
                     )
 
-                # Clean up accumulator and captured costs
+                # Clean up accumulator (cost/model already cleared via get_and_clear)
                 del _usage_accumulators[run_id]
-                clear_captured_cost(run_id)
 
         except Exception as e:
             logger.warning(f"[record_accumulated_usage] Error recording usage: {e}")

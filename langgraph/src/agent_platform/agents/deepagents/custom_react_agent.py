@@ -48,17 +48,15 @@ try:
     # SSE cost capture for OpenRouter streaming responses
     from agent_platform.utils.sse_cost_capture import (
         set_current_run_id,
-        get_captured_cost,
-        get_captured_model,
-        clear_captured_cost,
+        get_and_clear_captured_cost,
+        get_and_clear_captured_model,
     )
     SSE_COST_CAPTURE_AVAILABLE = True
 except Exception:  # pragma: no cover
     SSE_COST_CAPTURE_AVAILABLE = False
     set_current_run_id = None  # type: ignore
-    get_captured_cost = None  # type: ignore
-    get_captured_model = None  # type: ignore
-    clear_captured_cost = None  # type: ignore
+    get_and_clear_captured_cost = None  # type: ignore
+    get_and_clear_captured_model = None  # type: ignore
 
 # Global usage accumulator for tracking across calls (per run_id)
 _usage_accumulators: dict = {}
@@ -479,9 +477,9 @@ def custom_create_react_agent(
         if USAGE_TRACKING_AVAILABLE and extract_usage_from_response is not None:
             usage = extract_usage_from_response(response)
             if usage:
-                # Include captured cost from SSE stream
-                if SSE_COST_CAPTURE_AVAILABLE and get_captured_cost:
-                    captured_cost = get_captured_cost(run_id)
+                # Include captured cost from SSE stream (get_and_clear to avoid double-counting)
+                if SSE_COST_CAPTURE_AVAILABLE and get_and_clear_captured_cost:
+                    captured_cost = get_and_clear_captured_cost(run_id)
                     if captured_cost is not None and captured_cost > 0:
                         usage["cost"] = captured_cost
                         logger.info("[call_model] Using captured SSE cost: $%.6f", captured_cost)
@@ -501,8 +499,8 @@ def custom_create_react_agent(
                 try:
                     # Get model name: prefer captured model from SSE stream, fall back to response metadata
                     model_name = "unknown"
-                    if SSE_COST_CAPTURE_AVAILABLE and get_captured_model:
-                        captured_model = get_captured_model(run_id)
+                    if SSE_COST_CAPTURE_AVAILABLE and get_and_clear_captured_model:
+                        captured_model = get_and_clear_captured_model(run_id)
                         if captured_model:
                             model_name = captured_model
                             logger.info("[call_model] Using captured SSE model: %s", model_name)
@@ -519,10 +517,6 @@ def custom_create_react_agent(
                     ))
                 except Exception as e:
                     logger.warning("[call_model] Failed to record usage: %s", e)
-                finally:
-                    # Clear captured cost after recording
-                    if SSE_COST_CAPTURE_AVAILABLE and clear_captured_cost:
-                        clear_captured_cost(run_id)
             else:
                 metadata = getattr(response, "response_metadata", None)
                 logger.debug("[call_model] No usage data in response. metadata keys: %s", list(metadata.keys()) if metadata else "None")
@@ -588,9 +582,9 @@ def custom_create_react_agent(
         if USAGE_TRACKING_AVAILABLE and extract_usage_from_response is not None:
             usage = extract_usage_from_response(response)
             if usage:
-                # Include captured cost from SSE stream (OpenRouter)
-                if SSE_COST_CAPTURE_AVAILABLE and get_captured_cost:
-                    captured_cost = get_captured_cost(run_id)
+                # Include captured cost from SSE stream (get_and_clear to avoid double-counting)
+                if SSE_COST_CAPTURE_AVAILABLE and get_and_clear_captured_cost:
+                    captured_cost = get_and_clear_captured_cost(run_id)
                     if captured_cost is not None and captured_cost > 0:
                         usage["cost"] = captured_cost
                         logger.info("[acall_model] Using captured SSE cost: $%.6f", captured_cost)
@@ -610,8 +604,8 @@ def custom_create_react_agent(
                 try:
                     # Get model name: prefer captured model from SSE stream, fall back to response metadata
                     model_name = "unknown"
-                    if SSE_COST_CAPTURE_AVAILABLE and get_captured_model:
-                        captured_model = get_captured_model(run_id)
+                    if SSE_COST_CAPTURE_AVAILABLE and get_and_clear_captured_model:
+                        captured_model = get_and_clear_captured_model(run_id)
                         if captured_model:
                             model_name = captured_model
                             logger.info("[acall_model] Using captured SSE model: %s", model_name)
@@ -628,10 +622,6 @@ def custom_create_react_agent(
                     ))
                 except Exception as e:
                     logger.warning("[acall_model] Failed to record usage: %s", e)
-                finally:
-                    # Clear captured cost after recording
-                    if SSE_COST_CAPTURE_AVAILABLE and clear_captured_cost:
-                        clear_captured_cost(run_id)
             else:
                 metadata = getattr(response, "response_metadata", None)
                 logger.debug("[acall_model] No usage data in response. metadata keys: %s", list(metadata.keys()) if metadata else "None")
