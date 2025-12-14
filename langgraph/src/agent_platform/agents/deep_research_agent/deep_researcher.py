@@ -59,8 +59,34 @@ from agent_platform.utils.model_utils import (
 )
 from agent_platform.utils.message_utils import resolve_orphaned_tool_calls
 
+# SSE cost capture for OpenRouter streaming responses
+try:
+    from agent_platform.utils.sse_cost_capture import set_current_run_id
+    SSE_COST_CAPTURE_AVAILABLE = True
+except Exception:  # pragma: no cover
+    SSE_COST_CAPTURE_AVAILABLE = False
+    set_current_run_id = None  # type: ignore
+
 from agent_platform.sentry import get_logger
 logger = get_logger(__name__)
+
+
+def _set_run_id_for_cost_capture(config: RunnableConfig) -> None:
+    """Extract run_id from config and set it for SSE cost capture.
+
+    This ensures that costs captured from OpenRouter streaming responses
+    are associated with the correct run.
+    """
+    if not SSE_COST_CAPTURE_AVAILABLE or not set_current_run_id:
+        return
+
+    # Extract run_id from config metadata
+    run_id = (
+        config.get("configurable", {}).get("run_id") or
+        config.get("metadata", {}).get("run_id") or
+        "unknown"
+    )
+    set_current_run_id(run_id)
 
 
 def get_resolved_messages(messages):
@@ -106,9 +132,11 @@ async def clarify_with_user(state: AgentState, config: RunnableConfig) -> Comman
     
     # Step 3: Analyze whether clarification is needed
     prompt_content = clarify_with_user_instructions.format(
-        messages=get_buffer_string(messages), 
+        messages=get_buffer_string(messages),
         date=get_today_str()
     )
+    # Set run_id for SSE cost capture before model invocation
+    _set_run_id_for_cost_capture(config)
     response = await clarification_model.ainvoke([HumanMessage(content=prompt_content)])
     
     # Step 4: Route based on clarification analysis
@@ -160,6 +188,8 @@ async def write_research_brief(state: AgentState, config: RunnableConfig) -> Com
         messages=get_buffer_string(state.get("messages", [])),
         date=get_today_str()
     )
+    # Set run_id for SSE cost capture before model invocation
+    _set_run_id_for_cost_capture(config)
     response = await research_model.ainvoke([HumanMessage(content=prompt_content)])
     logger.info("[DEEP_RESEARCH] research_brief_generated=true")
     
@@ -217,6 +247,8 @@ async def supervisor(state: SupervisorState, config: RunnableConfig) -> Command[
     
     # Step 2: Generate supervisor response based on current context
     supervisor_messages = get_resolved_messages(state.get("supervisor_messages", []))
+    # Set run_id for SSE cost capture before model invocation
+    _set_run_id_for_cost_capture(config)
     response = await research_model.ainvoke(supervisor_messages)
     logger.debug("[DEEP_RESEARCH] supervisor_step_done=true")
     
@@ -420,6 +452,8 @@ async def researcher(state: ResearcherState, config: RunnableConfig) -> Command[
     # Resolve any orphaned tool calls in the researcher messages
     resolved_researcher_messages = get_resolved_messages(researcher_messages)
     messages = [SystemMessage(content=researcher_prompt)] + resolved_researcher_messages
+    # Set run_id for SSE cost capture before model invocation
+    _set_run_id_for_cost_capture(config)
     response = await research_model.ainvoke(messages)
     logger.debug("[DEEP_RESEARCH] researcher_step_done=true")
     
@@ -558,6 +592,8 @@ async def compress_research(state: ResearcherState, config: RunnableConfig):
             resolved_messages = get_resolved_messages(researcher_messages)
             messages = [SystemMessage(content=compression_prompt)] + resolved_messages
 
+            # Set run_id for SSE cost capture before model invocation
+            _set_run_id_for_cost_capture(config)
             # Execute compression
             response = await synthesizer_model.ainvoke(messages)
             
@@ -657,6 +693,8 @@ async def final_report_generation(state: AgentState, config: RunnableConfig):
                 date=get_today_str()
             )
             
+            # Set run_id for SSE cost capture before model invocation
+            _set_run_id_for_cost_capture(config)
             # Generate the final report
             final_report = await writer_model.ainvoke([
                 HumanMessage(content=final_report_prompt)

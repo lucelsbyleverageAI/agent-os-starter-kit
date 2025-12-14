@@ -37,6 +37,26 @@ from agent_platform.utils.tool_utils import (
     create_collection_tools,
 )
 
+# SSE cost capture for OpenRouter streaming responses
+try:
+    from agent_platform.utils.sse_cost_capture import set_current_run_id
+    SSE_COST_CAPTURE_AVAILABLE = True
+except Exception:  # pragma: no cover
+    SSE_COST_CAPTURE_AVAILABLE = False
+    set_current_run_id = None  # type: ignore
+
+
+def _set_run_id_for_cost_capture(config: RunnableConfig) -> None:
+    """Extract run_id from config and set it for SSE cost capture."""
+    if not SSE_COST_CAPTURE_AVAILABLE or not set_current_run_id:
+        return
+    run_id = (
+        config.get("configurable", {}).get("run_id") or
+        config.get("metadata", {}).get("run_id") or
+        "unknown"
+    )
+    set_current_run_id(run_id)
+
 ##########################
 # Tavily Search Tool Utils
 ##########################
@@ -96,11 +116,14 @@ async def tavily_search(
         .with_retry(stop_after_attempt=configurable.max_structured_output_retries)
     )
     
+    # Set run_id for SSE cost capture before summarization
+    _set_run_id_for_cost_capture(config)
+
     # Step 4: Create summarization tasks (skip empty content)
     async def noop():
         """No-op function for results without raw content."""
         return None
-    
+
     summarization_tasks = [
         noop() if not result.get("raw_content") 
         else summarize_webpage(

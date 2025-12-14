@@ -33,9 +33,28 @@ from agent_platform.utils.tool_approval_utils import (
     create_tool_approval_interrupt,
     process_tool_approval_response,
 )
+from agent_platform.utils.usage_tracking import (
+    extract_usage_from_response,
+    extract_run_context,
+    record_usage,
+    UsageAccumulator,
+)
+from agent_platform.utils.sse_cost_capture import (
+    set_current_run_id,
+    get_captured_cost,
+    get_captured_model,
+    clear_captured_cost,
+)
 from agent_platform.sentry import get_logger
 
 logger = get_logger(__name__)
+
+# Global usage accumulator for tracking across calls
+# This is stored per-thread via configurable
+_usage_accumulators: dict = {}
+
+# Costs are now captured at the HTTP level via sse_cost_capture module
+# which intercepts SSE streams to extract cost from the final chunk
 
 
 class AgentState(TypedDict):
@@ -160,8 +179,51 @@ def create_react_agent_with_approval(
         # Call the model
         logger.info("[call_model] Invoking model with %d message(s)...", len(messages))
 
+        # Extract run context before model invocation
+        run_context = extract_run_context(config)
+        run_id = run_context.get("run_id", "unknown")
+
+        # Set the current run_id for generation ID capture
+        # The HTTP client will capture OpenRouter's generation ID automatically
+        set_current_run_id(run_id)
+
         response = await model.ainvoke(messages, config)
         logger.info("[call_model] Model responded")
+
+        # Track usage from response
+        usage = extract_usage_from_response(response)
+
+        # Debug: Log response metadata
+        metadata = getattr(response, "response_metadata", None)
+        usage_metadata = getattr(response, "usage_metadata", None)
+        logger.info("[call_model] response_metadata: %s", metadata)
+        logger.info("[call_model] usage_metadata: %s", usage_metadata)
+        logger.info("[call_model] run_context: %s", run_context)
+
+        # Costs are captured automatically at HTTP level from SSE stream
+        captured_cost = get_captured_cost(run_id)
+        if captured_cost is not None and captured_cost > 0:
+            logger.info("[call_model] Cost captured from SSE: $%.6f", captured_cost)
+        else:
+            logger.debug("[call_model] No cost captured yet (captured when streaming completes)")
+
+        if usage:
+            # Get or create accumulator for this run
+            if run_id not in _usage_accumulators:
+                _usage_accumulators[run_id] = UsageAccumulator()
+
+            _usage_accumulators[run_id].add(usage)
+            logger.info(
+                "[call_model] Usage tracked: %d tokens (run_id=%s)",
+                usage.get("total_tokens", 0),
+                run_id
+            )
+        else:
+            logger.info(
+                "[call_model] No usage data extracted. response_metadata keys: %s, usage_metadata: %s",
+                list(metadata.keys()) if metadata else "None",
+                usage_metadata
+            )
 
         num_tool_calls = len(response.tool_calls) if hasattr(response, "tool_calls") else 0
         logger.info(
@@ -355,6 +417,74 @@ def create_react_agent_with_approval(
         )
         return {"messages": tool_messages}
 
+    # Function to record accumulated usage when run ends
+    async def record_accumulated_usage(state: AgentState, config: RunnableConfig) -> dict:
+        """Record accumulated usage to LangConnect when the run completes."""
+        try:
+            run_context = extract_run_context(config)
+            run_id = run_context.get("run_id")
+
+            if run_id and run_id in _usage_accumulators:
+                accumulator = _usage_accumulators[run_id]
+                total_usage = accumulator.get_total()
+
+                if total_usage.get("total_tokens", 0) > 0:
+                    # Get model name: prefer captured model from SSE stream, fall back to configurable
+                    configurable = config.get("configurable", {})
+                    captured_model = get_captured_model(run_id)
+                    if captured_model:
+                        model_name = captured_model
+                        logger.info(
+                            "[record_accumulated_usage] Using captured model from SSE: %s",
+                            model_name
+                        )
+                    else:
+                        model_name = configurable.get("model_name", "unknown")
+
+                    # Get cost captured from SSE stream by sse_cost_capture module
+                    # The cost is extracted from the final SSE chunk before LangChain strips it
+                    captured_cost = get_captured_cost(run_id)
+
+                    if captured_cost is not None and captured_cost > 0:
+                        total_usage["cost"] = captured_cost
+                        logger.info(
+                            "[record_accumulated_usage] Using captured cost from SSE: $%.6f",
+                            captured_cost
+                        )
+                    else:
+                        logger.warning(
+                            "[record_accumulated_usage] No cost captured for run %s - cost will be $0",
+                            run_id
+                        )
+
+                    # Record to LangConnect
+                    await record_usage(
+                        thread_id=run_context.get("thread_id", "unknown"),
+                        run_id=run_id,
+                        model_name=model_name,
+                        usage_data=total_usage,
+                        user_id=run_context.get("user_id", "unknown"),
+                        assistant_id=run_context.get("assistant_id"),
+                        graph_name=run_context.get("graph_name", "tools_agent"),
+                    )
+
+                    logger.info(
+                        "[record_accumulated_usage] Recorded usage for run %s: %d tokens, $%.6f (%d calls)",
+                        run_id,
+                        total_usage.get("total_tokens", 0),
+                        total_usage.get("cost", 0.0),
+                        total_usage.get("call_count", 0),
+                    )
+
+                # Clean up accumulator and captured costs
+                del _usage_accumulators[run_id]
+                clear_captured_cost(run_id)
+
+        except Exception as e:
+            logger.warning(f"[record_accumulated_usage] Error recording usage: {e}")
+
+        return {"messages": []}
+
     # Define the router after agent
     def route_after_agent(state: AgentState) -> Literal["approval", "tools", "__end__"]:
         """
@@ -425,6 +555,7 @@ def create_react_agent_with_approval(
     workflow.add_node("agent", call_model)
     workflow.add_node("approval", approval_node)
     workflow.add_node("tools", tool_node)
+    workflow.add_node("record_usage", record_accumulated_usage)
 
     # Handle file attachment processing if provided
     # This allows sandbox initialization and file uploads before the agent starts
@@ -459,7 +590,7 @@ def create_react_agent_with_approval(
         {
             "approval": "approval",
             "tools": "tools",
-            END: END
+            END: "record_usage"  # Route to usage recording before ending
         }
     )
 
@@ -468,6 +599,9 @@ def create_react_agent_with_approval(
 
     # After tools (no approval needed), route back to agent
     workflow.add_edge("tools", "agent")
+
+    # After recording usage, end the graph
+    workflow.add_edge("record_usage", END)
 
     # Compile and return
     compiled = workflow.compile()

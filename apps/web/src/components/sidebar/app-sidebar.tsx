@@ -1,7 +1,7 @@
 "use client";
 
 import * as React from "react";
-import { Wrench, Bot, MessageCircle, Brain, Shield, BrainCircuit, Sparkles } from "lucide-react";
+import { Wrench, Bot, MessageCircle, Brain, Shield, BrainCircuit, Sparkles, BarChart3 } from "lucide-react";
 
 import { NavMain } from "./nav-main";
 import { NavUser } from "./nav-user";
@@ -51,6 +51,11 @@ const baseNavItems = [
     title: "Memories",
     url: "/memories",
     icon: BrainCircuit,
+  },
+  {
+    title: "Usage",
+    url: "/usage",
+    icon: BarChart3,
   },
 ];
 

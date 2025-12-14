@@ -474,7 +474,8 @@ Available agents:
         # Create a new state dict for the sub-agent invocation
         sub_agent_state = state.copy()
         sub_agent_state["messages"] = [HumanMessage(content=description)]
-        result = await sub_agent.ainvoke(sub_agent_state)
+        # Pass config so sub-agent can access run_id for cost tracking
+        result = await sub_agent.ainvoke(sub_agent_state, config)
         return Command(
             update={
                 # Note: No "files" update - skills_deepagent doesn't use state files
@@ -555,7 +556,8 @@ Available agents:
         sub_agent = agents[subagent_type]
         sub_agent_state = state.copy()
         sub_agent_state["messages"] = [HumanMessage(content=description)]
-        result = sub_agent.invoke(sub_agent_state)
+        # Pass config so sub-agent can access run_id for cost tracking
+        result = sub_agent.invoke(sub_agent_state, config)
         return Command(
             update={
                 # Note: No "files" update - skills_deepagent doesn't use state files

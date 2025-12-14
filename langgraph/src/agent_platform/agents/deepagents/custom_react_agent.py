@@ -29,6 +29,41 @@ except Exception:  # pragma: no cover
     RetryConfig = None  # type: ignore
 
 try:
+    # Usage tracking utilities for cost monitoring
+    from agent_platform.utils.usage_tracking import (
+        extract_usage_from_response,
+        extract_run_context,
+        record_usage,
+        UsageAccumulator,
+    )
+    USAGE_TRACKING_AVAILABLE = True
+except Exception:  # pragma: no cover
+    USAGE_TRACKING_AVAILABLE = False
+    extract_usage_from_response = None  # type: ignore
+    extract_run_context = None  # type: ignore
+    record_usage = None  # type: ignore
+    UsageAccumulator = None  # type: ignore
+
+try:
+    # SSE cost capture for OpenRouter streaming responses
+    from agent_platform.utils.sse_cost_capture import (
+        set_current_run_id,
+        get_captured_cost,
+        get_captured_model,
+        clear_captured_cost,
+    )
+    SSE_COST_CAPTURE_AVAILABLE = True
+except Exception:  # pragma: no cover
+    SSE_COST_CAPTURE_AVAILABLE = False
+    set_current_run_id = None  # type: ignore
+    get_captured_cost = None  # type: ignore
+    get_captured_model = None  # type: ignore
+    clear_captured_cost = None  # type: ignore
+
+# Global usage accumulator for tracking across calls (per run_id)
+_usage_accumulators: dict = {}
+
+try:
     # Use ToolNode for robust tool execution and ToolMessage creation
     from langgraph.prebuilt.tool_node import ToolNode
 except Exception as e:  # pragma: no cover
@@ -426,11 +461,71 @@ def custom_create_react_agent(
         else:
             model_input = {**state, "messages": model_messages}
 
+        # Extract run context for cost capture
+        run_context = extract_run_context(config) if USAGE_TRACKING_AVAILABLE else {}
+        run_id = run_context.get("run_id", "unknown")
+
+        # Set run_id for SSE cost capture before model invocation
+        if SSE_COST_CAPTURE_AVAILABLE and set_current_run_id:
+            set_current_run_id(run_id)
+
         if is_dynamic_model:
             dynamic_model = _resolve_model(state, runtime)
             response = cast(AIMessage, dynamic_model.invoke(model_input, config))
         else:
             response = cast(AIMessage, static_model.invoke(model_input, config))
+
+        # Track usage for cost monitoring
+        if USAGE_TRACKING_AVAILABLE and extract_usage_from_response is not None:
+            usage = extract_usage_from_response(response)
+            if usage:
+                # Include captured cost from SSE stream
+                if SSE_COST_CAPTURE_AVAILABLE and get_captured_cost:
+                    captured_cost = get_captured_cost(run_id)
+                    if captured_cost is not None and captured_cost > 0:
+                        usage["cost"] = captured_cost
+                        logger.info("[call_model] Using captured SSE cost: $%.6f", captured_cost)
+
+                # Accumulate for potential end-of-run summary
+                if run_id not in _usage_accumulators:
+                    _usage_accumulators[run_id] = UsageAccumulator()
+                _usage_accumulators[run_id].add(usage)
+                logger.info(
+                    "[call_model] Usage tracked: %d tokens, $%.6f (run_id=%s)",
+                    usage.get("total_tokens", 0),
+                    usage.get("cost", 0.0),
+                    run_id
+                )
+                # Record to LangConnect immediately (fire-and-forget via asyncio)
+                import asyncio
+                try:
+                    # Get model name: prefer captured model from SSE stream, fall back to response metadata
+                    model_name = "unknown"
+                    if SSE_COST_CAPTURE_AVAILABLE and get_captured_model:
+                        captured_model = get_captured_model(run_id)
+                        if captured_model:
+                            model_name = captured_model
+                            logger.info("[call_model] Using captured SSE model: %s", model_name)
+                    if model_name == "unknown":
+                        model_name = getattr(response, "response_metadata", {}).get("model", "unknown")
+                    asyncio.create_task(record_usage(
+                        thread_id=run_context.get("thread_id", "unknown"),
+                        run_id=run_id,
+                        model_name=model_name,
+                        usage_data=usage,
+                        user_id=run_context.get("user_id", "unknown"),
+                        assistant_id=run_context.get("assistant_id"),
+                        graph_name=run_context.get("graph_name") or name,
+                    ))
+                except Exception as e:
+                    logger.warning("[call_model] Failed to record usage: %s", e)
+                finally:
+                    # Clear captured cost after recording
+                    if SSE_COST_CAPTURE_AVAILABLE and clear_captured_cost:
+                        clear_captured_cost(run_id)
+            else:
+                metadata = getattr(response, "response_metadata", None)
+                logger.debug("[call_model] No usage data in response. metadata keys: %s", list(metadata.keys()) if metadata else "None")
 
         # Add agent name to the AIMessage
         if name:
@@ -475,15 +570,75 @@ def custom_create_react_agent(
         else:
             model_input = {**state, "messages": model_messages}
 
+        # Extract run context for cost capture BEFORE model invocation
+        run_context = extract_run_context(config) if USAGE_TRACKING_AVAILABLE else {}
+        run_id = run_context.get("run_id", "unknown")
+
+        # Set run_id for SSE cost capture before model invocation
+        if SSE_COST_CAPTURE_AVAILABLE and set_current_run_id:
+            set_current_run_id(run_id)
+
         if is_dynamic_model:
             dynamic_model = await _aresolve_model(state, runtime)
             response = cast(AIMessage, await dynamic_model.ainvoke(model_input, config))
         else:
             response = cast(AIMessage, await static_model.ainvoke(model_input, config))
 
+        # Track usage for cost monitoring
+        if USAGE_TRACKING_AVAILABLE and extract_usage_from_response is not None:
+            usage = extract_usage_from_response(response)
+            if usage:
+                # Include captured cost from SSE stream (OpenRouter)
+                if SSE_COST_CAPTURE_AVAILABLE and get_captured_cost:
+                    captured_cost = get_captured_cost(run_id)
+                    if captured_cost is not None and captured_cost > 0:
+                        usage["cost"] = captured_cost
+                        logger.info("[acall_model] Using captured SSE cost: $%.6f", captured_cost)
+
+                # Accumulate for potential end-of-run summary
+                if run_id not in _usage_accumulators:
+                    _usage_accumulators[run_id] = UsageAccumulator()
+                _usage_accumulators[run_id].add(usage)
+                logger.info(
+                    "[acall_model] Usage tracked: %d tokens, $%.6f (run_id=%s)",
+                    usage.get("total_tokens", 0),
+                    usage.get("cost", 0.0),
+                    run_id
+                )
+                # Record to LangConnect immediately (fire-and-forget)
+                import asyncio
+                try:
+                    # Get model name: prefer captured model from SSE stream, fall back to response metadata
+                    model_name = "unknown"
+                    if SSE_COST_CAPTURE_AVAILABLE and get_captured_model:
+                        captured_model = get_captured_model(run_id)
+                        if captured_model:
+                            model_name = captured_model
+                            logger.info("[acall_model] Using captured SSE model: %s", model_name)
+                    if model_name == "unknown":
+                        model_name = getattr(response, "response_metadata", {}).get("model", "unknown")
+                    asyncio.create_task(record_usage(
+                        thread_id=run_context.get("thread_id", "unknown"),
+                        run_id=run_id,
+                        model_name=model_name,
+                        usage_data=usage,
+                        user_id=run_context.get("user_id", "unknown"),
+                        assistant_id=run_context.get("assistant_id"),
+                        graph_name=run_context.get("graph_name") or name,
+                    ))
+                except Exception as e:
+                    logger.warning("[acall_model] Failed to record usage: %s", e)
+                finally:
+                    # Clear captured cost after recording
+                    if SSE_COST_CAPTURE_AVAILABLE and clear_captured_cost:
+                        clear_captured_cost(run_id)
+            else:
+                metadata = getattr(response, "response_metadata", None)
+                logger.debug("[acall_model] No usage data in response. metadata keys: %s", list(metadata.keys()) if metadata else "None")
+
         if name:
             response.name = name
-            
+
         if _are_more_steps_needed(state, response):
             return {
                 "messages": [

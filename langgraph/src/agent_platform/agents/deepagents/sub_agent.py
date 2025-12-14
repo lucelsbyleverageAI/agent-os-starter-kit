@@ -479,7 +479,8 @@ Available agent types and the tools they have access to:
         # Create a new state dict for the sub-agent invocation
         sub_agent_state = state.copy()
         sub_agent_state["messages"] = [HumanMessage(content=description)]
-        result = await sub_agent.ainvoke(sub_agent_state)
+        # Pass config so sub-agent can access run_id for cost tracking
+        result = await sub_agent.ainvoke(sub_agent_state, config)
         return Command(
             update={
                 "files": result.get("files", {}),
@@ -576,7 +577,8 @@ Available agent types and the tools they have access to:
         # Create a new state dict for the sub-agent invocation
         sub_agent_state = state.copy()
         sub_agent_state["messages"] = [HumanMessage(content=description)]
-        result = sub_agent.invoke(sub_agent_state)
+        # Pass config so sub-agent can access run_id for cost tracking
+        result = sub_agent.invoke(sub_agent_state, config)
         return Command(
             update={
                 "files": result.get("files", {}),

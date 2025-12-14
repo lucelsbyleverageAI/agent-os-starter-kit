@@ -20,6 +20,7 @@ OpenRouter Benefits:
 """
 
 import os
+import logging
 from typing import Optional, List, Dict, Any
 from enum import Enum
 from pydantic import BaseModel, Field
@@ -27,6 +28,16 @@ from langchain_core.language_models import BaseChatModel
 from langchain_core.messages import BaseMessage
 from langchain_core.messages.utils import trim_messages, count_tokens_approximately
 from langchain_openai import ChatOpenAI
+import httpx
+
+from agent_platform.utils.sse_cost_capture import (
+    get_current_run_id,
+    add_captured_cost,
+    set_captured_model,
+    parse_sse_for_cost,
+)
+
+logger = logging.getLogger(__name__)
 
 
 # ============================================================================
@@ -34,6 +45,169 @@ from langchain_openai import ChatOpenAI
 # ============================================================================
 
 OPENROUTER_BASE_URL = "https://openrouter.ai/api/v1"
+
+
+# ============================================================================
+# Cost Capturing HTTP Client
+# ============================================================================
+
+
+class CostCapturingStream(httpx.AsyncByteStream):
+    """
+    Async byte stream that captures cost from OpenRouter SSE streams.
+
+    This class wraps an httpx async stream and observes each chunk as it passes
+    through, parsing SSE data to extract the cost from the final usage chunk.
+    The stream data is yielded unchanged so LangChain receives the full response.
+
+    Implements the httpx.AsyncByteStream protocol (async iteration + aclose).
+    """
+
+    def __init__(self, inner_stream: httpx.AsyncByteStream, is_sse: bool):
+        self._inner_stream = inner_stream
+        self._is_sse = is_sse
+        self._buffer = b''
+        self._cost_found = False
+        self._model_found = False
+
+    async def __aiter__(self):
+        async for chunk in self._inner_stream:
+            if self._is_sse:
+                self._buffer += chunk
+                run_id = get_current_run_id()
+
+                # Try to capture model from ANY chunk (not just usage chunk)
+                # Some providers include model in content chunks but not usage chunk
+                if run_id and not self._model_found:
+                    model = self._extract_model_from_chunk(chunk)
+                    if model:
+                        set_captured_model(run_id, model)
+                        self._model_found = True
+                        logger.warning(
+                            "[CostCapture] Captured model '%s' for run %s",
+                            model,
+                            run_id
+                        )
+
+                # Try to parse cost from accumulated data
+                if not self._cost_found:
+                    cost, chunk_id, model_from_usage = parse_sse_for_cost(self._buffer)
+                    if cost is not None:
+                        self._cost_found = True
+                        if run_id:
+                            add_captured_cost(run_id, cost, chunk_id)
+                            # Also capture model from usage chunk if we don't have one yet
+                            if model_from_usage and not self._model_found:
+                                set_captured_model(run_id, model_from_usage)
+                                self._model_found = True
+                            logger.warning(
+                                "[CostCapture] Captured cost $%.6f for run %s",
+                                cost,
+                                run_id
+                            )
+                        else:
+                            logger.warning(
+                                "[CostCapture] Found cost $%.6f but no run_id set",
+                                cost
+                            )
+            yield chunk
+
+    def _extract_model_from_chunk(self, chunk: bytes) -> Optional[str]:
+        """Extract model name from an SSE chunk if present."""
+        import json
+        try:
+            text = chunk.decode('utf-8')
+            for line in text.split('\n'):
+                line = line.strip()
+                if not line.startswith('data: '):
+                    continue
+                json_str = line[6:]
+                if json_str == '[DONE]':
+                    continue
+                try:
+                    data = json.loads(json_str)
+                    if 'model' in data and data['model']:
+                        return data['model']
+                except json.JSONDecodeError:
+                    continue
+        except Exception:
+            pass
+        return None
+
+    async def aclose(self) -> None:
+        """Close the underlying stream."""
+        if hasattr(self._inner_stream, 'aclose'):
+            await self._inner_stream.aclose()
+
+
+class CostCapturingTransport(httpx.AsyncBaseTransport):
+    """
+    Custom async transport that wraps responses to capture cost from SSE streams.
+
+    This transport delegates to the standard httpx transport but wraps streaming
+    responses to observe SSE data and extract cost before LangChain normalizes it.
+    """
+
+    def __init__(self):
+        self._transport = httpx.AsyncHTTPTransport()
+        # Use warning level to ensure visibility in all log configs
+        logger.warning("[CostCapture] CostCapturingTransport initialized")
+
+    async def handle_async_request(self, request: httpx.Request) -> httpx.Response:
+        """Handle an async request, wrapping OpenRouter SSE responses."""
+        response = await self._transport.handle_async_request(request)
+
+        request_url = str(request.url)
+
+        # Only process OpenRouter chat completions
+        if 'openrouter.ai' not in request_url:
+            return response
+
+        if '/chat/completions' not in request_url:
+            return response
+
+        # Check if streaming response
+        content_type = response.headers.get('content-type', '')
+        is_sse = 'text/event-stream' in content_type
+
+        logger.warning(
+            "[CostCapture] OpenRouter response: status=%d, is_sse=%s",
+            response.status_code,
+            is_sse
+        )
+
+        if is_sse:
+            logger.warning("[CostCapture] Wrapping SSE stream for cost capture")
+            # Wrap the stream to capture cost
+            original_stream = response.stream
+            wrapped_stream = CostCapturingStream(original_stream, is_sse=True)
+
+            # Create a new response with the wrapped stream
+            return httpx.Response(
+                status_code=response.status_code,
+                headers=response.headers,
+                stream=wrapped_stream,
+                extensions=response.extensions,
+            )
+
+        return response
+
+    async def aclose(self) -> None:
+        """Close the underlying transport."""
+        await self._transport.aclose()
+
+
+def create_cost_capturing_client() -> httpx.AsyncClient:
+    """
+    Create an async HTTP client that captures cost from OpenRouter SSE streams.
+
+    Uses a custom transport to wrap SSE streams and extract cost from the final
+    chunk before LangChain strips it during normalization.
+
+    Returns:
+        httpx.AsyncClient configured with cost-capturing transport
+    """
+    return httpx.AsyncClient(transport=CostCapturingTransport())
 
 
 # ============================================================================
@@ -533,13 +707,23 @@ def init_model(config: ModelConfig) -> BaseChatModel:
     # Initialize extra_body for additional OpenRouter parameters
     extra_body = {}
 
+    # Enable usage tracking in responses (for cost monitoring)
+    # This adds token counts and cost to each response
+    extra_body["usage"] = {"include": True}
+
     # Apply provider preference if specified (for routing to specific providers like Groq)
     if model_info.provider_preference:
         extra_body["provider"] = {"order": model_info.provider_preference}
 
-    # Only add extra_body if we have parameters to send
-    if extra_body:
-        kwargs["extra_body"] = extra_body
+    # Always add extra_body since we have usage tracking enabled
+    kwargs["extra_body"] = extra_body
+
+    # Add cost-capturing HTTP client for OpenRouter
+    # This intercepts SSE streams to capture the cost from the final chunk
+    # before LangChain normalizes it away. See sse_cost_capture.py for details.
+    cost_capturing_client = create_cost_capturing_client()
+    kwargs["http_async_client"] = cost_capturing_client
+    logger.warning("[init_model] Using cost-capturing HTTP client for OpenRouter")
 
     # Add any extra kwargs
     kwargs.update(config.extra_kwargs)
