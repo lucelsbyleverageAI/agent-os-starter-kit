@@ -164,6 +164,61 @@ def parse_period(period: str) -> tuple[datetime, datetime]:
     return start, end
 
 
+def parse_date_range(
+    start_date: Optional[str],
+    end_date: Optional[str],
+    period: str = "month",
+) -> tuple[datetime, datetime]:
+    """
+    Parse date range from explicit start/end dates or fall back to period.
+
+    Args:
+        start_date: Optional ISO date string (e.g., "2025-11-14")
+        end_date: Optional ISO date string (e.g., "2025-12-14")
+        period: Fallback period if dates not provided
+
+    Returns:
+        Tuple of (start_datetime, end_datetime)
+    """
+    if start_date and end_date:
+        # Parse date-only strings (YYYY-MM-DD) into datetime objects
+        # date.fromisoformat is more reliable for date-only strings
+        from datetime import date as date_type
+        start_d = date_type.fromisoformat(start_date)
+        end_d = date_type.fromisoformat(end_date)
+        # Convert to datetime with timezone
+        start = datetime(
+            start_d.year, start_d.month, start_d.day,
+            0, 0, 0, 0, tzinfo=timezone.utc
+        )
+        end = datetime(
+            end_d.year, end_d.month, end_d.day,
+            23, 59, 59, 999999, tzinfo=timezone.utc
+        )
+        return start, end
+
+    # Fall back to period-based parsing
+    return parse_period(period)
+
+
+def generate_date_range(start: datetime, end: datetime) -> list[str]:
+    """
+    Generate a list of all dates between start and end (inclusive).
+
+    Returns:
+        List of ISO date strings (e.g., ["2025-12-10", "2025-12-11", ...])
+    """
+    dates = []
+    current = start.replace(hour=0, minute=0, second=0, microsecond=0)
+    end_date = end.replace(hour=0, minute=0, second=0, microsecond=0)
+
+    while current <= end_date:
+        dates.append(current.date().isoformat())
+        current += timedelta(days=1)
+
+    return dates
+
+
 # ============================================================================
 # Usage Recording Endpoints
 # ============================================================================
@@ -262,6 +317,8 @@ async def record_usage(
 async def get_usage_summary(
     actor: Annotated[AuthenticatedActor, Depends(resolve_user_or_service)],
     period: str = Query(default="month", description="Time period: day, week, month, all"),
+    start_date: Optional[str] = Query(default=None, description="Start date (ISO format, e.g., 2025-11-14)"),
+    end_date: Optional[str] = Query(default=None, description="End date (ISO format, e.g., 2025-12-14)"),
 ) -> UsageSummaryResponse:
     """
     Get aggregated usage summary with breakdowns by model, agent, and optionally user.
@@ -278,7 +335,7 @@ async def get_usage_summary(
             )
 
         user_id = actor.identity
-        start_date, end_date = parse_period(period)
+        start_dt, end_dt = parse_date_range(start_date, end_date, period)
 
         # Check if user is admin
         is_admin = await check_user_role(user_id, "dev_admin")
@@ -287,10 +344,10 @@ async def get_usage_summary(
             # Build base query conditions
             if is_admin:
                 user_filter = ""
-                user_params = [start_date]
+                user_params = [start_dt, end_dt]
             else:
-                user_filter = "AND user_id = $2"
-                user_params = [start_date, user_id]
+                user_filter = "AND user_id = $3"
+                user_params = [start_dt, end_dt, user_id]
 
             # Get totals
             totals = await conn.fetchrow(
@@ -300,7 +357,7 @@ async def get_usage_summary(
                     COALESCE(SUM(total_tokens), 0) as total_tokens,
                     COUNT(*) as total_runs
                 FROM langconnect.agent_run_costs
-                WHERE created_at >= $1 {user_filter}
+                WHERE created_at >= $1 AND created_at <= $2 {user_filter}
                 """,
                 *user_params,
             )
@@ -316,7 +373,7 @@ async def get_usage_summary(
                     COALESCE(SUM(completion_tokens), 0) as completion_tokens,
                     COALESCE(SUM(cost), 0) as total_cost
                 FROM langconnect.agent_run_costs
-                WHERE created_at >= $1 {user_filter}
+                WHERE created_at >= $1 AND created_at <= $2 {user_filter}
                 GROUP BY model_name
                 ORDER BY total_cost DESC
                 """,
@@ -336,7 +393,7 @@ async def get_usage_summary(
                     COALESCE(SUM(arc.cost), 0) as total_cost
                 FROM langconnect.agent_run_costs arc
                 LEFT JOIN langconnect.assistants_mirror am ON arc.assistant_id = am.assistant_id
-                WHERE arc.created_at >= $1 {user_filter.replace('user_id', 'arc.user_id')}
+                WHERE arc.created_at >= $1 AND arc.created_at <= $2 {user_filter.replace('user_id', 'arc.user_id')}
                 GROUP BY arc.graph_name, am.name
                 ORDER BY total_cost DESC
                 """,
@@ -358,11 +415,12 @@ async def get_usage_summary(
                         COALESCE(SUM(arc.cost), 0) as total_cost
                     FROM langconnect.agent_run_costs arc
                     LEFT JOIN langconnect.user_roles ur ON arc.user_id = ur.user_id
-                    WHERE arc.created_at >= $1
+                    WHERE arc.created_at >= $1 AND arc.created_at <= $2
                     GROUP BY arc.user_id, ur.display_name
                     ORDER BY total_cost DESC
                     """,
-                    start_date,
+                    start_dt,
+                    end_dt,
                 )
                 by_user = [
                     UsageAggregateItem(
@@ -405,8 +463,8 @@ async def get_usage_summary(
             total_cost=float(totals["total_cost"]),
             total_tokens=totals["total_tokens"],
             total_runs=totals["total_runs"],
-            period_start=start_date.isoformat(),
-            period_end=end_date.isoformat(),
+            period_start=start_dt.isoformat(),
+            period_end=end_dt.isoformat(),
         )
 
     except HTTPException:
@@ -423,6 +481,8 @@ async def get_usage_summary(
 async def get_usage_timeseries(
     actor: Annotated[AuthenticatedActor, Depends(resolve_user_or_service)],
     period: str = Query(default="month", description="Time period: week, month, all"),
+    start_date: Optional[str] = Query(default=None, description="Start date (ISO format, e.g., 2025-11-14)"),
+    end_date: Optional[str] = Query(default=None, description="End date (ISO format, e.g., 2025-12-14)"),
 ) -> TimeSeriesResponse:
     """
     Get daily usage data for time-series charts.
@@ -439,7 +499,7 @@ async def get_usage_timeseries(
             )
 
         user_id = actor.identity
-        start_date, end_date = parse_period(period)
+        start_dt, end_dt = parse_date_range(start_date, end_date, period)
 
         # Check if user is admin
         is_admin = await check_user_role(user_id, "dev_admin")
@@ -454,11 +514,12 @@ async def get_usage_timeseries(
                         COALESCE(SUM(total_tokens), 0) as tokens,
                         COUNT(*) as runs
                     FROM langconnect.agent_run_costs
-                    WHERE created_at >= $1
+                    WHERE created_at >= $1 AND created_at <= $2
                     GROUP BY DATE(created_at)
                     ORDER BY date ASC
                     """,
-                    start_date,
+                    start_dt,
+                    end_dt,
                 )
             else:
                 rows = await conn.fetch(
@@ -469,11 +530,12 @@ async def get_usage_timeseries(
                         COALESCE(SUM(total_tokens), 0) as tokens,
                         COUNT(*) as runs
                     FROM langconnect.agent_run_costs
-                    WHERE created_at >= $1 AND user_id = $2
+                    WHERE created_at >= $1 AND created_at <= $2 AND user_id = $3
                     GROUP BY DATE(created_at)
                     ORDER BY date ASC
                     """,
-                    start_date,
+                    start_dt,
+                    end_dt,
                     user_id,
                 )
 
@@ -487,8 +549,8 @@ async def get_usage_timeseries(
                 )
                 for row in rows
             ],
-            period_start=start_date.isoformat(),
-            period_end=end_date.isoformat(),
+            period_start=start_dt.isoformat(),
+            period_end=end_dt.isoformat(),
         )
 
     except HTTPException:
@@ -506,6 +568,8 @@ async def get_grouped_usage_timeseries(
     actor: Annotated[AuthenticatedActor, Depends(resolve_user_or_service)],
     period: str = Query(default="month", description="Time period: week, month, all"),
     group_by: str = Query(default="model", description="Group by: model or agent"),
+    start_date: Optional[str] = Query(default=None, description="Start date (ISO format, e.g., 2025-11-14)"),
+    end_date: Optional[str] = Query(default=None, description="End date (ISO format, e.g., 2025-12-14)"),
 ) -> GroupedTimeSeriesResponse:
     """
     Get daily usage data grouped by model or agent for stacked bar charts.
@@ -528,20 +592,12 @@ async def get_grouped_usage_timeseries(
             )
 
         user_id = actor.identity
-        start_date, end_date = parse_period(period)
+        start_dt, end_dt = parse_date_range(start_date, end_date, period)
 
         # Check if user is admin
         is_admin = await check_user_role(user_id, "dev_admin")
 
         async with get_db_connection() as conn:
-            # Determine grouping column
-            if group_by == "model":
-                group_col = "model_name"
-                display_col = "model_name"
-            else:
-                group_col = "COALESCE(am.name, arc.graph_name, 'unknown')"
-                display_col = group_col
-
             # Build query based on group_by and admin status
             if group_by == "model":
                 if is_admin:
@@ -553,11 +609,12 @@ async def get_grouped_usage_timeseries(
                             COALESCE(SUM(cost), 0) as cost,
                             COUNT(*) as runs
                         FROM langconnect.agent_run_costs
-                        WHERE created_at >= $1
+                        WHERE created_at >= $1 AND created_at <= $2
                         GROUP BY DATE(created_at), model_name
                         ORDER BY date ASC, group_name ASC
                         """,
-                        start_date,
+                        start_dt,
+                        end_dt,
                     )
                 else:
                     rows = await conn.fetch(
@@ -568,11 +625,12 @@ async def get_grouped_usage_timeseries(
                             COALESCE(SUM(cost), 0) as cost,
                             COUNT(*) as runs
                         FROM langconnect.agent_run_costs
-                        WHERE created_at >= $1 AND user_id = $2
+                        WHERE created_at >= $1 AND created_at <= $2 AND user_id = $3
                         GROUP BY DATE(created_at), model_name
                         ORDER BY date ASC, group_name ASC
                         """,
-                        start_date,
+                        start_dt,
+                        end_dt,
                         user_id,
                     )
             else:  # group_by == "agent"
@@ -586,11 +644,12 @@ async def get_grouped_usage_timeseries(
                             COUNT(*) as runs
                         FROM langconnect.agent_run_costs arc
                         LEFT JOIN langconnect.assistants_mirror am ON arc.assistant_id = am.assistant_id
-                        WHERE arc.created_at >= $1
+                        WHERE arc.created_at >= $1 AND arc.created_at <= $2
                         GROUP BY DATE(arc.created_at), COALESCE(am.name, arc.graph_name, 'unknown')
                         ORDER BY date ASC, group_name ASC
                         """,
-                        start_date,
+                        start_dt,
+                        end_dt,
                     )
                 else:
                     rows = await conn.fetch(
@@ -602,11 +661,12 @@ async def get_grouped_usage_timeseries(
                             COUNT(*) as runs
                         FROM langconnect.agent_run_costs arc
                         LEFT JOIN langconnect.assistants_mirror am ON arc.assistant_id = am.assistant_id
-                        WHERE arc.created_at >= $1 AND arc.user_id = $2
+                        WHERE arc.created_at >= $1 AND arc.created_at <= $2 AND arc.user_id = $3
                         GROUP BY DATE(arc.created_at), COALESCE(am.name, arc.graph_name, 'unknown')
                         ORDER BY date ASC, group_name ASC
                         """,
-                        start_date,
+                        start_dt,
+                        end_dt,
                         user_id,
                     )
 
@@ -630,22 +690,35 @@ async def get_grouped_usage_timeseries(
             date_data[date_str][group_name] = cost
             date_runs[date_str] += runs
 
-        # Build response data
-        grouped_data = [
-            GroupedDailyUsageItem(
-                date=date_str,
-                breakdown=breakdown,
-                total_cost=sum(breakdown.values()),
-                runs=date_runs[date_str],
-            )
-            for date_str, breakdown in sorted(date_data.items())
-        ]
+        # Generate all dates in the range and fill missing with empty data
+        all_dates = generate_date_range(start_dt, end_dt)
+        grouped_data = []
+        for date_str in all_dates:
+            if date_str in date_data:
+                grouped_data.append(
+                    GroupedDailyUsageItem(
+                        date=date_str,
+                        breakdown=date_data[date_str],
+                        total_cost=sum(date_data[date_str].values()),
+                        runs=date_runs[date_str],
+                    )
+                )
+            else:
+                # No data for this date - add empty entry
+                grouped_data.append(
+                    GroupedDailyUsageItem(
+                        date=date_str,
+                        breakdown={},
+                        total_cost=0,
+                        runs=0,
+                    )
+                )
 
         return GroupedTimeSeriesResponse(
             data=grouped_data,
             groups=sorted(all_groups),
-            period_start=start_date.isoformat(),
-            period_end=end_date.isoformat(),
+            period_start=start_dt.isoformat(),
+            period_end=end_dt.isoformat(),
         )
 
     except HTTPException:

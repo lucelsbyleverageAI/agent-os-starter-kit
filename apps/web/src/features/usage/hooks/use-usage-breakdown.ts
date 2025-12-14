@@ -1,5 +1,7 @@
 import { useState, useCallback, useEffect } from 'react';
 import { useAuthContext } from '@/providers/Auth';
+import { subDays, startOfDay, endOfDay, format } from 'date-fns';
+import { DateRange } from 'react-day-picker';
 
 export interface UsageAggregateItem {
   name: string;
@@ -49,8 +51,16 @@ export interface GroupedTimeSeriesData {
   period_end: string;
 }
 
-export type UsagePeriod = 'day' | 'week' | 'month' | 'all';
 export type GroupBy = 'model' | 'agent';
+
+// Default date range: last 30 days
+function getDefaultDateRange(): DateRange {
+  const today = new Date();
+  return {
+    from: startOfDay(subDays(today, 29)),
+    to: endOfDay(today),
+  };
+}
 
 interface UseUsageBreakdownReturn {
   summary: UsageSummary | null;
@@ -58,8 +68,8 @@ interface UseUsageBreakdownReturn {
   groupedTimeseries: GroupedTimeSeriesData | null;
   loading: boolean;
   error: string | null;
-  period: UsagePeriod;
-  setPeriod: (period: UsagePeriod) => void;
+  dateRange: DateRange | undefined;
+  setDateRange: (range: DateRange | undefined) => void;
   groupBy: GroupBy;
   setGroupBy: (groupBy: GroupBy) => void;
   refetch: () => Promise<void>;
@@ -72,7 +82,7 @@ export function useUsageBreakdown(): UseUsageBreakdownReturn {
   const [groupedTimeseries, setGroupedTimeseries] = useState<GroupedTimeSeriesData | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
-  const [period, setPeriod] = useState<UsagePeriod>('month');
+  const [dateRange, setDateRange] = useState<DateRange | undefined>(getDefaultDateRange());
   const [groupBy, setGroupBy] = useState<GroupBy>('model');
 
   const fetchUsageBreakdown = useCallback(async () => {
@@ -80,27 +90,35 @@ export function useUsageBreakdown(): UseUsageBreakdownReturn {
       return;
     }
 
+    if (!dateRange?.from || !dateRange?.to) {
+      return;
+    }
+
     setLoading(true);
     setError(null);
 
     try {
+      // Format dates as ISO strings (date only, no time)
+      const startDate = format(dateRange.from, 'yyyy-MM-dd');
+      const endDate = format(dateRange.to, 'yyyy-MM-dd');
+
       // Fetch summary, timeseries, and grouped timeseries in parallel
       const [summaryResponse, timeseriesResponse, groupedResponse] = await Promise.all([
-        fetch(`/api/langconnect/usage/summary?period=${period}`, {
+        fetch(`/api/langconnect/usage/summary?start_date=${startDate}&end_date=${endDate}`, {
           method: 'GET',
           headers: {
             Authorization: `Bearer ${session.accessToken}`,
           },
           credentials: 'include',
         }),
-        fetch(`/api/langconnect/usage/timeseries?period=${period}`, {
+        fetch(`/api/langconnect/usage/timeseries?start_date=${startDate}&end_date=${endDate}`, {
           method: 'GET',
           headers: {
             Authorization: `Bearer ${session.accessToken}`,
           },
           credentials: 'include',
         }),
-        fetch(`/api/langconnect/usage/timeseries/grouped?period=${period}&group_by=${groupBy}`, {
+        fetch(`/api/langconnect/usage/timeseries/grouped?start_date=${startDate}&end_date=${endDate}&group_by=${groupBy}`, {
           method: 'GET',
           headers: {
             Authorization: `Bearer ${session.accessToken}`,
@@ -152,7 +170,7 @@ export function useUsageBreakdown(): UseUsageBreakdownReturn {
     } finally {
       setLoading(false);
     }
-  }, [session?.accessToken, authLoading, period, groupBy]);
+  }, [session?.accessToken, authLoading, dateRange, groupBy]);
 
   useEffect(() => {
     fetchUsageBreakdown();
@@ -164,8 +182,8 @@ export function useUsageBreakdown(): UseUsageBreakdownReturn {
     groupedTimeseries,
     loading,
     error,
-    period,
-    setPeriod,
+    dateRange,
+    setDateRange,
     groupBy,
     setGroupBy,
     refetch: fetchUsageBreakdown,

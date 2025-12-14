@@ -8,10 +8,54 @@ import { useUsageBreakdown } from "./hooks/use-usage-breakdown";
 import { UsageSummaryCards } from "./components/usage-summary-cards";
 import { CostByModelTable, CostByAgentTable, CostByUserTable } from "./components/cost-breakdown-table";
 import { UsageChart } from "./components/usage-chart";
-import { PeriodSelector } from "./components/period-selector";
+import { DateRangePicker } from "./components/date-range-picker";
 import { cn } from "@/lib/utils";
+import { RoleGuard, useUserRole } from "@/providers/UserRole";
+import { useRouter } from "next/navigation";
+import { useEffect } from "react";
 
-export default function UsageInterface() {
+function AccessDeniedRedirect() {
+  const router = useRouter();
+  const { loading, roleValidated } = useUserRole();
+
+  useEffect(() => {
+    if (!loading && roleValidated) {
+      router.replace("/");
+    }
+  }, [loading, roleValidated, router]);
+
+  return (
+    <div className="flex items-center justify-center h-64">
+      <div className="text-center">
+        <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-gray-900 mx-auto mb-4"></div>
+        <p className="text-muted-foreground">Redirecting...</p>
+      </div>
+    </div>
+  );
+}
+
+function LoadingFallback() {
+  return (
+    <div className="flex items-center justify-center h-64">
+      <div className="text-center">
+        <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-gray-900 mx-auto mb-4"></div>
+        <p className="text-muted-foreground">Verifying permissions...</p>
+      </div>
+    </div>
+  );
+}
+
+function UsageFallback() {
+  const { loading, roleValidated } = useUserRole();
+
+  if (loading || !roleValidated) {
+    return <LoadingFallback />;
+  }
+
+  return <AccessDeniedRedirect />;
+}
+
+function UsageInterface() {
   // OpenRouter aggregate data (credit balance, daily/weekly/monthly)
   const { data: openRouterData, loading: openRouterLoading, error: openRouterError, refetch: refetchOpenRouter } = useUsageData();
 
@@ -21,8 +65,8 @@ export default function UsageInterface() {
     groupedTimeseries,
     loading: breakdownLoading,
     error: breakdownError,
-    period,
-    setPeriod,
+    dateRange,
+    setDateRange,
     groupBy,
     setGroupBy,
     refetch: refetchBreakdown,
@@ -61,10 +105,10 @@ export default function UsageInterface() {
         />
       </div>
 
-      {/* Period Selector for Breakdown Data */}
+      {/* Date Range Picker for Breakdown Data */}
       <div className="mt-8 flex items-center justify-between">
         <h2 className="text-lg font-semibold">Detailed Breakdown</h2>
-        <PeriodSelector value={period} onChange={setPeriod} />
+        <DateRangePicker value={dateRange} onChange={setDateRange} />
       </div>
 
       {/* Cost Over Time Chart */}
@@ -99,31 +143,16 @@ export default function UsageInterface() {
           />
         </div>
       )}
-
-      {/* Info Card */}
-      {!breakdownLoading && !breakdownError && (
-        <div className="mt-8">
-          <div className="rounded-lg border bg-card p-6">
-            <h3 className="text-lg font-semibold mb-4">About Usage Tracking</h3>
-            <div className="space-y-3 text-sm text-muted-foreground">
-              <p>
-                This dashboard shows your OpenRouter API usage with detailed breakdowns.
-              </p>
-              <ul className="list-disc pl-5 space-y-1">
-                <li><strong>Credit Balance:</strong> Your OpenRouter account credits (from OpenRouter API)</li>
-                <li><strong>Cost by Model:</strong> Breakdown of costs by each LLM model used</li>
-                <li><strong>Cost by Agent:</strong> Breakdown of costs by agent type</li>
-                {summary?.by_user && summary.by_user.length > 0 && (
-                  <li><strong>Cost by User:</strong> Admin view of costs per platform user</li>
-                )}
-              </ul>
-              <p className="pt-2 border-t">
-                All times are in UTC. Costs are tracked per agent run and aggregated for reporting.
-              </p>
-            </div>
-          </div>
-        </div>
-      )}
     </div>
   );
 }
+
+export function UsageFeature() {
+  return (
+    <RoleGuard roles={['dev_admin', 'business_admin']} fallback={<UsageFallback />}>
+      <UsageInterface />
+    </RoleGuard>
+  );
+}
+
+export default UsageFeature;

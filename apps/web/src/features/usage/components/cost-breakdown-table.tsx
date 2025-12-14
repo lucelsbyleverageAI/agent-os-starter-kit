@@ -1,5 +1,6 @@
 "use client";
 
+import { useState, useEffect } from "react";
 import {
   Table,
   TableBody,
@@ -9,7 +10,6 @@ import {
   TableRow,
 } from "@/components/ui/table";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
-import { Skeleton } from "@/components/ui/skeleton";
 import { UsageAggregateItem } from "../hooks/use-usage-breakdown";
 import { cn } from "@/lib/utils";
 
@@ -76,29 +76,20 @@ export function CostBreakdownTable({
   emptyMessage = "No usage data available for this period",
   nameFormatter,
 }: CostBreakdownTableProps) {
-  const totalCost = data.reduce((sum, item) => sum + item.total_cost, 0);
+  // Track previous data to show during loading
+  const [displayData, setDisplayData] = useState(data);
 
-  if (loading) {
-    return (
-      <Card>
-        <CardHeader>
-          <CardTitle className="text-lg">{title}</CardTitle>
-          {description && (
-            <p className="text-sm text-muted-foreground">{description}</p>
-          )}
-        </CardHeader>
-        <CardContent>
-          <div className="space-y-3">
-            {[1, 2, 3].map((i) => (
-              <Skeleton key={i} className="h-12 w-full" />
-            ))}
-          </div>
-        </CardContent>
-      </Card>
-    );
-  }
+  // Update display data when new data arrives (not during loading)
+  useEffect(() => {
+    if (!loading && data) {
+      setDisplayData(data);
+    }
+  }, [data, loading]);
 
-  if (data.length === 0) {
+  const totalCost = displayData.reduce((sum, item) => sum + item.total_cost, 0);
+
+  // Show empty state only if no data and not loading
+  if (displayData.length === 0 && !loading) {
     return (
       <Card>
         <CardHeader>
@@ -125,72 +116,83 @@ export function CostBreakdownTable({
         )}
       </CardHeader>
       <CardContent>
-        <Table>
-          <TableHeader>
-            <TableRow>
-              <TableHead>Name</TableHead>
-              <TableHead className="text-right">Runs</TableHead>
-              <TableHead className="text-right">Tokens</TableHead>
-              <TableHead className="text-right">Cost</TableHead>
-              {showPercentage && (
-                <TableHead className="text-right w-[100px]">Share</TableHead>
-              )}
-            </TableRow>
-          </TableHeader>
-          <TableBody>
-            {data.map((item, index) => {
-              const percentage =
-                totalCost > 0 ? (item.total_cost / totalCost) * 100 : 0;
-              const displayName = nameFormatter
-                ? nameFormatter(item)
-                : item.display_name || item.name;
+        <div className="relative">
+          {/* Loading overlay */}
+          {loading && (
+            <div className="absolute inset-0 bg-background/60 backdrop-blur-[1px] z-10 flex items-center justify-center rounded-lg transition-opacity duration-200">
+              <div className="flex items-center gap-2 text-sm text-muted-foreground">
+                <div className="h-4 w-4 animate-spin rounded-full border-2 border-primary border-t-transparent" />
+                <span>Loading...</span>
+              </div>
+            </div>
+          )}
+          <Table>
+            <TableHeader>
+              <TableRow>
+                <TableHead>Name</TableHead>
+                <TableHead className="text-right">Runs</TableHead>
+                <TableHead className="text-right">Tokens</TableHead>
+                <TableHead className="text-right">Cost</TableHead>
+                {showPercentage && (
+                  <TableHead className="text-right w-[100px]">Share</TableHead>
+                )}
+              </TableRow>
+            </TableHeader>
+            <TableBody>
+              {displayData.map((item, index) => {
+                const percentage =
+                  totalCost > 0 ? (item.total_cost / totalCost) * 100 : 0;
+                const displayName = nameFormatter
+                  ? nameFormatter(item)
+                  : item.display_name || item.name;
 
-              return (
-                <TableRow key={item.name || index}>
-                  <TableCell>
-                    <div className="flex flex-col">
-                      <span className="font-medium">{displayName}</span>
-                      {!nameFormatter && item.name.includes("/") && (
-                        <span className="text-xs text-muted-foreground">
-                          {extractProvider(item.name)}
-                        </span>
-                      )}
-                    </div>
-                  </TableCell>
-                  <TableCell className="text-right">{item.run_count}</TableCell>
-                  <TableCell className="text-right">
-                    {formatTokens(item.total_tokens)}
-                  </TableCell>
-                  <TableCell className="text-right font-medium">
-                    {formatCost(item.total_cost)}
-                  </TableCell>
-                  {showPercentage && (
-                    <TableCell className="text-right">
-                      <div className="flex items-center justify-end gap-2">
-                        <div className="w-12 h-2 rounded-full bg-secondary overflow-hidden">
-                          <div
-                            className={cn(
-                              "h-full rounded-full transition-all",
-                              percentage > 50
-                                ? "bg-primary"
-                                : percentage > 25
-                                  ? "bg-primary/70"
-                                  : "bg-primary/50"
-                            )}
-                            style={{ width: `${Math.min(percentage, 100)}%` }}
-                          />
-                        </div>
-                        <span className="text-xs text-muted-foreground w-12">
-                          {percentage.toFixed(1)}%
-                        </span>
+                return (
+                  <TableRow key={item.name || index}>
+                    <TableCell>
+                      <div className="flex flex-col">
+                        <span className="font-medium">{displayName}</span>
+                        {!nameFormatter && item.name.includes("/") && (
+                          <span className="text-xs text-muted-foreground">
+                            {extractProvider(item.name)}
+                          </span>
+                        )}
                       </div>
                     </TableCell>
-                  )}
-                </TableRow>
-              );
-            })}
-          </TableBody>
-        </Table>
+                    <TableCell className="text-right">{item.run_count}</TableCell>
+                    <TableCell className="text-right">
+                      {formatTokens(item.total_tokens)}
+                    </TableCell>
+                    <TableCell className="text-right font-medium">
+                      {formatCost(item.total_cost)}
+                    </TableCell>
+                    {showPercentage && (
+                      <TableCell className="text-right">
+                        <div className="flex items-center justify-end gap-2">
+                          <div className="w-12 h-2 rounded-full bg-secondary overflow-hidden">
+                            <div
+                              className={cn(
+                                "h-full rounded-full transition-all",
+                                percentage > 50
+                                  ? "bg-primary"
+                                  : percentage > 25
+                                    ? "bg-primary/70"
+                                    : "bg-primary/50"
+                              )}
+                              style={{ width: `${Math.min(percentage, 100)}%` }}
+                            />
+                          </div>
+                          <span className="text-xs text-muted-foreground w-12">
+                            {percentage.toFixed(1)}%
+                          </span>
+                        </div>
+                      </TableCell>
+                    )}
+                  </TableRow>
+                );
+              })}
+            </TableBody>
+          </Table>
+        </div>
       </CardContent>
     </Card>
   );

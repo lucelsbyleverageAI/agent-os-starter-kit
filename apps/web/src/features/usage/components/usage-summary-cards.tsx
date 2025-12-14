@@ -1,7 +1,7 @@
 "use client";
 
+import { useState, useEffect } from "react";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
-import { Skeleton } from "@/components/ui/skeleton";
 import { UsageData } from "../hooks/use-usage-data";
 import { Calendar, CalendarDays, CalendarRange, AlertCircle } from "lucide-react";
 import { cn } from "@/lib/utils";
@@ -36,23 +36,20 @@ function UsageCard({
 }) {
   return (
     <Card className={cn("relative overflow-hidden", className)}>
+      {/* Loading overlay */}
+      {loading && (
+        <div className="absolute inset-0 bg-background/60 backdrop-blur-[1px] z-10 flex items-center justify-center transition-opacity duration-200">
+          <div className="h-4 w-4 animate-spin rounded-full border-2 border-primary border-t-transparent" />
+        </div>
+      )}
       <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
         <CardTitle className="text-sm font-medium">{title}</CardTitle>
         <Icon className="h-4 w-4 text-muted-foreground" />
       </CardHeader>
       <CardContent>
-        {loading ? (
-          <>
-            <Skeleton className="h-8 w-24 mb-1" />
-            {subtitle && <Skeleton className="h-4 w-32" />}
-          </>
-        ) : (
-          <>
-            <div className="text-2xl font-bold">{value}</div>
-            {subtitle && (
-              <p className="text-xs text-muted-foreground">{subtitle}</p>
-            )}
-          </>
+        <div className="text-2xl font-bold">{value}</div>
+        {subtitle && (
+          <p className="text-xs text-muted-foreground">{subtitle}</p>
         )}
       </CardContent>
     </Card>
@@ -60,6 +57,16 @@ function UsageCard({
 }
 
 export function UsageSummaryCards({ data, loading, error }: UsageSummaryCardsProps) {
+  // Track previous data to show during loading
+  const [displayData, setDisplayData] = useState<UsageData | null>(data);
+
+  // Update display data when new data arrives (not during loading)
+  useEffect(() => {
+    if (!loading && data) {
+      setDisplayData(data);
+    }
+  }, [data, loading]);
+
   if (error) {
     return (
       <Card className="border-destructive/50 bg-destructive/5">
@@ -78,21 +85,21 @@ export function UsageSummaryCards({ data, loading, error }: UsageSummaryCardsPro
     <div className="grid gap-4 md:grid-cols-3">
       <UsageCard
         title="Today"
-        value={data ? formatCredits(data.usage_daily) : "$0.00"}
+        value={displayData ? formatCredits(displayData.usage_daily) : "$0.00"}
         subtitle="Credits used today (UTC)"
         icon={Calendar}
         loading={loading}
       />
       <UsageCard
         title="This Week"
-        value={data ? formatCredits(data.usage_weekly) : "$0.00"}
+        value={displayData ? formatCredits(displayData.usage_weekly) : "$0.00"}
         subtitle="Credits used this week"
         icon={CalendarDays}
         loading={loading}
       />
       <UsageCard
         title="This Month"
-        value={data ? formatCredits(data.usage_monthly) : "$0.00"}
+        value={displayData ? formatCredits(displayData.usage_monthly) : "$0.00"}
         subtitle="Credits used this month"
         icon={CalendarRange}
         loading={loading}
