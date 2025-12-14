@@ -50,6 +50,7 @@ try:
         set_current_run_id,
         get_and_clear_captured_cost,
         get_and_clear_captured_model,
+        get_and_clear_captured_tokens,
     )
     SSE_COST_CAPTURE_AVAILABLE = True
 except Exception:  # pragma: no cover
@@ -57,6 +58,7 @@ except Exception:  # pragma: no cover
     set_current_run_id = None  # type: ignore
     get_and_clear_captured_cost = None  # type: ignore
     get_and_clear_captured_model = None  # type: ignore
+    get_and_clear_captured_tokens = None  # type: ignore
 
 # Global usage accumulator for tracking across calls (per run_id)
 _usage_accumulators: dict = {}
@@ -474,16 +476,29 @@ def custom_create_react_agent(
             response = cast(AIMessage, static_model.invoke(model_input, config))
 
         # Track usage for cost monitoring
-        if USAGE_TRACKING_AVAILABLE and extract_usage_from_response is not None:
-            usage = extract_usage_from_response(response)
-            if usage:
-                # Include captured cost from SSE stream (get_and_clear to avoid double-counting)
-                if SSE_COST_CAPTURE_AVAILABLE and get_and_clear_captured_cost:
-                    captured_cost = get_and_clear_captured_cost(run_id)
-                    if captured_cost is not None and captured_cost > 0:
-                        usage["cost"] = captured_cost
-                        logger.info("[call_model] Using captured SSE cost: $%.6f", captured_cost)
+        if USAGE_TRACKING_AVAILABLE:
+            usage = extract_usage_from_response(response) if extract_usage_from_response else None
+            if not usage:
+                usage = {"prompt_tokens": 0, "completion_tokens": 0, "total_tokens": 0, "cost": 0.0}
 
+            # Get tokens from SSE capture as fallback
+            if SSE_COST_CAPTURE_AVAILABLE and get_and_clear_captured_tokens:
+                captured_tokens = get_and_clear_captured_tokens(run_id)
+                if captured_tokens and captured_tokens.get("total_tokens", 0) > 0:
+                    if usage.get("total_tokens", 0) == 0:
+                        usage["prompt_tokens"] = captured_tokens["prompt_tokens"]
+                        usage["completion_tokens"] = captured_tokens["completion_tokens"]
+                        usage["total_tokens"] = captured_tokens["total_tokens"]
+
+            # Include captured cost from SSE stream (get_and_clear to avoid double-counting)
+            if SSE_COST_CAPTURE_AVAILABLE and get_and_clear_captured_cost:
+                captured_cost = get_and_clear_captured_cost(run_id)
+                if captured_cost is not None and captured_cost > 0:
+                    usage["cost"] = captured_cost
+                    logger.info("[call_model] Using captured SSE cost: $%.6f", captured_cost)
+
+            # Only proceed if we have some usage data
+            if usage.get("total_tokens", 0) > 0 or usage.get("cost", 0.0) > 0:
                 # Accumulate for potential end-of-run summary
                 if run_id not in _usage_accumulators:
                     _usage_accumulators[run_id] = UsageAccumulator()
@@ -579,16 +594,29 @@ def custom_create_react_agent(
             response = cast(AIMessage, await static_model.ainvoke(model_input, config))
 
         # Track usage for cost monitoring
-        if USAGE_TRACKING_AVAILABLE and extract_usage_from_response is not None:
-            usage = extract_usage_from_response(response)
-            if usage:
-                # Include captured cost from SSE stream (get_and_clear to avoid double-counting)
-                if SSE_COST_CAPTURE_AVAILABLE and get_and_clear_captured_cost:
-                    captured_cost = get_and_clear_captured_cost(run_id)
-                    if captured_cost is not None and captured_cost > 0:
-                        usage["cost"] = captured_cost
-                        logger.info("[acall_model] Using captured SSE cost: $%.6f", captured_cost)
+        if USAGE_TRACKING_AVAILABLE:
+            usage = extract_usage_from_response(response) if extract_usage_from_response else None
+            if not usage:
+                usage = {"prompt_tokens": 0, "completion_tokens": 0, "total_tokens": 0, "cost": 0.0}
 
+            # Get tokens from SSE capture as fallback
+            if SSE_COST_CAPTURE_AVAILABLE and get_and_clear_captured_tokens:
+                captured_tokens = get_and_clear_captured_tokens(run_id)
+                if captured_tokens and captured_tokens.get("total_tokens", 0) > 0:
+                    if usage.get("total_tokens", 0) == 0:
+                        usage["prompt_tokens"] = captured_tokens["prompt_tokens"]
+                        usage["completion_tokens"] = captured_tokens["completion_tokens"]
+                        usage["total_tokens"] = captured_tokens["total_tokens"]
+
+            # Include captured cost from SSE stream (get_and_clear to avoid double-counting)
+            if SSE_COST_CAPTURE_AVAILABLE and get_and_clear_captured_cost:
+                captured_cost = get_and_clear_captured_cost(run_id)
+                if captured_cost is not None and captured_cost > 0:
+                    usage["cost"] = captured_cost
+                    logger.info("[acall_model] Using captured SSE cost: $%.6f", captured_cost)
+
+            # Only proceed if we have some usage data
+            if usage.get("total_tokens", 0) > 0 or usage.get("cost", 0.0) > 0:
                 # Accumulate for potential end-of-run summary
                 if run_id not in _usage_accumulators:
                     _usage_accumulators[run_id] = UsageAccumulator()

@@ -284,7 +284,8 @@ async def _get_agents(
             checkpointer=False,
             post_model_hook=post_model_hook,
             pre_model_hook=gp_combined_hook,  # Use combined hook
-            enable_image_processing=False
+            enable_image_processing=False,
+            name="basic_deepagent",  # For cost tracking graph_name
         )
     # Parent tools (selected for main agent)
     parent_tools_by_name = {
@@ -406,6 +407,7 @@ async def _get_agents(
             post_model_hook=post_model_hook,
             pre_model_hook=sub_combined_hook,  # Use combined hook
             enable_image_processing=False,
+            name="basic_deepagent",  # For cost tracking graph_name
         )
 
     return agents

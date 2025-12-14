@@ -34,6 +34,10 @@ _captured_costs: dict[str, float] = {}
 # Key: run_id, Value: last captured model name for that run
 _captured_models: dict[str, str] = {}
 
+# Storage for captured token counts
+# Key: run_id, Value: dict with prompt_tokens, completion_tokens, total_tokens
+_captured_tokens: dict[str, dict[str, int]] = {}
+
 # Track whether we've already captured cost for this chunk (avoid double-counting)
 _captured_cost_chunks: dict[str, set[str]] = {}
 
@@ -127,7 +131,7 @@ def add_captured_cost(run_id: str, cost: float, chunk_id: Optional[str] = None) 
 
 def clear_captured_cost(run_id: str) -> None:
     """
-    Clear captured cost and model for a run.
+    Clear captured cost, model, and tokens for a run.
 
     Call this after you've recorded the cost to free memory.
 
@@ -137,6 +141,7 @@ def clear_captured_cost(run_id: str) -> None:
     _captured_costs.pop(run_id, None)
     _captured_cost_chunks.pop(run_id, None)
     _captured_models.pop(run_id, None)
+    _captured_tokens.pop(run_id, None)
 
 
 def get_captured_model(run_id: str) -> Optional[str]:
@@ -183,23 +188,72 @@ def set_captured_model(run_id: str, model: str) -> None:
     logger.warning("[CostCapture] Set model '%s' for run %s", model, run_id)
 
 
-def parse_sse_for_cost(sse_data: bytes) -> tuple[Optional[float], Optional[str], Optional[str]]:
+def add_captured_tokens(run_id: str, prompt_tokens: int, completion_tokens: int, total_tokens: int) -> None:
     """
-    Parse SSE data to extract cost and model from the usage chunk.
+    Add token counts to the captured tokens for a run.
+
+    Args:
+        run_id: The LangGraph run ID
+        prompt_tokens: Number of prompt tokens
+        completion_tokens: Number of completion tokens
+        total_tokens: Total number of tokens
+    """
+    if run_id not in _captured_tokens:
+        _captured_tokens[run_id] = {"prompt_tokens": 0, "completion_tokens": 0, "total_tokens": 0}
+
+    _captured_tokens[run_id]["prompt_tokens"] += prompt_tokens
+    _captured_tokens[run_id]["completion_tokens"] += completion_tokens
+    _captured_tokens[run_id]["total_tokens"] += total_tokens
+    logger.debug(
+        "[CostCapture] Added tokens for run %s: prompt=%d, completion=%d, total=%d",
+        run_id,
+        prompt_tokens,
+        completion_tokens,
+        total_tokens
+    )
+
+
+def get_and_clear_captured_tokens(run_id: str) -> Optional[dict[str, int]]:
+    """
+    Get the captured token counts for a run and clear them.
+
+    Use this alongside get_and_clear_captured_cost() to get the tokens
+    for a specific model call.
+
+    Args:
+        run_id: The LangGraph run ID
+
+    Returns:
+        Dict with prompt_tokens, completion_tokens, total_tokens, or None if not captured
+    """
+    tokens = _captured_tokens.pop(run_id, None)
+    if tokens is not None:
+        logger.debug(
+            "[CostCapture] Retrieved and cleared tokens for run %s: %s",
+            run_id,
+            tokens
+        )
+    return tokens
+
+
+def parse_sse_for_cost(sse_data: bytes) -> tuple[Optional[float], Optional[str], Optional[str], Optional[dict[str, int]]]:
+    """
+    Parse SSE data to extract cost, model, and tokens from the usage chunk.
 
     OpenRouter SSE format:
     data: {"id":"gen-xxx","model":"google/gemini-2.0-flash","choices":[{"delta":{"content":"Hello"}}]}\n\n
-    data: {"id":"gen-xxx","model":"google/gemini-2.0-flash","usage":{"cost":0.00095,"prompt_tokens":194,...}}\n\n
+    data: {"id":"gen-xxx","model":"google/gemini-2.0-flash","usage":{"cost":0.00095,"prompt_tokens":194,"completion_tokens":50,"total_tokens":244}}\n\n
     data: [DONE]\n\n
 
-    The cost appears in the chunk that contains the "usage" field,
+    The usage data appears in the chunk that contains the "usage" field,
     typically the second-to-last chunk before [DONE].
 
     Args:
         sse_data: Raw SSE bytes from the stream
 
     Returns:
-        Tuple of (cost, chunk_id, model) if found, (None, None, None) otherwise
+        Tuple of (cost, chunk_id, model, tokens) if found, (None, None, None, None) otherwise
+        tokens is a dict with prompt_tokens, completion_tokens, total_tokens
     """
     try:
         text = sse_data.decode('utf-8')
@@ -225,14 +279,21 @@ def parse_sse_for_cost(sse_data: bytes) -> tuple[Optional[float], Optional[str],
                         cost = usage['cost']
                         chunk_id = data.get('id')  # Use generation ID as chunk ID
                         model = data.get('model')  # Extract model name
+                        # Extract token counts
+                        tokens = {
+                            "prompt_tokens": usage.get('prompt_tokens', 0),
+                            "completion_tokens": usage.get('completion_tokens', 0),
+                            "total_tokens": usage.get('total_tokens', 0),
+                        }
                         # Use warning level to ensure visibility
                         logger.warning(
-                            "[CostCapture] Found cost in SSE chunk: $%.6f (id=%s, model=%s)",
+                            "[CostCapture] Found usage in SSE chunk: $%.6f, %d tokens (id=%s, model=%s)",
                             cost,
+                            tokens["total_tokens"],
                             chunk_id,
                             model
                         )
-                        return float(cost), chunk_id, model
+                        return float(cost), chunk_id, model, tokens
 
             except json.JSONDecodeError:
                 # Not valid JSON, skip this line
@@ -241,7 +302,7 @@ def parse_sse_for_cost(sse_data: bytes) -> tuple[Optional[float], Optional[str],
     except Exception as e:
         logger.debug("[CostCapture] Error parsing SSE data: %s", e)
 
-    return None, None, None
+    return None, None, None, None
 
 
 __all__ = [
@@ -254,5 +315,7 @@ __all__ = [
     "get_captured_model",
     "get_and_clear_captured_model",
     "set_captured_model",
+    "add_captured_tokens",
+    "get_and_clear_captured_tokens",
     "parse_sse_for_cost",
 ]

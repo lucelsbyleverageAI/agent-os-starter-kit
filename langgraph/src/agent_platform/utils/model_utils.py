@@ -34,6 +34,7 @@ from agent_platform.utils.sse_cost_capture import (
     get_current_run_id,
     add_captured_cost,
     set_captured_model,
+    add_captured_tokens,
     parse_sse_for_cost,
 )
 
@@ -89,9 +90,9 @@ class CostCapturingStream(httpx.AsyncByteStream):
                             run_id
                         )
 
-                # Try to parse cost from accumulated data
+                # Try to parse cost and tokens from accumulated data
                 if not self._cost_found:
-                    cost, chunk_id, model_from_usage = parse_sse_for_cost(self._buffer)
+                    cost, chunk_id, model_from_usage, tokens = parse_sse_for_cost(self._buffer)
                     if cost is not None:
                         self._cost_found = True
                         if run_id:
@@ -100,9 +101,18 @@ class CostCapturingStream(httpx.AsyncByteStream):
                             if model_from_usage and not self._model_found:
                                 set_captured_model(run_id, model_from_usage)
                                 self._model_found = True
+                            # Capture tokens if present
+                            if tokens and tokens.get("total_tokens", 0) > 0:
+                                add_captured_tokens(
+                                    run_id,
+                                    tokens["prompt_tokens"],
+                                    tokens["completion_tokens"],
+                                    tokens["total_tokens"]
+                                )
                             logger.warning(
-                                "[CostCapture] Captured cost $%.6f for run %s",
+                                "[CostCapture] Captured cost $%.6f, %d tokens for run %s",
                                 cost,
+                                tokens.get("total_tokens", 0) if tokens else 0,
                                 run_id
                             )
                         else:

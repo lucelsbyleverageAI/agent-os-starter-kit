@@ -294,7 +294,8 @@ async def _get_agents(
             checkpointer=False,
             post_model_hook=post_model_hook,
             pre_model_hook=gp_combined_hook,
-            enable_image_processing=False
+            enable_image_processing=False,
+            name="skills_deepagent",  # For cost tracking graph_name
         )
 
     # Built-in tools that every agent should have
@@ -401,6 +402,7 @@ async def _get_agents(
             post_model_hook=post_model_hook,
             pre_model_hook=sub_combined_hook,
             enable_image_processing=False,
+            name="skills_deepagent",  # For cost tracking graph_name
         )
 
     return agents

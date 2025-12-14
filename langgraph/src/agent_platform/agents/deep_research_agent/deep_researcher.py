@@ -65,6 +65,7 @@ try:
         set_current_run_id,
         get_and_clear_captured_cost,
         get_and_clear_captured_model,
+        get_and_clear_captured_tokens,
     )
     SSE_COST_CAPTURE_AVAILABLE = True
 except Exception:  # pragma: no cover
@@ -72,6 +73,7 @@ except Exception:  # pragma: no cover
     set_current_run_id = None  # type: ignore
     get_and_clear_captured_cost = None  # type: ignore
     get_and_clear_captured_model = None  # type: ignore
+    get_and_clear_captured_tokens = None  # type: ignore
 
 # Usage tracking for cost monitoring
 try:
@@ -151,6 +153,16 @@ async def _record_model_usage(
             extracted = extract_usage_from_response(actual_response)
             if extracted:
                 usage_data.update(extracted)
+
+        # Get tokens from SSE capture as fallback (more reliable than response metadata)
+        if SSE_COST_CAPTURE_AVAILABLE and get_and_clear_captured_tokens:
+            captured_tokens = get_and_clear_captured_tokens(run_id)
+            if captured_tokens and captured_tokens.get("total_tokens", 0) > 0:
+                # Use SSE tokens if we don't have any from response extraction
+                if usage_data["total_tokens"] == 0:
+                    usage_data["prompt_tokens"] = captured_tokens["prompt_tokens"]
+                    usage_data["completion_tokens"] = captured_tokens["completion_tokens"]
+                    usage_data["total_tokens"] = captured_tokens["total_tokens"]
 
         # Get cost from SSE capture (more accurate than response metadata)
         # Use get_and_clear to get only the incremental cost for this specific call

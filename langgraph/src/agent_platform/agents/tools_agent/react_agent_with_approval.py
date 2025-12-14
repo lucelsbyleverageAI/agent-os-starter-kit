@@ -43,6 +43,7 @@ from agent_platform.utils.sse_cost_capture import (
     set_current_run_id,
     get_and_clear_captured_cost,
     get_and_clear_captured_model,
+    get_and_clear_captured_tokens,
 )
 from agent_platform.sentry import get_logger
 
@@ -423,7 +424,32 @@ def create_react_agent_with_approval(
                 accumulator = _usage_accumulators[run_id]
                 total_usage = accumulator.get_total()
 
-                if total_usage.get("total_tokens", 0) > 0:
+                # Get tokens from SSE capture as fallback
+                captured_tokens = get_and_clear_captured_tokens(run_id)
+                if captured_tokens and captured_tokens.get("total_tokens", 0) > 0:
+                    if total_usage.get("total_tokens", 0) == 0:
+                        total_usage["prompt_tokens"] = captured_tokens["prompt_tokens"]
+                        total_usage["completion_tokens"] = captured_tokens["completion_tokens"]
+                        total_usage["total_tokens"] = captured_tokens["total_tokens"]
+                        logger.info(
+                            "[record_accumulated_usage] Using captured tokens from SSE: %d",
+                            total_usage["total_tokens"]
+                        )
+
+                # Get cost captured from SSE stream by sse_cost_capture module
+                # The cost is extracted from the final SSE chunk before LangChain strips it
+                # Use get_and_clear to clean up after retrieval
+                captured_cost = get_and_clear_captured_cost(run_id)
+
+                if captured_cost is not None and captured_cost > 0:
+                    total_usage["cost"] = captured_cost
+                    logger.info(
+                        "[record_accumulated_usage] Using captured cost from SSE: $%.6f",
+                        captured_cost
+                    )
+
+                # Only record if we have tokens or cost
+                if total_usage.get("total_tokens", 0) > 0 or total_usage.get("cost", 0.0) > 0:
                     # Get model name: prefer captured model from SSE stream, fall back to configurable
                     # Use get_and_clear to clean up after retrieval
                     configurable = config.get("configurable", {})
@@ -436,23 +462,6 @@ def create_react_agent_with_approval(
                         )
                     else:
                         model_name = configurable.get("model_name", "unknown")
-
-                    # Get cost captured from SSE stream by sse_cost_capture module
-                    # The cost is extracted from the final SSE chunk before LangChain strips it
-                    # Use get_and_clear to clean up after retrieval
-                    captured_cost = get_and_clear_captured_cost(run_id)
-
-                    if captured_cost is not None and captured_cost > 0:
-                        total_usage["cost"] = captured_cost
-                        logger.info(
-                            "[record_accumulated_usage] Using captured cost from SSE: $%.6f",
-                            captured_cost
-                        )
-                    else:
-                        logger.warning(
-                            "[record_accumulated_usage] No cost captured for run %s - cost will be $0",
-                            run_id
-                        )
 
                     # Record to LangConnect
                     await record_usage(
@@ -472,8 +481,13 @@ def create_react_agent_with_approval(
                         total_usage.get("cost", 0.0),
                         total_usage.get("call_count", 0),
                     )
+                else:
+                    logger.warning(
+                        "[record_accumulated_usage] No usage data for run %s - nothing to record",
+                        run_id
+                    )
 
-                # Clean up accumulator (cost/model already cleared via get_and_clear)
+                # Clean up accumulator (cost/model/tokens already cleared via get_and_clear)
                 del _usage_accumulators[run_id]
 
         except Exception as e:
