@@ -53,8 +53,7 @@ def set_current_run_id(run_id: str) -> None:
         run_id: The LangGraph run ID
     """
     _current_run_id.set(run_id)
-    # Use warning level to ensure visibility in all log configs
-    logger.warning("[CostCapture] Set run_id: %s", run_id)
+    logger.debug("[CostCapture] Set run_id: %s", run_id)
 
 
 def get_current_run_id() -> Optional[str]:
@@ -120,8 +119,7 @@ def add_captured_cost(run_id: str, cost: float, chunk_id: Optional[str] = None) 
         _captured_costs[run_id] = 0.0
 
     _captured_costs[run_id] += cost
-    # Use warning level to ensure visibility in all log configs
-    logger.warning(
+    logger.debug(
         "[CostCapture] Added cost $%.6f for run %s (total: $%.6f)",
         cost,
         run_id,
@@ -185,7 +183,7 @@ def set_captured_model(run_id: str, model: str) -> None:
         model: The model name from OpenRouter
     """
     _captured_models[run_id] = model
-    logger.warning("[CostCapture] Set model '%s' for run %s", model, run_id)
+    logger.debug("[CostCapture] Set model '%s' for run %s", model, run_id)
 
 
 def add_captured_tokens(run_id: str, prompt_tokens: int, completion_tokens: int, total_tokens: int) -> None:
@@ -285,8 +283,7 @@ def parse_sse_for_cost(sse_data: bytes) -> tuple[Optional[float], Optional[str],
                             "completion_tokens": usage.get('completion_tokens', 0),
                             "total_tokens": usage.get('total_tokens', 0),
                         }
-                        # Use warning level to ensure visibility
-                        logger.warning(
+                        logger.debug(
                             "[CostCapture] Found usage in SSE chunk: $%.6f, %d tokens (id=%s, model=%s)",
                             cost,
                             tokens["total_tokens"],

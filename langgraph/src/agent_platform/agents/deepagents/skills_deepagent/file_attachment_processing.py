@@ -192,11 +192,8 @@ def extract_file_attachments_to_sandbox(
 
     Returns Command with empty update (files are in sandbox, not state).
     """
-    logger.info("[SKILLS_FILE_ATTACH] Starting file attachment extraction for thread: %s", thread_id)
-
     messages = state.get("messages", [])
     if not messages:
-        logger.info("[SKILLS_FILE_ATTACH] No messages in state")
         return Command(update={})
 
     # Find the last HumanMessage (not just last message)
@@ -209,45 +206,25 @@ def extract_file_attachments_to_sandbox(
             break
 
     if not latest_human_message:
-        logger.info("[SKILLS_FILE_ATTACH] No HumanMessage found in messages, skipping")
         return Command(update={})
-
-    logger.info("[SKILLS_FILE_ATTACH] Found HumanMessage for attachment extraction")
 
     # Collect all text content from the message
     message_texts = []
 
-    logger.info("[SKILLS_FILE_ATTACH] Message content type: %s", type(latest_human_message.content).__name__)
-
     if isinstance(latest_human_message.content, str):
         message_texts.append(latest_human_message.content)
-        logger.info("[SKILLS_FILE_ATTACH] Content is string, length: %d", len(latest_human_message.content))
     elif isinstance(latest_human_message.content, list):
-        logger.info("[SKILLS_FILE_ATTACH] Content is list with %d items", len(latest_human_message.content))
-        for i, content_item in enumerate(latest_human_message.content):
-            logger.info("[SKILLS_FILE_ATTACH] Item %d: type=%s", i, type(content_item).__name__)
-            if isinstance(content_item, dict):
-                item_type = content_item.get('type', 'unknown')
-                logger.info("[SKILLS_FILE_ATTACH] Item %d is dict with type=%s", i, item_type)
-                if item_type == 'text':
-                    text = content_item.get('text', '')
-                    message_texts.append(text)
-                    # Log first 200 chars of text to help debug
-                    preview = text[:200] if len(text) > 200 else text
-                    logger.info("[SKILLS_FILE_ATTACH] Item %d text preview: %s", i, preview)
+        for content_item in latest_human_message.content:
+            if isinstance(content_item, dict) and content_item.get('type') == 'text':
+                message_texts.append(content_item.get('text', ''))
 
     message_content = '\n'.join(message_texts)
-    logger.info("[SKILLS_FILE_ATTACH] Combined message content length: %d", len(message_content))
 
     # Check for any upload markers
     has_binary_uploads = '<UserUploadedImage' in message_content or '<UserUploadedDocument' in message_content
     has_legacy_attachments = '<UserUploadedAttachment>' in message_content
 
-    logger.info("[SKILLS_FILE_ATTACH] has_binary_uploads=%s, has_legacy_attachments=%s",
-                has_binary_uploads, has_legacy_attachments)
-
     if not has_binary_uploads and not has_legacy_attachments:
-        logger.info("[SKILLS_FILE_ATTACH] No file attachments found in message")
         return Command(update={})
 
     # Get sandbox for this thread
@@ -270,13 +247,7 @@ def extract_file_attachments_to_sandbox(
         binary_uploads = _parse_binary_uploads(message_content)
 
         if binary_uploads:
-            # Step 1: Collect all storage paths and batch fetch signed URLs
             storage_paths = [upload['storage_path'] for upload in binary_uploads]
-            logger.info(
-                "[SKILLS_FILE_ATTACH] Fetching signed URLs for %d files: %s",
-                len(storage_paths),
-                storage_paths
-            )
 
             try:
                 signed_urls = _fetch_signed_urls(
@@ -284,54 +255,25 @@ def extract_file_attachments_to_sandbox(
                     langconnect_url=langconnect_url,
                     access_token=access_token,
                 )
-                logger.info(
-                    "[SKILLS_FILE_ATTACH] Got %d signed URLs",
-                    len(signed_urls)
-                )
             except Exception as e:
-                logger.error(
-                    "[SKILLS_FILE_ATTACH] Failed to fetch signed URLs: %s",
-                    str(e)
-                )
+                logger.error("[SKILLS_FILE_ATTACH] Failed to fetch signed URLs: %s", str(e))
                 signed_urls = {}
 
-            # Step 2: Download from signed URLs and write to sandbox
+            # Download and write to sandbox
             for upload in binary_uploads:
-                storage_path = upload['storage_path']
-                signed_url = signed_urls.get(storage_path)
-
+                signed_url = signed_urls.get(upload['storage_path'])
                 if not signed_url:
-                    logger.warning(
-                        "[SKILLS_FILE_ATTACH] No signed URL for %s - skipping",
-                        upload['file_name']
-                    )
                     continue
 
                 try:
-                    # Download directly from signed URL (no auth needed)
                     file_data = _download_from_signed_url(signed_url)
-
-                    # Write to sandbox
                     sandbox.files.write(upload['sandbox_path'], file_data)
-                    logger.info(
-                        "[SKILLS_FILE_ATTACH] Wrote %s to %s (%d bytes)",
-                        upload['file_name'],
-                        upload['sandbox_path'],
-                        len(file_data)
-                    )
                     files_written += 1
-
                 except Exception as e:
-                    logger.error(
-                        "[SKILLS_FILE_ATTACH] Failed to transfer %s: %s",
-                        upload['file_name'],
-                        str(e)
-                    )
+                    logger.error("[SKILLS_FILE_ATTACH] Failed to transfer %s: %s", upload['file_name'], str(e))
 
     elif has_binary_uploads and not access_token:
-        logger.warning(
-            "[SKILLS_FILE_ATTACH] Binary uploads found but no access token - cannot download from storage"
-        )
+        logger.warning("[SKILLS_FILE_ATTACH] Binary uploads found but no access token")
 
     # Process legacy attachments (text only, for backwards compatibility)
     if has_legacy_attachments:
@@ -339,26 +281,15 @@ def extract_file_attachments_to_sandbox(
 
         for attachment in legacy_attachments:
             try:
-                # Write text content as markdown file
                 markdown_file_name = f"{attachment['file_name']}.md"
                 sandbox_path = f"/sandbox/user_uploads/{markdown_file_name}"
-
                 sandbox.files.write(sandbox_path, attachment['content'].encode('utf-8'))
-                logger.info(
-                    "[SKILLS_FILE_ATTACH] Wrote legacy attachment %s to %s",
-                    attachment['file_name'],
-                    sandbox_path
-                )
                 files_written += 1
-
             except Exception as e:
-                logger.error(
-                    "[SKILLS_FILE_ATTACH] Failed to write legacy attachment %s: %s",
-                    attachment['file_name'],
-                    str(e)
-                )
+                logger.error("[SKILLS_FILE_ATTACH] Failed to write legacy attachment: %s", str(e))
 
-    logger.info("[SKILLS_FILE_ATTACH] Extracted %d file(s) to sandbox", files_written)
+    if files_written > 0:
+        logger.info("[SKILLS_FILE_ATTACH] Extracted %d file(s) to sandbox", files_written)
 
     # Return empty update - files are in sandbox, not state
     return Command(update={})
@@ -395,21 +326,10 @@ def create_file_attachment_node(
         This is an async function because get_or_create_sandbox is async.
         Returns Command with sandbox_id update for state persistence.
         """
-        # 1. Initialize sandbox (with reconnection support)
-        # Read existing sandbox_id from state for reconnection
+        # Initialize sandbox (with reconnection support)
         existing_sandbox_id = state.get("sandbox_id")
 
-        if existing_sandbox_id:
-            logger.info(
-                "[SKILLS_FILE_ATTACH] Found existing sandbox_id in state: %s",
-                existing_sandbox_id
-            )
-        else:
-            logger.info("[SKILLS_FILE_ATTACH] No existing sandbox_id in state, will create new sandbox")
-
         try:
-            # get_or_create_sandbox now returns (sandbox, sandbox_id, previous_sandbox_expired)
-            # It will try to reconnect if existing_sandbox_id is provided
             sandbox, sandbox_id, previous_sandbox_expired = await get_or_create_sandbox(
                 thread_id=thread_id,
                 skills=skills or [],
@@ -419,12 +339,7 @@ def create_file_attachment_node(
                 timeout=sandbox_timeout,
                 existing_sandbox_id=existing_sandbox_id,
             )
-            logger.info(
-                "[SKILLS_FILE_ATTACH] Sandbox ready: %s (reconnected=%s, previous_expired=%s)",
-                sandbox_id,
-                sandbox_id == existing_sandbox_id,
-                previous_sandbox_expired
-            )
+            logger.debug("[SKILLS_FILE_ATTACH] Sandbox ready: %s", sandbox_id)
         except Exception as e:
             logger.error("[SKILLS_FILE_ATTACH] Failed to initialize sandbox: %s", e)
             raise RuntimeError(f"Sandbox initialization failed: {e}")
@@ -432,9 +347,7 @@ def create_file_attachment_node(
         # Track if we need to notify the LLM about sandbox expiration
         sandbox_expired_notification = None
         if previous_sandbox_expired:
-            logger.warning(
-                "[SKILLS_FILE_ATTACH] Previous sandbox expired - will notify LLM about data loss"
-            )
+            logger.info("[SKILLS_FILE_ATTACH] Previous sandbox expired, notifying LLM")
             sandbox_expired_notification = SystemMessage(
                 content=(
                     "[SYSTEM NOTICE: Your previous sandbox environment has expired after 30 days of inactivity. "
@@ -504,19 +417,9 @@ def create_file_attachment_node(
                                     try:
                                         file_data = _download_from_signed_url(signed_url)
                                         sandbox.files.write(upload['sandbox_path'], file_data)
-                                        logger.info(
-                                            "[SKILLS_FILE_ATTACH] Wrote %s to %s (%d bytes)",
-                                            upload['file_name'],
-                                            upload['sandbox_path'],
-                                            len(file_data)
-                                        )
                                         files_written += 1
                                     except Exception as e:
-                                        logger.error(
-                                            "[SKILLS_FILE_ATTACH] Failed to transfer %s: %s",
-                                            upload['file_name'],
-                                            str(e)
-                                        )
+                                        logger.error("[SKILLS_FILE_ATTACH] Failed to transfer %s: %s", upload['file_name'], str(e))
 
                     # Process legacy attachments
                     if has_legacy_attachments:
@@ -528,24 +431,16 @@ def create_file_attachment_node(
                                 sandbox.files.write(sandbox_path, attachment['content'].encode('utf-8'))
                                 files_written += 1
                             except Exception as e:
-                                logger.error(
-                                    "[SKILLS_FILE_ATTACH] Failed to write legacy attachment: %s",
-                                    str(e)
-                                )
+                                logger.error("[SKILLS_FILE_ATTACH] Failed to write legacy attachment: %s", str(e))
 
-        logger.info(
-            "[SKILLS_FILE_ATTACH] Completed: sandbox_id=%s, files_written=%d",
-            sandbox_id,
-            files_written
-        )
+        if files_written > 0:
+            logger.info("[SKILLS_FILE_ATTACH] Processed %d file(s)", files_written)
 
         # Build state update with sandbox_id and optional expiration notification
         state_update = {"sandbox_id": sandbox_id}
 
-        # If the previous sandbox expired, inject a system message to notify the LLM
         if sandbox_expired_notification:
             state_update["messages"] = [sandbox_expired_notification]
-            logger.info("[SKILLS_FILE_ATTACH] Injected sandbox expiration notification into messages")
 
         # Return sandbox_id in state for persistence across requests
         return Command(update=state_update)
@@ -595,14 +490,7 @@ def create_file_attachment_nodes(
 
         # If sandbox already exists (reconnection), skip loading UI
         if existing_sandbox_id:
-            logger.info(
-                "[SKILLS_INIT_STATUS] Reconnection case - skipping loading UI (sandbox_id=%s)",
-                existing_sandbox_id
-            )
             return Command(goto="extract_file_attachments")
-
-        # First run - emit loading tool call
-        logger.info("[SKILLS_INIT_STATUS] First run - emitting loading UI")
 
         ai_message = AIMessage(
             content="",
@@ -628,17 +516,7 @@ def create_file_attachment_nodes(
         existing_sandbox_id = state.get("sandbox_id")
         is_first_run = not existing_sandbox_id
 
-        if existing_sandbox_id:
-            logger.info(
-                "[SKILLS_FILE_ATTACH] Found existing sandbox_id in state: %s",
-                existing_sandbox_id
-            )
-        else:
-            logger.info("[SKILLS_FILE_ATTACH] No existing sandbox_id in state, will create new sandbox")
-
         try:
-            # get_or_create_sandbox returns (sandbox, sandbox_id, previous_sandbox_expired)
-            # It will try to reconnect if existing_sandbox_id is provided
             sandbox, sandbox_id, previous_sandbox_expired = await get_or_create_sandbox(
                 thread_id=thread_id,
                 skills=skills or [],
@@ -648,12 +526,7 @@ def create_file_attachment_nodes(
                 timeout=sandbox_timeout,
                 existing_sandbox_id=existing_sandbox_id,
             )
-            logger.info(
-                "[SKILLS_FILE_ATTACH] Sandbox ready: %s (reconnected=%s, previous_expired=%s)",
-                sandbox_id,
-                sandbox_id == existing_sandbox_id,
-                previous_sandbox_expired
-            )
+            logger.debug("[SKILLS_FILE_ATTACH] Sandbox ready: %s", sandbox_id)
         except Exception as e:
             logger.error("[SKILLS_FILE_ATTACH] Failed to initialize sandbox: %s", e)
             raise RuntimeError(f"Sandbox initialization failed: {e}")
@@ -661,9 +534,7 @@ def create_file_attachment_nodes(
         # Track if we need to notify the LLM about sandbox expiration
         sandbox_expired_notification = None
         if previous_sandbox_expired:
-            logger.warning(
-                "[SKILLS_FILE_ATTACH] Previous sandbox expired - will notify LLM about data loss"
-            )
+            logger.info("[SKILLS_FILE_ATTACH] Previous sandbox expired, notifying LLM")
             sandbox_expired_notification = SystemMessage(
                 content=(
                     "[SYSTEM NOTICE: Your previous sandbox environment has expired after 30 days of inactivity. "
@@ -732,19 +603,9 @@ def create_file_attachment_nodes(
                                     try:
                                         file_data = _download_from_signed_url(signed_url)
                                         sandbox.files.write(upload['sandbox_path'], file_data)
-                                        logger.info(
-                                            "[SKILLS_FILE_ATTACH] Wrote %s to %s (%d bytes)",
-                                            upload['file_name'],
-                                            upload['sandbox_path'],
-                                            len(file_data)
-                                        )
                                         files_written += 1
                                     except Exception as e:
-                                        logger.error(
-                                            "[SKILLS_FILE_ATTACH] Failed to transfer %s: %s",
-                                            upload['file_name'],
-                                            str(e)
-                                        )
+                                        logger.error("[SKILLS_FILE_ATTACH] Failed to transfer %s: %s", upload['file_name'], str(e))
 
                     # Process legacy attachments
                     if has_legacy_attachments:
@@ -756,37 +617,26 @@ def create_file_attachment_nodes(
                                 sandbox.files.write(sandbox_path, attachment['content'].encode('utf-8'))
                                 files_written += 1
                             except Exception as e:
-                                logger.error(
-                                    "[SKILLS_FILE_ATTACH] Failed to write legacy attachment: %s",
-                                    str(e)
-                                )
+                                logger.error("[SKILLS_FILE_ATTACH] Failed to write legacy attachment: %s", str(e))
 
-        logger.info(
-            "[SKILLS_FILE_ATTACH] Completed: sandbox_id=%s, files_written=%d",
-            sandbox_id,
-            files_written
-        )
+        if files_written > 0:
+            logger.info("[SKILLS_FILE_ATTACH] Processed %d file(s)", files_written)
 
         # Build return update
         update: Dict[str, Any] = {"sandbox_id": sandbox_id}
-
-        # Collect messages to add
         messages_to_add = []
 
         # If first run, emit completion message to close loading UI
         if is_first_run:
-            completion_message = ToolMessage(
+            messages_to_add.append(ToolMessage(
                 content="Environment ready",
                 tool_call_id=tool_call_id,
                 name="sandbox_initialization"
-            )
-            messages_to_add.append(completion_message)
-            logger.info("[SKILLS_FILE_ATTACH] Emitted completion message for loading UI")
+            ))
 
         # If the previous sandbox expired, inject a system message to notify the LLM
         if sandbox_expired_notification:
             messages_to_add.append(sandbox_expired_notification)
-            logger.info("[SKILLS_FILE_ATTACH] Injected sandbox expiration notification into messages")
 
         if messages_to_add:
             update["messages"] = messages_to_add

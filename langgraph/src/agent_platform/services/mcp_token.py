@@ -39,7 +39,7 @@ async def fetch_tokens(config: RunnableConfig) -> Optional[Dict[str, Any]]:
     
     if supabase_token:
         # Exchange Supabase JWT for MCP access token
-        logger.info("[MCP_TOKEN] exchanging_supabase_jwt_for_mcp_token=true")
+        logger.debug("[MCP_TOKEN] exchanging_supabase_jwt_for_mcp_token=true")
         try:
             mcp_token = await exchange_supabase_jwt_for_mcp_token(supabase_token)
             return {
@@ -52,7 +52,7 @@ async def fetch_tokens(config: RunnableConfig) -> Optional[Dict[str, Any]]:
     
     # No user context - use service account if available
     if MCP_SERVICE_ACCOUNT_KEY:
-        logger.info("[MCP_TOKEN] using_service_account=true")
+        logger.debug("[MCP_TOKEN] using_service_account=true")
         user_id = config.get("metadata", {}).get("owner")
         return {
             "auth_type": "service_account",
@@ -87,7 +87,7 @@ async def exchange_supabase_jwt_for_mcp_token(supabase_jwt: str) -> str:
         "requested_token_type": "urn:ietf:params:oauth:token-type:access_token",
     }
     
-    logger.info(f"[MCP_TOKEN] requesting_token_exchange endpoint={token_endpoint}")
+    logger.debug("[MCP_TOKEN] requesting_token_exchange endpoint=%s", token_endpoint)
     
     async with aiohttp.ClientSession() as session:
         async with session.post(
@@ -109,8 +109,9 @@ async def exchange_supabase_jwt_for_mcp_token(supabase_jwt: str) -> str:
                 logger.error(f"[MCP_TOKEN] no_access_token_in_response keys={list(result.keys())}")
                 raise Exception("No access token in exchange response")
             
-            logger.info(
-                f"[MCP_TOKEN] token_exchange_successful token_length={len(mcp_access_token)} token_type={result.get('token_type')} scope={result.get('scope')}"
+            logger.debug(
+                "[MCP_TOKEN] token_exchange_successful token_length=%d",
+                len(mcp_access_token)
             )
             
             return mcp_access_token

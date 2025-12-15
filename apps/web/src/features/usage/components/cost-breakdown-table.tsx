@@ -116,7 +116,7 @@ export function CostBreakdownTable({
         )}
       </CardHeader>
       <CardContent>
-        <div className="relative">
+        <div className="relative max-h-[400px] overflow-y-auto">
           {/* Loading overlay */}
           {loading && (
             <div className="absolute inset-0 bg-background/60 backdrop-blur-[1px] z-10 flex items-center justify-center rounded-lg transition-opacity duration-200">
@@ -127,7 +127,7 @@ export function CostBreakdownTable({
             </div>
           )}
           <Table>
-            <TableHeader>
+            <TableHeader className="sticky top-0 bg-card z-[1]">
               <TableRow>
                 <TableHead>Name</TableHead>
                 <TableHead className="text-right">Runs</TableHead>
