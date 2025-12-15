@@ -64,7 +64,6 @@ function UsageInterface() {
     summary,
     groupedTimeseries,
     loading: breakdownLoading,
-    error: breakdownError,
     dateRange,
     setDateRange,
     groupBy,

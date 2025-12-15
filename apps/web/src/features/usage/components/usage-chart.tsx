@@ -2,7 +2,6 @@
 
 import { useState, useRef, useEffect } from "react";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
-import { Skeleton } from "@/components/ui/skeleton";
 import { Tabs, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { GroupedDailyUsageItem, GroupBy } from "../hooks/use-usage-breakdown";
 
