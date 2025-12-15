@@ -23,12 +23,10 @@ from langconnect.database.user_roles import UserRoleManager
 log = logging.getLogger(__name__)
 
 
-async def check_user_role(user_id: str, role: str) -> bool:
-    """Check if a user has a specific role."""
+async def is_admin_user(user_id: str) -> bool:
+    """Check if a user has admin privileges (dev_admin or business_admin)."""
     role_manager = UserRoleManager(user_id)
-    if role == "dev_admin":
-        return await role_manager.is_dev_admin()
-    return False
+    return await role_manager.can_manage_users()
 
 router = APIRouter(prefix="/usage", tags=["Usage"])
 
@@ -337,8 +335,8 @@ async def get_usage_summary(
         user_id = actor.identity
         start_dt, end_dt = parse_date_range(start_date, end_date, period)
 
-        # Check if user is admin
-        is_admin = await check_user_role(user_id, "dev_admin")
+        # Check if user is admin (dev_admin or business_admin)
+        is_admin = await is_admin_user(user_id)
 
         async with get_db_connection() as conn:
             # Build base query conditions
@@ -501,8 +499,8 @@ async def get_usage_timeseries(
         user_id = actor.identity
         start_dt, end_dt = parse_date_range(start_date, end_date, period)
 
-        # Check if user is admin
-        is_admin = await check_user_role(user_id, "dev_admin")
+        # Check if user is admin (dev_admin or business_admin)
+        is_admin = await is_admin_user(user_id)
 
         async with get_db_connection() as conn:
             if is_admin:
@@ -594,8 +592,8 @@ async def get_grouped_usage_timeseries(
         user_id = actor.identity
         start_dt, end_dt = parse_date_range(start_date, end_date, period)
 
-        # Check if user is admin
-        is_admin = await check_user_role(user_id, "dev_admin")
+        # Check if user is admin (dev_admin or business_admin)
+        is_admin = await is_admin_user(user_id)
 
         async with get_db_connection() as conn:
             # Build query based on group_by and admin status
