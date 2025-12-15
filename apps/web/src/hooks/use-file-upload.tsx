@@ -479,10 +479,12 @@ ${legacyContent || 'No content extracted'}
         storageData = await storageResponse.json();
       }
 
-      // Step 2: Extract text preview (existing flow)
+      // Step 2: Extract text preview
+      // Use 'quick' mode for PDFs (fast synchronous extraction), 'fast' for other documents
+      const isPdf = file.type === 'application/pdf' || file.name.toLowerCase().endsWith('.pdf');
       const formData = new FormData();
       formData.append('file', file);
-      formData.append('processing_mode', 'fast');
+      formData.append('processing_mode', isPdf ? 'quick' : 'fast');
 
       const response = await fetch('/api/langconnect/documents/extract/text', {
         method: 'POST',
@@ -498,7 +500,83 @@ ${legacyContent || 'No content extracted'}
 
       const data = await response.json();
 
-      // Update attachment with storage data for later use
+      // Check if this is a synchronous response (quick mode) or async job response
+      // Sync response has 'success' field, async has 'job_id' field
+      if (data.success !== undefined) {
+        // Synchronous response - process immediately
+        if (!data.success) {
+          // Extraction failed
+          setProcessingAttachments(prev => prev.map(att => {
+            if (att.id === attachmentId) {
+              return {
+                ...att,
+                status: 'error',
+                error: data.error_message || 'Extraction failed'
+              };
+            }
+            return att;
+          }));
+          toast.error(`Failed to process ${file.name}`, {
+            description: data.error_message || 'An error occurred'
+          });
+          return;
+        }
+
+        // Extraction succeeded - create content block immediately
+        const fullContent = data.content || '';
+        const { text: previewText, truncated, totalWords } = truncateToWords(fullContent, MAX_PREVIEW_WORDS);
+
+        const sandboxPath = `/sandbox/user_uploads/${file.name}`;
+        const truncationNotice = truncated
+          ? `\n\n[CONTENT TRUNCATED - ${totalWords.toLocaleString()} words total. Full file available at: ${sandboxPath}]`
+          : '';
+        const preview = previewText + truncationNotice;
+
+        let xmlContent: string;
+        if (storageData) {
+          xmlContent = `<UserUploadedDocument hidden="true">
+<FileName>${file.name}</FileName>
+<FileType>${file.type}</FileType>
+<StoragePath>${storageData.storage_path}</StoragePath>
+<SandboxPath>${sandboxPath}</SandboxPath>
+<Preview>
+${preview || 'No preview available'}
+</Preview>
+</UserUploadedDocument>`;
+        } else {
+          const legacyTruncationNotice = truncated
+            ? `\n\n[CONTENT TRUNCATED - ${totalWords.toLocaleString()} words total]`
+            : '';
+          const legacyContent = previewText + legacyTruncationNotice;
+
+          xmlContent = `<UserUploadedAttachment>
+<FileType>${file.type}</FileType>
+<FileName>${file.name}</FileName>
+<Content>
+${legacyContent || 'No content extracted'}
+</Content>
+</UserUploadedAttachment>`;
+        }
+
+        const newBlock: Base64ContentBlock = {
+          type: "text",
+          text: xmlContent,
+          metadata: {
+            filename: file.name,
+            mime_type: file.type,
+            extracted_text: true,
+            storage_path: storageData?.storage_path,
+            bucket: storageData?.bucket,
+            is_binary_upload: !!storageData
+          }
+        } as any;
+
+        setContentBlocks(prev => [...prev, newBlock]);
+        setProcessingAttachments(prev => prev.filter(att => att.id !== attachmentId));
+        return;
+      }
+
+      // Async job response - update attachment and start polling
       setProcessingAttachments(prev => prev.map(att => {
         if (att.id === attachmentId) {
           return {

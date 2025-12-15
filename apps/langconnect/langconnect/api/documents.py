@@ -17,7 +17,8 @@ from langconnect.database.document import DocumentManager
  
 from langconnect.services.enhanced_document_processor import EnhancedDocumentProcessor
 from langconnect.services.job_service import job_service
-from langconnect.models.job import JobCreate, JobSubmissionResponse, JobType, ProcessingOptions
+from langconnect.models.job import JobCreate, JobSubmissionResponse, JobType, ProcessingOptions, TextExtractionResponse
+from langconnect.services.pymupdf_extractor_service import pymupdf_extractor
 from langconnect.database.collections import CollectionPermissionsManager
 
 logger = logging.getLogger(__name__)
@@ -1013,26 +1014,27 @@ async def upload_documents_batch(
 # Text Extraction Endpoints (for Chat Feature)
 # =====================
 
-@router.post("/documents/extract/text", response_model=JobSubmissionResponse, status_code=202)
+@router.post("/documents/extract/text", response_model=JobSubmissionResponse | TextExtractionResponse)
 async def extract_text(
     actor: Annotated[AuthenticatedActor, Depends(resolve_user_or_service)],
-    
+
     file: Optional[UploadFile] = File(None),
     url: str = Form(default=""),
     processing_mode: str = Form(
-        default="balanced", 
-        description="Processing mode: 'fast' (standard processing with table extraction, no OCR), 'balanced' (OCR processing for scanned documents with table extraction)"
+        default="balanced",
+        description="Processing mode: 'quick' (fast PyMuPDF extraction for PDFs, synchronous), 'fast' (Dockling without OCR, async), 'balanced' (Dockling with table extraction, async)"
     ),
     include_metadata: bool = Form(default=True),
 ):
-    """Extract text from files or URLs for chat feature (async processing).
-    
-    This endpoint now returns a job ID for async processing to avoid blocking the server.
-    Use the jobs API to check status and get results.
-    
+    """Extract text from files or URLs for chat feature.
+
     Processing Modes:
-    - **fast**: Standard processing with table extraction but no OCR (faster, for digital documents)
-    - **balanced**: OCR processing for scanned documents with table extraction (recommended for mixed document types)
+    - **quick**: Ultra-fast synchronous extraction using PyMuPDF (PDFs only, returns immediately)
+    - **fast**: Standard Dockling processing with table extraction but no OCR (async job)
+    - **balanced**: Full Dockling processing for complex documents (async job)
+
+    For 'quick' mode with PDFs, returns TextExtractionResponse directly (200).
+    For all other modes, returns JobSubmissionResponse for async polling (202).
     """
     
     # Validate input - exactly one source required
@@ -1047,7 +1049,52 @@ async def extract_text(
             status_code=400,
             detail="Provide either file or URL, not both"
         )
-    
+
+    # Quick mode: synchronous PyMuPDF extraction for PDFs
+    if processing_mode == "quick" and file:
+        content_type = file.content_type or ""
+        filename = file.filename or ""
+
+        # Only use quick mode for PDFs
+        if content_type == "application/pdf" or filename.lower().endswith(".pdf"):
+            start_time = time.time()
+            try:
+                content = await file.read()
+                result = pymupdf_extractor.extract_text_from_bytes(content)
+                processing_time = time.time() - start_time
+
+                if result.success:
+                    return TextExtractionResponse(
+                        success=True,
+                        content=result.content,
+                        metadata={
+                            "filename": filename,
+                            "page_count": result.page_count,
+                            "content_length": len(result.content),
+                            "extraction_method": "pymupdf_quick",
+                        },
+                        processing_time_seconds=processing_time,
+                        source_type="pdf",
+                    )
+                else:
+                    return TextExtractionResponse(
+                        success=False,
+                        content="",
+                        error_message=result.error_message,
+                        processing_time_seconds=processing_time,
+                        source_type="pdf",
+                    )
+            except Exception as e:
+                logger.exception("Quick PDF extraction failed")
+                return TextExtractionResponse(
+                    success=False,
+                    content="",
+                    error_message=str(e),
+                    processing_time_seconds=time.time() - start_time,
+                    source_type="pdf",
+                )
+
+    # Fall through to async job flow for non-quick modes or non-PDF files
     try:
         # For service accounts, we need a dummy collection for job processing
         # In practice, text extraction jobs could be collection-independent

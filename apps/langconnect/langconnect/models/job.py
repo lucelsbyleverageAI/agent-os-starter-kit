@@ -134,4 +134,15 @@ class JobSubmissionResponse(BaseModel):
     # Duplicate detection results
     duplicate_summary: Optional[dict[str, Any]] = Field(None, description="Summary of duplicate detection results")
     files_skipped: Optional[list[dict[str, Any]]] = Field(None, description="Files that were skipped as duplicates")
-    files_overwritten: Optional[list[dict[str, Any]]] = Field(None, description="Files that will overwrite existing documents") 
+    files_overwritten: Optional[list[dict[str, Any]]] = Field(None, description="Files that will overwrite existing documents")
+
+
+class TextExtractionResponse(BaseModel):
+    """Schema for synchronous text extraction response (quick mode)."""
+
+    success: bool = Field(..., description="Whether extraction was successful")
+    content: str = Field(default="", description="Extracted text content")
+    metadata: Optional[dict[str, Any]] = Field(None, description="Extraction metadata (filename, page_count, etc.)")
+    processing_time_seconds: Optional[float] = Field(None, description="Time taken to extract text")
+    source_type: Optional[str] = Field(None, description="Type of source (pdf, docx, etc.)")
+    error_message: Optional[str] = Field(None, description="Error message if extraction failed")
