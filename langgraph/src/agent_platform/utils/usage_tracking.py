@@ -501,11 +501,25 @@ class UsageTrackingCallback(BaseCallbackHandler):
                     model = response.llm_output.get("model") or response.llm_output.get("model_name") or self.model_name
 
                     if self.auto_record:
-                        # Record asynchronously without blocking
-                        asyncio.create_task(self._record_usage(model, usage_data))
+                        # Record asynchronously without blocking.
+                        # Use done callback to log any errors from the background task.
+                        task = asyncio.create_task(self._record_usage(model, usage_data))
+                        task.add_done_callback(self._handle_record_task_result)
 
         except Exception as e:
             logger.warning(f"Error in usage tracking callback: {e}")
+
+    def _handle_record_task_result(self, task: asyncio.Task) -> None:
+        """Handle completion of background usage recording task."""
+        try:
+            # This will raise if the task failed
+            task.result()
+        except asyncio.CancelledError:
+            logger.debug("Usage recording task was cancelled")
+        except Exception as e:
+            logger.warning(
+                f"Background usage recording failed for run {self.run_id}: {e}"
+            )
 
     async def _record_usage(self, model_name: str, usage_data: Dict[str, Any]) -> None:
         """Record usage data asynchronously."""

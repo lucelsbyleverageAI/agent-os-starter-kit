@@ -218,13 +218,19 @@ def parse_date_range(
             )
 
         # Convert to datetime with timezone
+        # Start: beginning of start_date (00:00:00)
+        # End: beginning of day AFTER end_date (00:00:00 next day)
+        # This allows queries to use `created_at < end` to include all of end_date
+        # without microsecond precision edge cases at midnight.
         start = datetime(
             start_d.year, start_d.month, start_d.day,
             0, 0, 0, 0, tzinfo=timezone.utc
         )
+        # Add one day to end_date to get start of next day
+        next_day = end_d + timedelta(days=1)
         end = datetime(
-            end_d.year, end_d.month, end_d.day,
-            23, 59, 59, 999999, tzinfo=timezone.utc
+            next_day.year, next_day.month, next_day.day,
+            0, 0, 0, 0, tzinfo=timezone.utc
         )
         return start, end
 
@@ -234,7 +240,12 @@ def parse_date_range(
 
 def generate_date_range(start: datetime, end: datetime) -> list[str]:
     """
-    Generate a list of all dates between start and end (inclusive).
+    Generate a list of all dates between start and end.
+
+    Note: `end` is expected to be the start of the day AFTER the last desired date
+    (i.e., exclusive end). For example, to get dates for Dec 10-14:
+    - start = Dec 10 00:00:00
+    - end = Dec 15 00:00:00 (start of next day, exclusive)
 
     Returns:
         List of ISO date strings (e.g., ["2025-12-10", "2025-12-11", ...])
@@ -243,7 +254,8 @@ def generate_date_range(start: datetime, end: datetime) -> list[str]:
     current = start.replace(hour=0, minute=0, second=0, microsecond=0)
     end_date = end.replace(hour=0, minute=0, second=0, microsecond=0)
 
-    while current <= end_date:
+    # Use < instead of <= since end is exclusive (start of next day)
+    while current < end_date:
         dates.append(current.date().isoformat())
         current += timedelta(days=1)
 
@@ -284,11 +296,17 @@ async def record_usage(
             user_id = actor.identity
 
         async with get_db_connection() as conn:
-            # Upsert on (run_id, model_name) with ACCUMULATION for multi-call runs
+            # Upsert on (run_id, model_name) with ACCUMULATION for multi-call runs.
             # Each model call within a run ADDS to the existing totals instead of overwriting.
             # This handles:
             # - Multi-model runs (e.g., deepagent with sub-agents using different models)
             # - Multiple calls of the same model within a run (e.g., ReAct loop)
+            #
+            # CONCURRENCY NOTE: PostgreSQL's ON CONFLICT DO UPDATE is atomic - it acquires
+            # a row-level lock during the update, preventing lost updates from concurrent
+            # requests. The accumulation (cost = cost + EXCLUDED.cost) is safe because
+            # PostgreSQL reads and writes the row atomically within the same statement.
+            # See: https://www.postgresql.org/docs/current/sql-insert.html#SQL-ON-CONFLICT
             result = await conn.fetchrow(
                 """
                 INSERT INTO langconnect.agent_run_costs
@@ -392,7 +410,7 @@ async def get_usage_summary(
                     COALESCE(SUM(total_tokens), 0) as total_tokens,
                     COUNT(*) as total_runs
                 FROM langconnect.agent_run_costs
-                WHERE created_at >= $1 AND created_at <= $2 {user_filter}
+                WHERE created_at >= $1 AND created_at < $2 {user_filter}
                 """,
                 *user_params,
             )
@@ -408,7 +426,7 @@ async def get_usage_summary(
                     COALESCE(SUM(completion_tokens), 0) as completion_tokens,
                     COALESCE(SUM(cost), 0) as total_cost
                 FROM langconnect.agent_run_costs
-                WHERE created_at >= $1 AND created_at <= $2 {user_filter}
+                WHERE created_at >= $1 AND created_at < $2 {user_filter}
                 GROUP BY model_name
                 ORDER BY total_cost DESC
                 """,
@@ -428,7 +446,7 @@ async def get_usage_summary(
                     COALESCE(SUM(arc.cost), 0) as total_cost
                 FROM langconnect.agent_run_costs arc
                 LEFT JOIN langconnect.assistants_mirror am ON arc.assistant_id = am.assistant_id
-                WHERE arc.created_at >= $1 AND arc.created_at <= $2 {user_filter.replace('user_id', 'arc.user_id')}
+                WHERE arc.created_at >= $1 AND arc.created_at < $2 {user_filter.replace('user_id', 'arc.user_id')}
                 GROUP BY arc.graph_name, am.name
                 ORDER BY total_cost DESC
                 """,
@@ -450,7 +468,7 @@ async def get_usage_summary(
                         COALESCE(SUM(arc.cost), 0) as total_cost
                     FROM langconnect.agent_run_costs arc
                     LEFT JOIN langconnect.user_roles ur ON arc.user_id = ur.user_id
-                    WHERE arc.created_at >= $1 AND arc.created_at <= $2
+                    WHERE arc.created_at >= $1 AND arc.created_at < $2
                     GROUP BY arc.user_id, ur.display_name
                     ORDER BY total_cost DESC
                     """,
@@ -553,7 +571,7 @@ async def get_usage_timeseries(
                         COALESCE(SUM(total_tokens), 0) as tokens,
                         COUNT(*) as runs
                     FROM langconnect.agent_run_costs
-                    WHERE created_at >= $1 AND created_at <= $2
+                    WHERE created_at >= $1 AND created_at < $2
                     GROUP BY DATE(created_at)
                     ORDER BY date ASC
                     """,
@@ -569,7 +587,7 @@ async def get_usage_timeseries(
                         COALESCE(SUM(total_tokens), 0) as tokens,
                         COUNT(*) as runs
                     FROM langconnect.agent_run_costs
-                    WHERE created_at >= $1 AND created_at <= $2 AND user_id = $3
+                    WHERE created_at >= $1 AND created_at < $2 AND user_id = $3
                     GROUP BY DATE(created_at)
                     ORDER BY date ASC
                     """,
@@ -652,7 +670,7 @@ async def get_grouped_usage_timeseries(
                             COALESCE(SUM(cost), 0) as cost,
                             COUNT(*) as runs
                         FROM langconnect.agent_run_costs
-                        WHERE created_at >= $1 AND created_at <= $2
+                        WHERE created_at >= $1 AND created_at < $2
                         GROUP BY DATE(created_at), model_name
                         ORDER BY date ASC, group_name ASC
                         """,
@@ -668,7 +686,7 @@ async def get_grouped_usage_timeseries(
                             COALESCE(SUM(cost), 0) as cost,
                             COUNT(*) as runs
                         FROM langconnect.agent_run_costs
-                        WHERE created_at >= $1 AND created_at <= $2 AND user_id = $3
+                        WHERE created_at >= $1 AND created_at < $2 AND user_id = $3
                         GROUP BY DATE(created_at), model_name
                         ORDER BY date ASC, group_name ASC
                         """,
@@ -687,7 +705,7 @@ async def get_grouped_usage_timeseries(
                             COUNT(*) as runs
                         FROM langconnect.agent_run_costs arc
                         LEFT JOIN langconnect.assistants_mirror am ON arc.assistant_id = am.assistant_id
-                        WHERE arc.created_at >= $1 AND arc.created_at <= $2
+                        WHERE arc.created_at >= $1 AND arc.created_at < $2
                         GROUP BY DATE(arc.created_at), COALESCE(am.name, arc.graph_name, 'unknown')
                         ORDER BY date ASC, group_name ASC
                         """,
@@ -704,7 +722,7 @@ async def get_grouped_usage_timeseries(
                             COUNT(*) as runs
                         FROM langconnect.agent_run_costs arc
                         LEFT JOIN langconnect.assistants_mirror am ON arc.assistant_id = am.assistant_id
-                        WHERE arc.created_at >= $1 AND arc.created_at <= $2 AND arc.user_id = $3
+                        WHERE arc.created_at >= $1 AND arc.created_at < $2 AND arc.user_id = $3
                         GROUP BY DATE(arc.created_at), COALESCE(am.name, arc.graph_name, 'unknown')
                         ORDER BY date ASC, group_name ASC
                         """,
