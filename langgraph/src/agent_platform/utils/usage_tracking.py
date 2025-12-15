@@ -210,6 +210,12 @@ def extract_usage_from_response(response: AIMessage) -> Optional[Dict[str, Any]]
     }
 
 
+# Retry configuration for usage recording
+MAX_RETRIES = 3
+INITIAL_BACKOFF_SECONDS = 0.5
+MAX_BACKOFF_SECONDS = 4.0
+
+
 async def record_usage(
     thread_id: str,
     run_id: str,
@@ -218,12 +224,14 @@ async def record_usage(
     user_id: str,
     assistant_id: Optional[str] = None,
     graph_name: Optional[str] = None,
+    max_retries: int = MAX_RETRIES,
 ) -> bool:
     """
-    Record usage data to LangConnect API.
+    Record usage data to LangConnect API with retry logic.
 
     This function sends usage data to the LangConnect /usage/record endpoint
-    for persistent storage and later aggregation.
+    for persistent storage and later aggregation. Implements exponential
+    backoff retry to handle transient failures.
 
     Args:
         thread_id: Thread ID for the conversation
@@ -233,6 +241,7 @@ async def record_usage(
         user_id: User ID who initiated the run
         assistant_id: Optional assistant instance ID
         graph_name: Optional agent template name
+        max_retries: Maximum number of retry attempts (default: 3)
 
     Returns:
         True if recording succeeded, False otherwise
@@ -244,48 +253,83 @@ async def record_usage(
         logger.warning("LANGCONNECT_SERVICE_ACCOUNT_KEY not set, skipping usage recording")
         return False
 
-    try:
-        payload = {
-            "thread_id": thread_id,
-            "run_id": run_id,
-            "model_name": model_name,
-            "prompt_tokens": usage_data.get("prompt_tokens", 0),
-            "completion_tokens": usage_data.get("completion_tokens", 0),
-            "total_tokens": usage_data.get("total_tokens", 0),
-            "cost": usage_data.get("cost", 0.0),
-        }
+    payload = {
+        "thread_id": thread_id,
+        "run_id": run_id,
+        "model_name": model_name,
+        "prompt_tokens": usage_data.get("prompt_tokens", 0),
+        "completion_tokens": usage_data.get("completion_tokens", 0),
+        "total_tokens": usage_data.get("total_tokens", 0),
+        "cost": usage_data.get("cost", 0.0),
+    }
 
-        if assistant_id:
-            payload["assistant_id"] = assistant_id
-        if graph_name:
-            payload["graph_name"] = graph_name
+    if assistant_id:
+        payload["assistant_id"] = assistant_id
+    if graph_name:
+        payload["graph_name"] = graph_name
 
-        async with httpx.AsyncClient() as client:
-            response = await client.post(
-                f"{langconnect_url}/usage/record",
-                json=payload,
-                headers={
-                    "Authorization": f"Bearer {service_key}",
-                    "Content-Type": "application/json",
-                    "X-User-Id": user_id,  # Pass user context
-                },
-                timeout=10.0,
-            )
+    last_error: Optional[Exception] = None
+    backoff = INITIAL_BACKOFF_SECONDS
 
-            if response.status_code in [200, 201]:
-                logger.debug(
-                    f"Recorded usage for run {run_id}: {usage_data['total_tokens']} tokens, ${usage_data['cost']:.6f}"
+    for attempt in range(max_retries + 1):
+        try:
+            async with httpx.AsyncClient() as client:
+                response = await client.post(
+                    f"{langconnect_url}/usage/record",
+                    json=payload,
+                    headers={
+                        "Authorization": f"Bearer {service_key}",
+                        "Content-Type": "application/json",
+                        "X-User-Id": user_id,  # Pass user context
+                    },
+                    timeout=10.0,
                 )
-                return True
-            else:
-                logger.warning(
-                    f"Failed to record usage: {response.status_code} - {response.text}"
-                )
-                return False
 
-    except Exception as e:
-        logger.warning(f"Error recording usage: {e}")
-        return False
+                if response.status_code in [200, 201]:
+                    if attempt > 0:
+                        logger.info(
+                            f"Recorded usage for run {run_id} after {attempt} retries"
+                        )
+                    else:
+                        logger.debug(
+                            f"Recorded usage for run {run_id}: {usage_data.get('total_tokens', 0)} tokens, ${usage_data.get('cost', 0.0):.6f}"
+                        )
+                    return True
+
+                # Don't retry on client errors (4xx) except 429 (rate limit)
+                if 400 <= response.status_code < 500 and response.status_code != 429:
+                    logger.warning(
+                        f"Failed to record usage (client error): {response.status_code} - {response.text}"
+                    )
+                    return False
+
+                # Server error or rate limit - retry with backoff
+                last_error = Exception(f"HTTP {response.status_code}: {response.text}")
+
+        except httpx.TimeoutException as e:
+            last_error = e
+            logger.debug(f"Timeout recording usage (attempt {attempt + 1}/{max_retries + 1}): {e}")
+
+        except httpx.ConnectError as e:
+            last_error = e
+            logger.debug(f"Connection error recording usage (attempt {attempt + 1}/{max_retries + 1}): {e}")
+
+        except Exception as e:
+            last_error = e
+            logger.debug(f"Error recording usage (attempt {attempt + 1}/{max_retries + 1}): {e}")
+
+        # If not the last attempt, sleep with exponential backoff
+        if attempt < max_retries:
+            await asyncio.sleep(backoff)
+            backoff = min(backoff * 2, MAX_BACKOFF_SECONDS)
+
+    # All retries exhausted
+    logger.warning(
+        f"Failed to record usage for run {run_id} after {max_retries + 1} attempts. "
+        f"Last error: {last_error}. Usage data: {usage_data.get('total_tokens', 0)} tokens, "
+        f"${usage_data.get('cost', 0.0):.6f}"
+    )
+    return False
 
 
 class UsageAccumulator:
@@ -370,6 +414,24 @@ class UsageTrackingCallback(BaseCallbackHandler):
     This callback captures usage data from LLM responses and records it
     to LangConnect for cost analysis.
 
+    IMPORTANT: To prevent double-recording of costs, choose ONE of these patterns:
+
+    Pattern 1 - Manual recording (recommended for agents with complex flows):
+        callback = UsageTrackingCallback(..., auto_record=False)
+        model.invoke(messages, config={"callbacks": [callback]})
+        # At end of agent run, record accumulated usage once:
+        await record_usage(..., usage_data=callback.get_accumulated_usage())
+
+    Pattern 2 - Auto recording (simpler, but can cause double-counting if
+                combined with manual record_usage() calls):
+        callback = UsageTrackingCallback(..., auto_record=True)
+        model.invoke(messages, config={"callbacks": [callback]})
+        # Usage is recorded automatically after each LLM call
+
+    WARNING: If auto_record=True, do NOT also call record_usage() manually
+    for the same run_id/model_name, as this will result in costs being
+    accumulated twice in the database.
+
     Usage:
         callback = UsageTrackingCallback(
             thread_id="...",
@@ -377,13 +439,14 @@ class UsageTrackingCallback(BaseCallbackHandler):
             user_id="...",
             model_name="anthropic/claude-sonnet-4.5",
             assistant_id="...",
-            graph_name="tools_agent"
+            graph_name="tools_agent",
+            auto_record=False  # Recommended default
         )
 
         # Use with model invocation
         model.invoke(messages, config={"callbacks": [callback]})
 
-        # Or access accumulated usage
+        # Access accumulated usage and record manually
         total_usage = callback.get_accumulated_usage()
     """
 
@@ -395,7 +458,7 @@ class UsageTrackingCallback(BaseCallbackHandler):
         model_name: str,
         assistant_id: Optional[str] = None,
         graph_name: Optional[str] = None,
-        auto_record: bool = True,
+        auto_record: bool = False,
     ):
         """
         Initialize the usage tracking callback.
@@ -525,7 +588,7 @@ def extract_run_context(config: RunnableConfig) -> Dict[str, Any]:
 def create_usage_tracking_callback(
     config: RunnableConfig,
     model_name: str,
-    auto_record: bool = True,
+    auto_record: bool = False,
 ) -> Optional[UsageTrackingCallback]:
     """
     Create a usage tracking callback from RunnableConfig.
@@ -536,7 +599,9 @@ def create_usage_tracking_callback(
     Args:
         config: RunnableConfig from LangGraph
         model_name: Model name being used
-        auto_record: If True, automatically record usage after each call
+        auto_record: If True, automatically record usage after each call.
+                     Default is False to prevent double-recording when
+                     combined with manual record_usage() calls.
 
     Returns:
         UsageTrackingCallback if context is available, None otherwise

@@ -162,6 +162,15 @@ def parse_period(period: str) -> tuple[datetime, datetime]:
     return start, end
 
 
+# Maximum allowed date range in days (2 years)
+MAX_DATE_RANGE_DAYS = 730
+
+
+class DateValidationError(Exception):
+    """Raised when date validation fails."""
+    pass
+
+
 def parse_date_range(
     start_date: Optional[str],
     end_date: Optional[str],
@@ -177,13 +186,37 @@ def parse_date_range(
 
     Returns:
         Tuple of (start_datetime, end_datetime)
+
+    Raises:
+        DateValidationError: If dates are invalid, in wrong order, or range is too large
     """
     if start_date and end_date:
         # Parse date-only strings (YYYY-MM-DD) into datetime objects
-        # date.fromisoformat is more reliable for date-only strings
         from datetime import date as date_type
-        start_d = date_type.fromisoformat(start_date)
-        end_d = date_type.fromisoformat(end_date)
+
+        try:
+            start_d = date_type.fromisoformat(start_date)
+        except ValueError as e:
+            raise DateValidationError(f"Invalid start_date format: {start_date}. Expected YYYY-MM-DD.") from e
+
+        try:
+            end_d = date_type.fromisoformat(end_date)
+        except ValueError as e:
+            raise DateValidationError(f"Invalid end_date format: {end_date}. Expected YYYY-MM-DD.") from e
+
+        # Validate date order
+        if start_d > end_d:
+            raise DateValidationError(
+                f"start_date ({start_date}) must be before or equal to end_date ({end_date})."
+            )
+
+        # Validate range isn't too large
+        range_days = (end_d - start_d).days
+        if range_days > MAX_DATE_RANGE_DAYS:
+            raise DateValidationError(
+                f"Date range of {range_days} days exceeds maximum of {MAX_DATE_RANGE_DAYS} days (2 years)."
+            )
+
         # Convert to datetime with timezone
         start = datetime(
             start_d.year, start_d.month, start_d.day,
@@ -333,7 +366,11 @@ async def get_usage_summary(
             )
 
         user_id = actor.identity
-        start_dt, end_dt = parse_date_range(start_date, end_date, period)
+
+        try:
+            start_dt, end_dt = parse_date_range(start_date, end_date, period)
+        except DateValidationError as e:
+            raise HTTPException(status_code=400, detail=str(e))
 
         # Check if user is admin (dev_admin or business_admin)
         is_admin = await is_admin_user(user_id)
@@ -497,7 +534,11 @@ async def get_usage_timeseries(
             )
 
         user_id = actor.identity
-        start_dt, end_dt = parse_date_range(start_date, end_date, period)
+
+        try:
+            start_dt, end_dt = parse_date_range(start_date, end_date, period)
+        except DateValidationError as e:
+            raise HTTPException(status_code=400, detail=str(e))
 
         # Check if user is admin (dev_admin or business_admin)
         is_admin = await is_admin_user(user_id)
@@ -590,7 +631,11 @@ async def get_grouped_usage_timeseries(
             )
 
         user_id = actor.identity
-        start_dt, end_dt = parse_date_range(start_date, end_date, period)
+
+        try:
+            start_dt, end_dt = parse_date_range(start_date, end_date, period)
+        except DateValidationError as e:
+            raise HTTPException(status_code=400, detail=str(e))
 
         # Check if user is admin (dev_admin or business_admin)
         is_admin = await is_admin_user(user_id)

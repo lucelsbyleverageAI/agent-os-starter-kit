@@ -13,33 +13,109 @@ Usage:
     2. Call set_current_run_id(run_id) before model invocation
     3. After model call, use get_captured_cost(run_id) to retrieve the cost
     4. Call clear_captured_cost(run_id) after recording to free memory
+
+Memory Management:
+    - Entries are automatically cleaned up after TTL_SECONDS (1 hour)
+    - Maximum of MAX_ENTRIES entries are kept (LRU eviction)
+    - Cleanup runs periodically when new entries are added
 """
 
 import logging
 import json
+import asyncio
+import time
 from typing import Optional
 from contextvars import ContextVar
 
 logger = logging.getLogger(__name__)
 
+# Configuration for memory management
+TTL_SECONDS = 3600  # 1 hour TTL for entries
+MAX_ENTRIES = 10000  # Maximum entries before LRU eviction
+CLEANUP_INTERVAL = 300  # Run cleanup every 5 minutes
+
 # Context variable to track the current run_id
 # ContextVars are async-safe and automatically scoped to the current task
 _current_run_id: ContextVar[Optional[str]] = ContextVar('current_run_id', default=None)
 
-# Storage for captured costs
-# Key: run_id, Value: accumulated cost for that run
-_captured_costs: dict[str, float] = {}
+# Lock for thread-safe access to shared dictionaries
+_lock = asyncio.Lock()
 
-# Storage for captured model names
-# Key: run_id, Value: last captured model name for that run
-_captured_models: dict[str, str] = {}
+# Storage for captured costs with timestamps
+# Key: run_id, Value: (accumulated cost, timestamp)
+_captured_costs: dict[str, tuple[float, float]] = {}
 
-# Storage for captured token counts
-# Key: run_id, Value: dict with prompt_tokens, completion_tokens, total_tokens
-_captured_tokens: dict[str, dict[str, int]] = {}
+# Storage for captured model names with timestamps
+# Key: run_id, Value: (model name, timestamp)
+_captured_models: dict[str, tuple[str, float]] = {}
+
+# Storage for captured token counts with timestamps
+# Key: run_id, Value: (token dict, timestamp)
+_captured_tokens: dict[str, tuple[dict[str, int], float]] = {}
 
 # Track whether we've already captured cost for this chunk (avoid double-counting)
-_captured_cost_chunks: dict[str, set[str]] = {}
+# Key: run_id, Value: (set of chunk IDs, timestamp)
+_captured_cost_chunks: dict[str, tuple[set[str], float]] = {}
+
+# Last cleanup time
+_last_cleanup_time: float = 0.0
+
+
+def _should_cleanup() -> bool:
+    """Check if cleanup should run based on time interval."""
+    global _last_cleanup_time
+    now = time.time()
+    return now - _last_cleanup_time > CLEANUP_INTERVAL
+
+
+def _cleanup_expired_entries() -> None:
+    """
+    Remove expired entries from all dictionaries.
+
+    This is called periodically to prevent memory leaks in long-running processes.
+    Uses LRU eviction if MAX_ENTRIES is exceeded.
+    """
+    global _last_cleanup_time
+    now = time.time()
+    _last_cleanup_time = now
+
+    expired_count = 0
+
+    # Clean up costs
+    expired_keys = [k for k, (_, ts) in _captured_costs.items() if now - ts > TTL_SECONDS]
+    for k in expired_keys:
+        del _captured_costs[k]
+        expired_count += 1
+
+    # Clean up models
+    expired_keys = [k for k, (_, ts) in _captured_models.items() if now - ts > TTL_SECONDS]
+    for k in expired_keys:
+        del _captured_models[k]
+
+    # Clean up tokens
+    expired_keys = [k for k, (_, ts) in _captured_tokens.items() if now - ts > TTL_SECONDS]
+    for k in expired_keys:
+        del _captured_tokens[k]
+
+    # Clean up chunk tracking
+    expired_keys = [k for k, (_, ts) in _captured_cost_chunks.items() if now - ts > TTL_SECONDS]
+    for k in expired_keys:
+        del _captured_cost_chunks[k]
+
+    # LRU eviction if still over limit
+    if len(_captured_costs) > MAX_ENTRIES:
+        # Sort by timestamp and remove oldest
+        sorted_items = sorted(_captured_costs.items(), key=lambda x: x[1][1])
+        to_remove = len(_captured_costs) - MAX_ENTRIES
+        for k, _ in sorted_items[:to_remove]:
+            _captured_costs.pop(k, None)
+            _captured_models.pop(k, None)
+            _captured_tokens.pop(k, None)
+            _captured_cost_chunks.pop(k, None)
+            expired_count += 1
+
+    if expired_count > 0:
+        logger.debug("[CostCapture] Cleaned up %d expired/excess entries", expired_count)
 
 
 def set_current_run_id(run_id: str) -> None:
@@ -71,7 +147,8 @@ def get_captured_cost(run_id: str) -> Optional[float]:
     Returns:
         The accumulated cost in USD, or None if no cost was captured
     """
-    return _captured_costs.get(run_id)
+    entry = _captured_costs.get(run_id)
+    return entry[0] if entry else None
 
 
 def get_and_clear_captured_cost(run_id: str) -> Optional[float]:
@@ -88,11 +165,13 @@ def get_and_clear_captured_cost(run_id: str) -> Optional[float]:
     Returns:
         The cost in USD since last clear, or None if no cost was captured
     """
-    cost = _captured_costs.pop(run_id, None)
+    entry = _captured_costs.pop(run_id, None)
     _captured_cost_chunks.pop(run_id, None)  # Also clear chunk tracking
-    if cost is not None:
+    if entry is not None:
+        cost = entry[0]
         logger.debug("[CostCapture] Retrieved and cleared cost $%.6f for run %s", cost, run_id)
-    return cost
+        return cost
+    return None
 
 
 def add_captured_cost(run_id: str, cost: float, chunk_id: Optional[str] = None) -> None:
@@ -100,30 +179,46 @@ def add_captured_cost(run_id: str, cost: float, chunk_id: Optional[str] = None) 
     Add cost to the captured costs for a run.
 
     Handles deduplication if the same chunk is processed multiple times.
+    Triggers cleanup of expired entries periodically.
 
     Args:
         run_id: The LangGraph run ID
         cost: The cost to add (in USD)
         chunk_id: Optional ID to prevent double-counting the same chunk
     """
+    now = time.time()
+
+    # Periodic cleanup to prevent memory leaks
+    if _should_cleanup():
+        _cleanup_expired_entries()
+
     # Check for duplicate chunks
     if chunk_id:
-        if run_id not in _captured_cost_chunks:
-            _captured_cost_chunks[run_id] = set()
-        if chunk_id in _captured_cost_chunks[run_id]:
-            logger.debug("[CostCapture] Skipping duplicate chunk %s", chunk_id)
-            return
-        _captured_cost_chunks[run_id].add(chunk_id)
+        entry = _captured_cost_chunks.get(run_id)
+        if entry is None:
+            _captured_cost_chunks[run_id] = ({chunk_id}, now)
+        else:
+            chunks, _ = entry
+            if chunk_id in chunks:
+                logger.debug("[CostCapture] Skipping duplicate chunk %s", chunk_id)
+                return
+            chunks.add(chunk_id)
+            _captured_cost_chunks[run_id] = (chunks, now)
 
-    if run_id not in _captured_costs:
-        _captured_costs[run_id] = 0.0
+    # Update cost with timestamp
+    entry = _captured_costs.get(run_id)
+    if entry is None:
+        current_cost = cost
+    else:
+        current_cost = entry[0] + cost
 
-    _captured_costs[run_id] += cost
+    _captured_costs[run_id] = (current_cost, now)
+
     logger.debug(
         "[CostCapture] Added cost $%.6f for run %s (total: $%.6f)",
         cost,
         run_id,
-        _captured_costs[run_id]
+        current_cost
     )
 
 
@@ -152,7 +247,8 @@ def get_captured_model(run_id: str) -> Optional[str]:
     Returns:
         The model name, or None if no model was captured
     """
-    return _captured_models.get(run_id)
+    entry = _captured_models.get(run_id)
+    return entry[0] if entry else None
 
 
 def get_and_clear_captured_model(run_id: str) -> Optional[str]:
@@ -168,10 +264,12 @@ def get_and_clear_captured_model(run_id: str) -> Optional[str]:
     Returns:
         The model name, or None if no model was captured
     """
-    model = _captured_models.pop(run_id, None)
-    if model is not None:
+    entry = _captured_models.pop(run_id, None)
+    if entry is not None:
+        model = entry[0]
         logger.debug("[CostCapture] Retrieved and cleared model '%s' for run %s", model, run_id)
-    return model
+        return model
+    return None
 
 
 def set_captured_model(run_id: str, model: str) -> None:
@@ -182,7 +280,7 @@ def set_captured_model(run_id: str, model: str) -> None:
         run_id: The LangGraph run ID
         model: The model name from OpenRouter
     """
-    _captured_models[run_id] = model
+    _captured_models[run_id] = (model, time.time())
     logger.debug("[CostCapture] Set model '%s' for run %s", model, run_id)
 
 
@@ -196,12 +294,18 @@ def add_captured_tokens(run_id: str, prompt_tokens: int, completion_tokens: int,
         completion_tokens: Number of completion tokens
         total_tokens: Total number of tokens
     """
-    if run_id not in _captured_tokens:
-        _captured_tokens[run_id] = {"prompt_tokens": 0, "completion_tokens": 0, "total_tokens": 0}
+    now = time.time()
+    entry = _captured_tokens.get(run_id)
 
-    _captured_tokens[run_id]["prompt_tokens"] += prompt_tokens
-    _captured_tokens[run_id]["completion_tokens"] += completion_tokens
-    _captured_tokens[run_id]["total_tokens"] += total_tokens
+    if entry is None:
+        tokens = {"prompt_tokens": prompt_tokens, "completion_tokens": completion_tokens, "total_tokens": total_tokens}
+    else:
+        tokens = entry[0]
+        tokens["prompt_tokens"] += prompt_tokens
+        tokens["completion_tokens"] += completion_tokens
+        tokens["total_tokens"] += total_tokens
+
+    _captured_tokens[run_id] = (tokens, now)
     logger.debug(
         "[CostCapture] Added tokens for run %s: prompt=%d, completion=%d, total=%d",
         run_id,
@@ -224,14 +328,16 @@ def get_and_clear_captured_tokens(run_id: str) -> Optional[dict[str, int]]:
     Returns:
         Dict with prompt_tokens, completion_tokens, total_tokens, or None if not captured
     """
-    tokens = _captured_tokens.pop(run_id, None)
-    if tokens is not None:
+    entry = _captured_tokens.pop(run_id, None)
+    if entry is not None:
+        tokens = entry[0]
         logger.debug(
             "[CostCapture] Retrieved and cleared tokens for run %s: %s",
             run_id,
             tokens
         )
-    return tokens
+        return tokens
+    return None
 
 
 def parse_sse_for_cost(sse_data: bytes) -> tuple[Optional[float], Optional[str], Optional[str], Optional[dict[str, int]]]:
