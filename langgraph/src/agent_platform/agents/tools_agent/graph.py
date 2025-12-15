@@ -90,31 +90,9 @@ async def graph(config: RunnableConfig):
         - Authentication errors include helpful user guidance
     """
     
-    # Standard logging via Sentry integration; no verbosity overrides
-    logger.info("[TOOLS_AGENT] start")
-
-    # Step 1: Parse and validate configuration
     configurable_dict = config.get("configurable", {})
-    logger.info(
-        "[TOOLS_AGENT] config_received configurable_keys=%s",
-        list(configurable_dict.keys())
-    )
-
     cfg = GraphConfigPydantic(**configurable_dict)
     tools = []
-
-    # Log parsed configuration for debugging
-    logger.info(
-        "[TOOLS_AGENT] parsed_config mcp_tools=%s rag_tools=%s sandbox_enabled=%s",
-        cfg.mcp_config.tools if cfg.mcp_config else None,
-        cfg.rag.enabled_tools if cfg.rag else None,
-        cfg.sandbox_enabled
-    )
-    logger.info(
-        "[TOOLS_AGENT] tool_approvals_raw mcp=%s rag=%s",
-        cfg.mcp_config.tool_approvals if cfg.mcp_config else {},
-        cfg.rag.tool_approvals if cfg.rag else {}
-    )
 
     # Step 2: Extract authentication token for RAG and other services
     # Try multiple locations where the JWT token might be stored
@@ -140,11 +118,7 @@ async def graph(config: RunnableConfig):
             )
             
             tools.extend(collection_tools)
-            logger.info(
-                "[TOOLS_AGENT] collection_tools_loaded count=%s enabled_tools=%s",
-                len(collection_tools),
-                enabled_tools,
-            )
+            logger.debug("[TOOLS_AGENT] collection_tools_loaded count=%s", len(collection_tools))
         except Exception:
             # Log and continue on tool creation errors
             logger.exception("[TOOLS_AGENT] collection_tools_create_failed")
@@ -215,9 +189,8 @@ async def graph(config: RunnableConfig):
                         if not page_cursor or (tool_names_to_find and len(names_of_tools_added) == len(tool_names_to_find)):
                             break
 
-            # Add all successfully loaded MCP tools
             tools.extend(fetched_mcp_tools_list)
-            logger.info("[TOOLS_AGENT] mcp_tools_loaded count=%s", len(fetched_mcp_tools_list))
+            logger.debug("[TOOLS_AGENT] mcp_tools_loaded count=%s", len(fetched_mcp_tools_list))
 
         except Exception:
             # Log and continue on MCP connection errors
@@ -231,9 +204,8 @@ async def graph(config: RunnableConfig):
     file_attachment_processor = None
     if cfg.sandbox_enabled:
         if not thread_id:
-            logger.warning("[TOOLS_AGENT] sandbox_enabled but no thread_id - sandbox tools will not be available")
+            logger.warning("[TOOLS_AGENT] sandbox_enabled but no thread_id")
         else:
-            logger.info("[TOOLS_AGENT] Sandbox enabled - adding sandbox tools")
 
             # Get LangConnect URL for skills download
             langconnect_api_url = (
@@ -243,7 +215,6 @@ async def graph(config: RunnableConfig):
             # Create sandbox tools (run_code, run_command)
             run_code_tool, run_command_tool = create_sandbox_tools(thread_id)
             tools.extend([run_code_tool, run_command_tool])
-            logger.info("[TOOLS_AGENT] sandbox_tools_added run_code, run_command")
 
             # Create publish_file_to_user tool if we have user context
             if user_id and supabase_token:
@@ -254,9 +225,8 @@ async def graph(config: RunnableConfig):
                     access_token=supabase_token,
                 )
                 tools.append(publish_tool)
-                logger.info("[TOOLS_AGENT] sandbox_tools_added publish_file_to_user")
             else:
-                logger.warning("[TOOLS_AGENT] publish_file_to_user not added (missing user_id or access_token)")
+                logger.debug("[TOOLS_AGENT] publish_file_to_user not added (missing user_id or access_token)")
 
             # Create file attachment processing nodes for sandbox initialization
             # Get skills from config (if configured)
@@ -267,7 +237,7 @@ async def graph(config: RunnableConfig):
                     for s in cfg.skills_config.skills
                     if s.skill_id and s.name
                 ]
-                logger.info("[TOOLS_AGENT] skills_config has %d skills", len(skills))
+                logger.debug("[TOOLS_AGENT] skills_config has %d skills", len(skills))
 
             # Get sandbox config settings
             sandbox_pip_packages = None
@@ -286,7 +256,6 @@ async def graph(config: RunnableConfig):
                 sandbox_timeout=sandbox_timeout,
             )
             file_attachment_processor = (emit_status_node, file_attachment_node)
-            logger.info("[TOOLS_AGENT] file_attachment_nodes created")
 
     # Step 5: Initialize the LLM model with optimized settings
     # Temperature and max_tokens are configured automatically based on the model tier
@@ -311,16 +280,7 @@ async def graph(config: RunnableConfig):
                 include_system=True,
             )
         )
-        logger.info(
-            "[TOOLS_AGENT] message_trimming_enabled max_tokens=%s (model: %s)",
-            model_info.trimming_max_tokens,
-            model_info.display_name
-        )
-    else:
-        logger.info(
-            "[TOOLS_AGENT] message_trimming_disabled (model: %s)",
-            model_info.display_name
-        )
+        logger.debug("[TOOLS_AGENT] message_trimming_enabled max_tokens=%s", model_info.trimming_max_tokens)
 
     # Step 5c: Create image preprocessor for handling image storage paths
     # Get LangConnect URL from config
@@ -364,24 +324,11 @@ async def graph(config: RunnableConfig):
     else:
         combined_hook = orphan_hook
 
-    logger.info(
-        "[TOOLS_AGENT] hooks_configured orphan=%s image=%s trimming=%s",
-        True,  # Always enabled
-        image_hook is not None,
-        trimming_hook is not None
-    )
-
     # Step 6: Collect tool approvals from configuration
     # Merge approvals from both MCP and RAG sources
     mcp_approvals = cfg.mcp_config.tool_approvals if cfg.mcp_config else {}
     rag_approvals = cfg.rag.tool_approvals if cfg.rag else {}
     tool_approvals = merge_tool_approvals(mcp_approvals, rag_approvals)
-
-    logger.info(
-        "[TOOLS_AGENT] tool_approvals_configured count=%s tools_requiring_approval=%s",
-        len(tool_approvals),
-        [name for name, required in tool_approvals.items() if required]
-    )
 
     # Step 7: Create and return the ReAct agent with approval support
     # Get recursion limit from config, default to DEFAULT_RECURSION_LIMIT if not specified
@@ -405,16 +352,9 @@ async def graph(config: RunnableConfig):
     )
 
     # Determine state schema based on sandbox mode
-    # When sandbox_enabled, use ToolsAgentState (includes sandbox_id and published_files)
-    # When sandbox_disabled, use default AgentState for backward compatibility
     state_schema = ToolsAgentState if cfg.sandbox_enabled else None
 
-    logger.info(
-        "[TOOLS_AGENT] agent_created tools_count=%s recursion_limit=%s sandbox_enabled=%s",
-        len(tools),
-        recursion_limit,
-        cfg.sandbox_enabled
-    )
+    logger.debug("[TOOLS_AGENT] agent_created tools_count=%s sandbox=%s", len(tools), cfg.sandbox_enabled)
 
     return create_react_agent_with_approval(
         prompt=final_prompt,

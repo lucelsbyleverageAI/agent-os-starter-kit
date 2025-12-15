@@ -33,6 +33,66 @@ def _ensure_array(value: Any) -> List[str]:
     return [value]
 
 
+def _validate_search_params(args: Dict[str, Any]) -> Dict[str, Any]:
+    """Validate and clean search parameters for Tavily API.
+
+    Auto-fixes conflicting parameters:
+    - topic='news' or 'finance': drops 'country' (not supported)
+    - topic='general': drops 'days' (not supported)
+    - Date conflicts: prioritizes start_date/end_date > time_range > days
+
+    Returns cleaned dict with None/empty values filtered out.
+    """
+    topic = args.get("topic", "general")
+
+    # Build cleaned payload - filter None, empty strings, empty lists, and False booleans
+    cleaned = {}
+    for key, value in args.items():
+        # Skip None, empty strings, empty lists
+        if value is None or value == "" or value == []:
+            continue
+        # Skip False booleans (Tavily API prefers omission over explicit False)
+        if value is False:
+            continue
+        cleaned[key] = value
+
+    # Auto-fix conflicting parameters based on topic
+    # 'days' only works with topic='news'
+    if topic != "news" and "days" in cleaned:
+        del cleaned["days"]
+
+    # 'country' only works with topic='general'
+    if topic != "general" and "country" in cleaned:
+        del cleaned["country"]
+
+    # Handle conflicting date/time parameters
+    # Priority: start_date/end_date > time_range > days
+    has_start_date = "start_date" in cleaned
+    has_end_date = "end_date" in cleaned
+    has_date_range = has_start_date or has_end_date
+    has_time_range = "time_range" in cleaned
+    has_days = "days" in cleaned
+
+    if has_date_range:
+        # If explicit date range provided, drop time_range and days
+        if has_time_range:
+            del cleaned["time_range"]
+        if has_days:
+            del cleaned["days"]
+
+        # Tavily doesn't allow start_date == end_date
+        # If they're the same, remove end_date (search from start_date onwards)
+        if has_start_date and has_end_date:
+            if cleaned["start_date"] == cleaned["end_date"]:
+                del cleaned["end_date"]
+
+    elif has_time_range and has_days:
+        # If both time_range and days, prefer time_range (more explicit)
+        del cleaned["days"]
+
+    return cleaned
+
+
 def _format_results(response: Dict[str, Any]) -> str:
     output: List[str] = []
 
@@ -141,28 +201,31 @@ class TavilySearchTool(_TavilyBase):
     @property
     def description(self) -> str:
         return (
-            "A powerful web search tool that provides comprehensive, real-time results using "
-            "Tavily's AI search engine. Returns relevant web content with customizable parameters "
-            "for result count, content type, and domain filtering. Ideal for gathering current "
-            "information, news, and detailed web content analysis."
+            "A powerful web search tool using Tavily's AI search engine. "
+            "Supports three topics: 'general' (default), 'news', and 'finance'. "
+            "IMPORTANT parameter constraints by topic: "
+            "topic='general' can use 'country' for geo-targeting but cannot use 'days'. "
+            "topic='news' can use 'days' for recency filtering but cannot use 'country'. "
+            "topic='finance' is for financial data and cannot use 'country' or 'days'. "
+            "All topics support 'time_range' and 'start_date'/'end_date' for date filtering."
         )
 
     def get_parameters(self) -> List[ToolParameter]:
         return [
             ToolParameter(name="query", type="string", description="Search query", required=True),
             ToolParameter(name="search_depth", type="string", description="The depth of the search. It can be 'basic' or 'advanced'", required=False, default="basic", enum=["basic","advanced"]),
-            ToolParameter(name="topic", type="string", description="The category of the search. This will determine which of our agents will be used for the search", required=False, default="general", enum=["general","news"]),
-            ToolParameter(name="days", type="number", description="The number of days back from the current date to include in the search results. This specifies the time frame of data to be retrieved. Please note that this feature is only available when using the 'news' search topic", required=False, default=3),
+            ToolParameter(name="topic", type="string", description="Search category: 'general' (default, supports country), 'news' (supports days), or 'finance'. Each has different parameter constraints.", required=False, default="general", enum=["general","news","finance"]),
+            ToolParameter(name="days", type="number", description="Days back to search. ONLY valid when topic='news'. Will error if used with other topics. Use time_range for general/finance topics.", required=False),
             ToolParameter(name="time_range", type="string", description="The time range back from the current date to include in the search results. This feature is available for both 'general' and 'news' search topics", required=False, enum=["day","week","month","year","d","w","m","y"]),
-            ToolParameter(name="start_date", type="string", description="Will return all results after the specified start date. Required to be written in the format YYYY-MM-DD.", required=False, default=""),
-            ToolParameter(name="end_date", type="string", description="Will return all results before the specified end date. Required to be written in the format YYYY-MM-DD", required=False, default=""),
+            ToolParameter(name="start_date", type="string", description="Filter results after this date (YYYY-MM-DD format). Works with all topics.", required=False),
+            ToolParameter(name="end_date", type="string", description="Filter results before this date (YYYY-MM-DD format). Works with all topics.", required=False),
             ToolParameter(name="max_results", type="number", description="The maximum number of search results to return", required=False, default=10),
             ToolParameter(name="include_images", type="boolean", description="Include a list of query-related images in the response", required=False, default=False),
             ToolParameter(name="include_image_descriptions", type="boolean", description="Include a list of query-related images and their descriptions in the response", required=False, default=False),
             ToolParameter(name="include_raw_content", type="boolean", description="Include the cleaned and parsed HTML content of each search result", required=False, default=False),
             ToolParameter(name="include_domains", type="array", description="A list of domains to specifically include in the search results, if the user asks to search on specific sites set this to the domain of the site", required=False, default=[], items={"type":"string"}),
             ToolParameter(name="exclude_domains", type="array", description="List of domains to specifically exclude, if the user asks to exclude a domain set this to the domain of the site", required=False, default=[], items={"type":"string"}),
-            ToolParameter(name="country", type="string", description="Boost search results from a specific country. This will prioritize content from the selected country in the search results. Available only if topic is general. Country names MUST be written in lowercase, plain English, with spaces and no underscores.", required=False, default="united kingdom", enum=[
+            ToolParameter(name="country", type="string", description="Boost results from a specific country. ONLY valid when topic='general'. Will error if used with news/finance topics. Country names must be lowercase with spaces.", required=False, enum=[
                 'afghanistan','albania','algeria','andorra','angola','argentina','armenia','australia','austria','azerbaijan','bahamas','bahrain','bangladesh','barbados','belarus','belgium','belize','benin','bhutan','bolivia','bosnia and herzegovina','botswana','brazil','brunei','bulgaria','burkina faso','burundi','cambodia','cameroon','canada','cape verde','central african republic','chad','chile','china','colombia','comoros','congo','costa rica','croatia','cuba','cyprus','czech republic','denmark','djibouti','dominican republic','ecuador','egypt','el salvador','equatorial guinea','eritrea','estonia','ethiopia','fiji','finland','france','gabon','gambia','georgia','germany','ghana','greece','guatemala','guinea','haiti','honduras','hungary','iceland','india','indonesia','iran','iraq','ireland','israel','italy','jamaica','japan','jordan','kazakhstan','kenya','kuwait','kyrgyzstan','latvia','lebanon','lesotho','liberia','libya','liechtenstein','lithuania','luxembourg','madagascar','malawi','malaysia','maldives','mali','malta','mauritania','mauritius','mexico','moldova','monaco','mongolia','montenegro','morocco','mozambique','myanmar','namibia','nepal','netherlands','new zealand','nicaragua','niger','nigeria','north korea','north macedonia','norway','oman','pakistan','panama','papua new guinea','paraguay','peru','philippines','poland','portugal','qatar','romania','russia','rwanda','saudi arabia','senegal','serbia','singapore','slovakia','slovenia','somalia','south africa','south korea','south sudan','spain','sri lanka','sudan','sweden','switzerland','syria','taiwan','tajikistan','tanzania','thailand','togo','trinidad and tobago','tunisia','turkey','turkmenistan','uganda','ukraine','united arab emirates','united kingdom','united states','uruguay','uzbekistan','venezuela','vietnam','yemen','zambia','zimbabwe'
             ]),
             ToolParameter(name="include_favicon", type="boolean", description="Whether to include the favicon URL for each result", required=False, default=False),
@@ -171,28 +234,28 @@ class TavilySearchTool(_TavilyBase):
     async def _execute_impl(self, user_id: str, **kwargs: Any) -> str:
         try:
             args = dict(kwargs)
-            if args.get("country"):
-                args["topic"] = "general"
-
             args["include_domains"] = _ensure_array(args.get("include_domains"))
             args["exclude_domains"] = _ensure_array(args.get("exclude_domains"))
 
+            # Validate parameter combinations and clean payload
+            validated_args = _validate_search_params(args)
+
             response = await self.client.search({
-                "query": args.get("query"),
-                "search_depth": args.get("search_depth"),
-                "topic": args.get("topic"),
-                "days": args.get("days"),
-                "time_range": args.get("time_range"),
-                "max_results": args.get("max_results"),
-                "include_images": args.get("include_images"),
-                "include_image_descriptions": args.get("include_image_descriptions"),
-                "include_raw_content": args.get("include_raw_content"),
-                "include_domains": args.get("include_domains"),
-                "exclude_domains": args.get("exclude_domains"),
-                "country": args.get("country"),
-                "include_favicon": args.get("include_favicon"),
-                "start_date": args.get("start_date"),
-                "end_date": args.get("end_date"),
+                "query": validated_args.get("query"),
+                "search_depth": validated_args.get("search_depth"),
+                "topic": validated_args.get("topic"),
+                "days": validated_args.get("days"),
+                "time_range": validated_args.get("time_range"),
+                "max_results": validated_args.get("max_results"),
+                "include_images": validated_args.get("include_images"),
+                "include_image_descriptions": validated_args.get("include_image_descriptions"),
+                "include_raw_content": validated_args.get("include_raw_content"),
+                "include_domains": validated_args.get("include_domains"),
+                "exclude_domains": validated_args.get("exclude_domains"),
+                "country": validated_args.get("country"),
+                "include_favicon": validated_args.get("include_favicon"),
+                "start_date": validated_args.get("start_date"),
+                "end_date": validated_args.get("end_date"),
             })
             return _format_results(response)
         except Exception as e:

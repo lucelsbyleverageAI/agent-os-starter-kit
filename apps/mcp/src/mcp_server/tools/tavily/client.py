@@ -53,17 +53,37 @@ class TavilyClient:
         if not self.api_key:
             raise ToolExecutionError("tavily", "TAVILY_API_KEY environment variable is required")
 
+    def _filter_payload(self, payload: Dict[str, Any]) -> Dict[str, Any]:
+        """Filter out None, empty strings, empty lists, and False booleans from payload."""
+        return {
+            k: v for k, v in payload.items()
+            if v is not None and v != "" and v != [] and v is not False
+        }
+
     async def search(self, payload: Dict[str, Any]) -> Dict[str, Any]:
         self._require_key()
         client = await self._get_client()
         try:
-            data = dict(payload)
+            data = self._filter_payload(payload)
             data["api_key"] = self.api_key
+            # Debug log the payload being sent (excluding api_key)
+            debug_data = {k: v for k, v in data.items() if k != "api_key"}
+            logger.info(f"Tavily search payload: {debug_data}")
             resp = await client.post(self.BASE_URLS["search"], json=data)
             if resp.status_code == 401:
                 raise ToolExecutionError("tavily-search", "Invalid API key")
             if resp.status_code == 429:
                 raise ToolExecutionError("tavily-search", "Usage limit exceeded")
+            if resp.status_code == 400:
+                # Log the actual error from Tavily
+                try:
+                    error_body = resp.json()
+                    error_msg = error_body.get("detail", {}).get("error", resp.text)
+                    logger.error(f"Tavily 400 error: {error_msg}")
+                    raise ToolExecutionError("tavily-search", f"Tavily rejected request: {error_msg}")
+                except Exception:
+                    logger.error(f"Tavily 400 error (raw): {resp.text}")
+                    raise ToolExecutionError("tavily-search", f"Tavily rejected request: {resp.text}")
             resp.raise_for_status()
             return resp.json()
         except ToolExecutionError:
@@ -75,7 +95,7 @@ class TavilyClient:
         self._require_key()
         client = await self._get_client()
         try:
-            data = dict(payload)
+            data = self._filter_payload(payload)
             data["api_key"] = self.api_key
             resp = await client.post(self.BASE_URLS["extract"], json=data)
             if resp.status_code == 401:
@@ -93,7 +113,7 @@ class TavilyClient:
         self._require_key()
         client = await self._get_client()
         try:
-            data = dict(payload)
+            data = self._filter_payload(payload)
             data["api_key"] = self.api_key
             resp = await client.post(self.BASE_URLS["crawl"], json=data)
             if resp.status_code == 401:
@@ -111,7 +131,7 @@ class TavilyClient:
         self._require_key()
         client = await self._get_client()
         try:
-            data = dict(payload)
+            data = self._filter_payload(payload)
             data["api_key"] = self.api_key
             resp = await client.post(self.BASE_URLS["map"], json=data)
             if resp.status_code == 401:

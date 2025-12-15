@@ -410,7 +410,7 @@ export const AdminDashboard = () => {
         };
         setActiveTab(tabMap[value] || 'graph');
       }}>
-        <TabsList>
+        <TabsList variant="branded">
           <TabsTrigger value="graphs">
             Public Graphs
           </TabsTrigger>

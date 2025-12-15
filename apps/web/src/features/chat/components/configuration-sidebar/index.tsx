@@ -944,7 +944,7 @@ export const ConfigurationSidebar = forwardRef<
           <AlertDialogHeader>
             <AlertDialogTitle>Save Changes</AlertDialogTitle>
             <AlertDialogDescription>
-              Add an optional message to describe your changes. This helps track version history.
+              Add an optional message to describe your changes. Leave empty to save without creating a version entry.
             </AlertDialogDescription>
           </AlertDialogHeader>
           <div className="space-y-4 py-4">
@@ -968,12 +968,6 @@ export const ConfigurationSidebar = forwardRef<
             }}>
               Cancel
             </AlertDialogCancel>
-            <Button
-              variant="outline"
-              onClick={() => handleSaveWithCommitMessage(true)}
-            >
-              Skip
-            </Button>
             <AlertDialogAction onClick={() => handleSaveWithCommitMessage(false)}>
               Save
             </AlertDialogAction>

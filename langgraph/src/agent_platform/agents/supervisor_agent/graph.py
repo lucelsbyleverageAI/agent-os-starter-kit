@@ -16,6 +16,14 @@ from agent_platform.utils.prompt_utils import append_datetime_to_prompt
 
 from langgraph_supervisor import create_supervisor
 
+# SSE cost capture for OpenRouter streaming responses
+try:
+    from agent_platform.utils.sse_cost_capture import set_current_run_id
+    SSE_COST_CAPTURE_AVAILABLE = True
+except Exception:  # pragma: no cover
+    SSE_COST_CAPTURE_AVAILABLE = False
+    set_current_run_id = None  # type: ignore
+
 from dotenv import find_dotenv, load_dotenv
 load_dotenv(find_dotenv())
 
@@ -163,7 +171,7 @@ def make_model(cfg: GraphConfigPydantic):
     # Initialize without retry wrapper to allow .bind_tools() to work
     return init_model(
         ModelConfig(
-            model_name="openai:gpt-4.1",
+            model_name="openai/gpt-4.1",
             retry=RetryConfig(max_retries=0),  # Disable retry wrapper for .bind_tools()
         )
     )
@@ -235,7 +243,19 @@ async def graph(config: RunnableConfig):
     # Step 3: Create remote connections to all configured sub-agents
     child_graphs = make_child_graphs(cfg, supabase_access_token)
 
-    # Step 4: Create and return the supervisor
+    # Step 4: Set run_id for SSE cost capture
+    # The supervisor uses an external library (create_supervisor), so we can't directly
+    # instrument model invocations. However, by setting the run_id here, any model calls
+    # made by the supervisor will have the correct run_id associated via the ContextVar.
+    if SSE_COST_CAPTURE_AVAILABLE and set_current_run_id:
+        run_id = (
+            config.get("configurable", {}).get("run_id") or
+            config.get("metadata", {}).get("run_id") or
+            "unknown"
+        )
+        set_current_run_id(run_id)
+
+    # Step 5: Create and return the supervisor
     """
     Supervisor Creation:
     - Coordinates all child graphs (sub-agents)

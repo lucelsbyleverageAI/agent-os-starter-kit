@@ -29,6 +29,43 @@ except Exception:  # pragma: no cover
     RetryConfig = None  # type: ignore
 
 try:
+    # Usage tracking utilities for cost monitoring
+    from agent_platform.utils.usage_tracking import (
+        extract_usage_from_response,
+        extract_run_context,
+        record_usage,
+        UsageAccumulator,
+    )
+    USAGE_TRACKING_AVAILABLE = True
+except Exception:  # pragma: no cover
+    USAGE_TRACKING_AVAILABLE = False
+    extract_usage_from_response = None  # type: ignore
+    extract_run_context = None  # type: ignore
+    record_usage = None  # type: ignore
+    UsageAccumulator = None  # type: ignore
+
+try:
+    # SSE cost capture for OpenRouter streaming responses
+    from agent_platform.utils.sse_cost_capture import (
+        set_current_run_id,
+        get_current_run_id,
+        get_and_clear_captured_cost,
+        get_and_clear_captured_model,
+        get_and_clear_captured_tokens,
+    )
+    SSE_COST_CAPTURE_AVAILABLE = True
+except Exception:  # pragma: no cover
+    SSE_COST_CAPTURE_AVAILABLE = False
+    set_current_run_id = None  # type: ignore
+    get_current_run_id = None  # type: ignore
+    get_and_clear_captured_cost = None  # type: ignore
+    get_and_clear_captured_model = None  # type: ignore
+    get_and_clear_captured_tokens = None  # type: ignore
+
+# Global usage accumulator for tracking across calls (per run_id)
+_usage_accumulators: dict = {}
+
+try:
     # Use ToolNode for robust tool execution and ToolMessage creation
     from langgraph.prebuilt.tool_node import ToolNode
 except Exception as e:  # pragma: no cover
@@ -426,11 +463,90 @@ def custom_create_react_agent(
         else:
             model_input = {**state, "messages": model_messages}
 
+        # Extract run context for cost capture
+        run_context = extract_run_context(config) if USAGE_TRACKING_AVAILABLE else {}
+        run_id = run_context.get("run_id", "unknown")
+
+        # Set run_id for SSE cost capture before model invocation
+        # Only set if we have a valid run_id - preserves inherited ContextVar for sub-agents
+        if SSE_COST_CAPTURE_AVAILABLE and set_current_run_id and run_id != "unknown":
+            set_current_run_id(run_id)
+
+        # Determine effective run_id for cost capture retrieval
+        # If local run_id is "unknown", try to inherit from ContextVar (parent agent's run_id)
+        effective_run_id = run_id
+        if run_id == "unknown" and SSE_COST_CAPTURE_AVAILABLE and get_current_run_id:
+            inherited_run_id = get_current_run_id()
+            if inherited_run_id and inherited_run_id != "unknown":
+                effective_run_id = inherited_run_id
+                logger.info("[call_model] Using inherited run_id from parent: %s", effective_run_id)
+
         if is_dynamic_model:
             dynamic_model = _resolve_model(state, runtime)
             response = cast(AIMessage, dynamic_model.invoke(model_input, config))
         else:
             response = cast(AIMessage, static_model.invoke(model_input, config))
+
+        # Track usage for cost monitoring
+        if USAGE_TRACKING_AVAILABLE:
+            usage = extract_usage_from_response(response) if extract_usage_from_response else None
+            if not usage:
+                usage = {"prompt_tokens": 0, "completion_tokens": 0, "total_tokens": 0, "cost": 0.0}
+
+            # Get tokens from SSE capture as fallback (use effective_run_id for sub-agent inheritance)
+            if SSE_COST_CAPTURE_AVAILABLE and get_and_clear_captured_tokens:
+                captured_tokens = get_and_clear_captured_tokens(effective_run_id)
+                if captured_tokens and captured_tokens.get("total_tokens", 0) > 0:
+                    if usage.get("total_tokens", 0) == 0:
+                        usage["prompt_tokens"] = captured_tokens["prompt_tokens"]
+                        usage["completion_tokens"] = captured_tokens["completion_tokens"]
+                        usage["total_tokens"] = captured_tokens["total_tokens"]
+
+            # Include captured cost from SSE stream (use effective_run_id for sub-agent inheritance)
+            if SSE_COST_CAPTURE_AVAILABLE and get_and_clear_captured_cost:
+                captured_cost = get_and_clear_captured_cost(effective_run_id)
+                if captured_cost is not None and captured_cost > 0:
+                    usage["cost"] = captured_cost
+                    logger.info("[call_model] Using captured SSE cost: $%.6f", captured_cost)
+
+            # Only proceed if we have some usage data
+            if usage.get("total_tokens", 0) > 0 or usage.get("cost", 0.0) > 0:
+                # Accumulate for potential end-of-run summary (use effective_run_id)
+                if effective_run_id not in _usage_accumulators:
+                    _usage_accumulators[effective_run_id] = UsageAccumulator()
+                _usage_accumulators[effective_run_id].add(usage)
+                logger.info(
+                    "[call_model] Usage tracked: %d tokens, $%.6f (run_id=%s)",
+                    usage.get("total_tokens", 0),
+                    usage.get("cost", 0.0),
+                    effective_run_id
+                )
+                # Record to LangConnect immediately (fire-and-forget via asyncio)
+                import asyncio
+                try:
+                    # Get model name: prefer captured model from SSE stream, fall back to response metadata
+                    model_name = "unknown"
+                    if SSE_COST_CAPTURE_AVAILABLE and get_and_clear_captured_model:
+                        captured_model = get_and_clear_captured_model(effective_run_id)
+                        if captured_model:
+                            model_name = captured_model
+                            logger.info("[call_model] Using captured SSE model: %s", model_name)
+                    if model_name == "unknown":
+                        model_name = getattr(response, "response_metadata", {}).get("model", "unknown")
+                    asyncio.create_task(record_usage(
+                        thread_id=run_context.get("thread_id", "unknown"),
+                        run_id=effective_run_id,
+                        model_name=model_name,
+                        usage_data=usage,
+                        user_id=run_context.get("user_id", "unknown"),
+                        assistant_id=run_context.get("assistant_id"),
+                        graph_name=run_context.get("graph_name") or name,
+                    ))
+                except Exception as e:
+                    logger.warning("[call_model] Failed to record usage: %s", e)
+            else:
+                metadata = getattr(response, "response_metadata", None)
+                logger.debug("[call_model] No usage data in response. metadata keys: %s", list(metadata.keys()) if metadata else "None")
 
         # Add agent name to the AIMessage
         if name:
@@ -475,15 +591,94 @@ def custom_create_react_agent(
         else:
             model_input = {**state, "messages": model_messages}
 
+        # Extract run context for cost capture BEFORE model invocation
+        run_context = extract_run_context(config) if USAGE_TRACKING_AVAILABLE else {}
+        run_id = run_context.get("run_id", "unknown")
+
+        # Set run_id for SSE cost capture before model invocation
+        # Only set if we have a valid run_id - preserves inherited ContextVar for sub-agents
+        if SSE_COST_CAPTURE_AVAILABLE and set_current_run_id and run_id != "unknown":
+            set_current_run_id(run_id)
+
+        # Determine effective run_id for cost capture retrieval
+        # If local run_id is "unknown", try to inherit from ContextVar (parent agent's run_id)
+        effective_run_id = run_id
+        if run_id == "unknown" and SSE_COST_CAPTURE_AVAILABLE and get_current_run_id:
+            inherited_run_id = get_current_run_id()
+            if inherited_run_id and inherited_run_id != "unknown":
+                effective_run_id = inherited_run_id
+                logger.info("[acall_model] Using inherited run_id from parent: %s", effective_run_id)
+
         if is_dynamic_model:
             dynamic_model = await _aresolve_model(state, runtime)
             response = cast(AIMessage, await dynamic_model.ainvoke(model_input, config))
         else:
             response = cast(AIMessage, await static_model.ainvoke(model_input, config))
 
+        # Track usage for cost monitoring
+        if USAGE_TRACKING_AVAILABLE:
+            usage = extract_usage_from_response(response) if extract_usage_from_response else None
+            if not usage:
+                usage = {"prompt_tokens": 0, "completion_tokens": 0, "total_tokens": 0, "cost": 0.0}
+
+            # Get tokens from SSE capture as fallback (use effective_run_id for sub-agent inheritance)
+            if SSE_COST_CAPTURE_AVAILABLE and get_and_clear_captured_tokens:
+                captured_tokens = get_and_clear_captured_tokens(effective_run_id)
+                if captured_tokens and captured_tokens.get("total_tokens", 0) > 0:
+                    if usage.get("total_tokens", 0) == 0:
+                        usage["prompt_tokens"] = captured_tokens["prompt_tokens"]
+                        usage["completion_tokens"] = captured_tokens["completion_tokens"]
+                        usage["total_tokens"] = captured_tokens["total_tokens"]
+
+            # Include captured cost from SSE stream (use effective_run_id for sub-agent inheritance)
+            if SSE_COST_CAPTURE_AVAILABLE and get_and_clear_captured_cost:
+                captured_cost = get_and_clear_captured_cost(effective_run_id)
+                if captured_cost is not None and captured_cost > 0:
+                    usage["cost"] = captured_cost
+                    logger.info("[acall_model] Using captured SSE cost: $%.6f", captured_cost)
+
+            # Only proceed if we have some usage data
+            if usage.get("total_tokens", 0) > 0 or usage.get("cost", 0.0) > 0:
+                # Accumulate for potential end-of-run summary (use effective_run_id)
+                if effective_run_id not in _usage_accumulators:
+                    _usage_accumulators[effective_run_id] = UsageAccumulator()
+                _usage_accumulators[effective_run_id].add(usage)
+                logger.info(
+                    "[acall_model] Usage tracked: %d tokens, $%.6f (run_id=%s)",
+                    usage.get("total_tokens", 0),
+                    usage.get("cost", 0.0),
+                    effective_run_id
+                )
+                # Record to LangConnect immediately (fire-and-forget)
+                import asyncio
+                try:
+                    # Get model name: prefer captured model from SSE stream, fall back to response metadata
+                    model_name = "unknown"
+                    if SSE_COST_CAPTURE_AVAILABLE and get_and_clear_captured_model:
+                        captured_model = get_and_clear_captured_model(effective_run_id)
+                        if captured_model:
+                            model_name = captured_model
+                            logger.info("[acall_model] Using captured SSE model: %s", model_name)
+                    if model_name == "unknown":
+                        model_name = getattr(response, "response_metadata", {}).get("model", "unknown")
+                    asyncio.create_task(record_usage(
+                        thread_id=run_context.get("thread_id", "unknown"),
+                        run_id=effective_run_id,
+                        model_name=model_name,
+                        usage_data=usage,
+                        user_id=run_context.get("user_id", "unknown"),
+                        assistant_id=run_context.get("assistant_id"),
+                        graph_name=run_context.get("graph_name") or name,
+                    ))
+                except Exception as e:
+                    logger.warning("[acall_model] Failed to record usage: %s", e)
+            else:
+                metadata = getattr(response, "response_metadata", None)
+                logger.debug("[acall_model] No usage data in response. metadata keys: %s", list(metadata.keys()) if metadata else "None")
+
         if name:
             response.name = name
-            
+
         if _are_more_steps_needed(state, response):
             return {
                 "messages": [

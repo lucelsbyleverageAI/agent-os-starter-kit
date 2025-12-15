@@ -256,7 +256,7 @@ async def _get_agents(
 
     # Only add general-purpose agent if enabled
     if include_general_purpose:
-        gp_model_name = model if isinstance(model, str) else "anthropic:claude-sonnet-4-5-20250929"
+        gp_model_name = model if isinstance(model, str) else "anthropic/claude-sonnet-4"
         gp_model_info = get_model_info(gp_model_name)
         gp_trimming_hook = None
 
@@ -294,7 +294,8 @@ async def _get_agents(
             checkpointer=False,
             post_model_hook=post_model_hook,
             pre_model_hook=gp_combined_hook,
-            enable_image_processing=False
+            enable_image_processing=False,
+            name="skills_deepagent",  # For cost tracking graph_name
         )
 
     # Built-in tools that every agent should have
@@ -366,7 +367,7 @@ async def _get_agents(
         elif isinstance(agent_model, dict):
             sub_model_name = agent_model.get('model_name') or agent_model.get('model')
         if not sub_model_name:
-            sub_model_name = model if isinstance(model, str) else "anthropic:claude-sonnet-4-5-20250929"
+            sub_model_name = model if isinstance(model, str) else "anthropic/claude-sonnet-4"
 
         sub_model_info = get_model_info(sub_model_name)
         sub_trimming_hook = None
@@ -401,6 +402,7 @@ async def _get_agents(
             post_model_hook=post_model_hook,
             pre_model_hook=sub_combined_hook,
             enable_image_processing=False,
+            name="skills_deepagent",  # For cost tracking graph_name
         )
 
     return agents
@@ -474,6 +476,8 @@ Available agents:
         # Create a new state dict for the sub-agent invocation
         sub_agent_state = state.copy()
         sub_agent_state["messages"] = [HumanMessage(content=description)]
+        # Don't pass config to sub-agent to prevent streaming callbacks from leaking
+        # Cost tracking still works via ContextVar inheritance (see custom_react_agent.py)
         result = await sub_agent.ainvoke(sub_agent_state)
         return Command(
             update={
@@ -555,6 +559,8 @@ Available agents:
         sub_agent = agents[subagent_type]
         sub_agent_state = state.copy()
         sub_agent_state["messages"] = [HumanMessage(content=description)]
+        # Don't pass config to sub-agent to prevent streaming callbacks from leaking
+        # Cost tracking still works via ContextVar inheritance (see custom_react_agent.py)
         result = sub_agent.invoke(sub_agent_state)
         return Command(
             update={

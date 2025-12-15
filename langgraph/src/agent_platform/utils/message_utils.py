@@ -50,40 +50,33 @@ def clean_orphaned_tool_calls(messages: List[BaseMessage]) -> List[BaseMessage]:
     if not messages:
         return messages
 
-    logger.debug("[CLEAN_MESSAGES] start count=%s", len(messages))
+    # Build sets of tool call IDs
+    tool_call_ids_made = set()
+    tool_call_ids_responded = set()
 
-    # Step 1: Identify all tool call IDs and their states
-    tool_call_ids_made = set()  # Tool calls made by AI messages
-    tool_call_ids_responded = set()  # Tool calls that got responses
-
-    # Step 2: Scan messages to build the state
-    for i, message in enumerate(messages):
+    for message in messages:
         if isinstance(message, AIMessage) and message.tool_calls:
             for tool_call in message.tool_calls:
                 tool_call_ids_made.add(tool_call["id"])
-            logger.debug("[CLEAN_MESSAGES] ai_message_with_tool_calls index=%s count=%s", i, len(message.tool_calls))
         elif isinstance(message, ToolMessage):
             tool_call_ids_responded.add(message.tool_call_id)
-            logger.debug("[CLEAN_MESSAGES] tool_response index=%s call_id=%s", i, message.tool_call_id)
 
-    # Step 3: Find orphaned tool call IDs
+    # Find orphaned IDs
     orphaned_tool_call_ids = tool_call_ids_made - tool_call_ids_responded
     orphaned_tool_message_ids = tool_call_ids_responded - tool_call_ids_made
-
     all_orphaned_ids = orphaned_tool_call_ids | orphaned_tool_message_ids
 
-
-    # Step 4: Use LangChain's filter_messages to clean up if needed
     if all_orphaned_ids:
-        logger.debug("[CLEAN_MESSAGES] filtering_orphans count=%s", len(all_orphaned_ids))
         cleaned_messages = filter_messages(
             messages,
             exclude_tool_calls=list(all_orphaned_ids)
         )
-        logger.debug("[CLEAN_MESSAGES] filtered from=%s to=%s", len(messages), len(cleaned_messages))
+        logger.debug(
+            "[CLEAN_MESSAGES] Filtered %d orphaned tool calls from %d messages",
+            len(all_orphaned_ids), len(messages)
+        )
         return cleaned_messages
 
-    logger.debug("[CLEAN_MESSAGES] no_orphans=true")
     return messages
 
 
@@ -130,207 +123,113 @@ def resolve_orphaned_tool_calls(messages: List[BaseMessage]) -> List[BaseMessage
     if not messages:
         return messages
 
-    # Step 1: Build sets of tool call IDs and response IDs
-    # Also track malformed tool calls (empty names) to filter them out
+    # Build sets of tool call IDs and response IDs
     tool_call_ids_made = {}  # id -> (tool_name, index of AIMessage)
     tool_call_ids_responded = {}  # id -> index of ToolMessage
-    malformed_tool_call_ids = set()  # Tool calls with empty names
-    malformed_tool_call_count = 0  # Track total count (set dedupes)
-    out_of_order_tool_message_ids = set()  # ToolMessages that come before their AIMessage
-
-    # Log all AIMessages with tool_calls for debugging
-    ai_messages_with_tools = []
+    malformed_tool_call_ids = set()
+    malformed_tool_call_count = 0
+    out_of_order_tool_message_ids = set()
 
     for i, message in enumerate(messages):
         if isinstance(message, AIMessage) and message.tool_calls:
-            # Log every AIMessage with tool_calls for debugging
-            tool_call_summary = [
-                f"{{name={tc.get('name', '')!r}, id={tc.get('id', '')!r}}}"
-                for tc in message.tool_calls
-            ]
-            ai_messages_with_tools.append(f"[{i}]: {len(message.tool_calls)} tool_calls: {tool_call_summary}")
-
             for j, tool_call in enumerate(message.tool_calls):
                 tool_name = tool_call.get("name", "")
                 tool_id = tool_call.get("id", "")
 
-                # Check for malformed tool calls (empty name or id)
                 if not tool_name or not tool_id:
                     malformed_tool_call_count += 1
                     malformed_tool_call_ids.add(tool_id or f"malformed-{i}-{j}")
-                    logger.warning(
-                        "[RESOLVE_ORPHANS] Found malformed tool call at message %d, tool_call[%d]: name=%r, id=%r",
-                        i, j, tool_name, tool_id
-                    )
                 else:
                     tool_call_ids_made[tool_id] = (tool_name, i)
         elif isinstance(message, ToolMessage):
             tool_call_ids_responded[message.tool_call_id] = i
 
-    # Log summary of all AIMessages with tool_calls
-    if ai_messages_with_tools:
-        logger.info(
-            "[RESOLVE_ORPHANS] Found %d AIMessage(s) with tool_calls: %s",
-            len(ai_messages_with_tools),
-            "; ".join(ai_messages_with_tools)
-        )
-
-    # Step 2: Find orphaned tool call IDs (valid tool calls without responses)
+    # Find orphaned and out-of-order tool calls
     orphaned_ids = set(tool_call_ids_made.keys()) - set(tool_call_ids_responded.keys())
-
-    # Also find orphaned ToolMessages (ToolMessages without matching AIMessage tool_calls)
-    # This can happen when frontend injects cancelled ToolMessages but the AIMessage
-    # was never persisted (cancelled before write)
     orphaned_tool_message_ids = set(tool_call_ids_responded.keys()) - set(tool_call_ids_made.keys())
 
-    # Find out-of-order ToolMessages (ToolMessages that come BEFORE their AIMessage)
-    # OpenAI requires tool messages to follow their corresponding AI message
+    # Find out-of-order ToolMessages (come BEFORE their AIMessage)
     for tool_call_id, tool_msg_index in tool_call_ids_responded.items():
         if tool_call_id in tool_call_ids_made:
             ai_msg_index = tool_call_ids_made[tool_call_id][1]
             if tool_msg_index < ai_msg_index:
                 out_of_order_tool_message_ids.add(tool_call_id)
-                logger.warning(
-                    "[RESOLVE_ORPHANS] Found out-of-order ToolMessage: tool_call_id=%s "
-                    "(ToolMessage at index %d, AIMessage at index %d)",
-                    tool_call_id, tool_msg_index, ai_msg_index
-                )
 
-    # IMPORTANT: Treat out-of-order tool_calls as orphaned too!
-    # Since we'll remove their ToolMessages (wrong position), the AIMessage tool_calls
-    # need synthetic cancellation responses inserted after them.
+    # Treat out-of-order tool_calls as orphaned (need synthetic responses)
     if out_of_order_tool_message_ids:
         orphaned_ids = orphaned_ids | out_of_order_tool_message_ids
-        logger.info(
-            "[RESOLVE_ORPHANS] Added %d out-of-order tool_call(s) to orphaned set for synthetic responses",
-            len(out_of_order_tool_message_ids)
-        )
 
-    has_orphans = len(orphaned_ids) > 0
-    has_malformed = malformed_tool_call_count > 0
-    has_orphaned_tool_messages = len(orphaned_tool_message_ids) > 0
-    has_out_of_order = len(out_of_order_tool_message_ids) > 0
+    has_issues = (
+        len(orphaned_ids) > 0 or
+        malformed_tool_call_count > 0 or
+        len(orphaned_tool_message_ids) > 0 or
+        len(out_of_order_tool_message_ids) > 0
+    )
 
-    if not has_orphans and not has_malformed and not has_orphaned_tool_messages and not has_out_of_order:
-        return messages  # No issues to fix
+    if not has_issues:
+        return messages
 
-    if has_orphans:
-        logger.info("[RESOLVE_ORPHANS] Found %d orphaned tool call(s): %s", len(orphaned_ids), list(orphaned_ids))
-    if has_malformed:
-        logger.info("[RESOLVE_ORPHANS] Found %d malformed tool call(s) to remove", malformed_tool_call_count)
-    if has_orphaned_tool_messages:
-        logger.info("[RESOLVE_ORPHANS] Found %d orphaned ToolMessage(s) to remove: %s", len(orphaned_tool_message_ids), list(orphaned_tool_message_ids))
-    if has_out_of_order:
-        logger.info("[RESOLVE_ORPHANS] Found %d out-of-order ToolMessage(s) to remove: %s", len(out_of_order_tool_message_ids), list(out_of_order_tool_message_ids))
-
-    # Step 3: Build new message list
-    # - Filter out malformed tool calls from AIMessages
-    # - Insert synthetic ToolMessages after orphaned AIMessages
-    # - Filter out orphaned ToolMessages (those without matching AIMessage tool_calls)
-    # - Filter out ToolMessages that come BEFORE their AIMessage (ordering violation)
-    valid_tool_call_ids = set(tool_call_ids_made.keys())  # Set of valid tool call IDs from AIMessages
+    # Build new message list with fixes applied
+    valid_tool_call_ids = set(tool_call_ids_made.keys())
     result = []
-    orphaned_tool_messages_removed = 0
-    out_of_order_tool_messages_removed = 0
+    synthetic_inserted = 0
+    orphaned_removed = 0
+    out_of_order_removed = 0
 
-    for i, message in enumerate(messages):
+    for message in messages:
         if isinstance(message, AIMessage) and message.tool_calls:
-            # Filter out malformed tool calls (empty name or id)
+            # Filter out malformed tool calls
             valid_tool_calls = [
                 tc for tc in message.tool_calls
                 if tc.get("name") and tc.get("id")
             ]
 
-            # If we filtered out any tool calls, create a new AIMessage
+            # Rebuild message if we filtered any tool calls
             if len(valid_tool_calls) != len(message.tool_calls):
-                # Create a copy of the message with only valid tool calls
                 if valid_tool_calls:
-                    # Has some valid tool calls remaining
-                    new_message = AIMessage(
+                    result.append(AIMessage(
                         content=message.content,
                         tool_calls=valid_tool_calls,
                         id=message.id,
-                    )
-                    result.append(new_message)
+                    ))
                 elif message.content:
-                    # No valid tool calls but has content - keep as regular AI message
-                    new_message = AIMessage(
-                        content=message.content,
-                        id=message.id,
-                    )
-                    result.append(new_message)
-                # else: skip message entirely (no content, no valid tool calls)
+                    result.append(AIMessage(content=message.content, id=message.id))
             else:
-                # No filtering needed, keep original
                 result.append(message)
 
             # Insert synthetic responses for orphaned tool calls
             for tool_call in valid_tool_calls:
                 if tool_call["id"] in orphaned_ids:
-                    synthetic_response = ToolMessage(
+                    result.append(ToolMessage(
                         content=CANCELLED_TOOL_CALL_CONTENT,
                         tool_call_id=tool_call["id"],
                         name=tool_call.get("name", "unknown"),
-                    )
-                    result.append(synthetic_response)
-                    logger.info(
-                        "[RESOLVE_ORPHANS] Inserted cancelled ToolMessage for %s (id=%s)",
-                        tool_call.get("name"),
-                        tool_call["id"]
-                    )
+                    ))
+                    synthetic_inserted += 1
 
         elif isinstance(message, ToolMessage):
-            # Filter out orphaned ToolMessages (those without matching AIMessage tool_calls)
-            # This can happen when frontend injects cancelled ToolMessages but the AIMessage
-            # was never persisted (cancelled before write)
+            # Skip orphaned or out-of-order ToolMessages
             if message.tool_call_id not in valid_tool_call_ids:
-                logger.info(
-                    "[RESOLVE_ORPHANS] Removing orphaned ToolMessage: name=%s, tool_call_id=%s",
-                    message.name,
-                    message.tool_call_id
-                )
-                orphaned_tool_messages_removed += 1
-                continue  # Skip this orphaned ToolMessage
-
-            # Filter out out-of-order ToolMessages (those that come BEFORE their AIMessage)
-            # OpenAI requires tool messages to follow their corresponding AI message
+                orphaned_removed += 1
+                continue
             if message.tool_call_id in out_of_order_tool_message_ids:
-                logger.info(
-                    "[RESOLVE_ORPHANS] Removing out-of-order ToolMessage: name=%s, tool_call_id=%s",
-                    message.name,
-                    message.tool_call_id
-                )
-                out_of_order_tool_messages_removed += 1
-                continue  # Skip this out-of-order ToolMessage
-
+                out_of_order_removed += 1
+                continue
             result.append(message)
 
         else:
             result.append(message)
 
-    if orphaned_tool_messages_removed > 0:
-        logger.info("[RESOLVE_ORPHANS] Removed %d orphaned ToolMessage(s)", orphaned_tool_messages_removed)
-    if out_of_order_tool_messages_removed > 0:
-        logger.info("[RESOLVE_ORPHANS] Removed %d out-of-order ToolMessage(s)", out_of_order_tool_messages_removed)
-
-    # Log final result structure for debugging
-    result_summary = []
-    for i, msg in enumerate(result):
-        if isinstance(msg, AIMessage) and msg.tool_calls:
-            tc_summary = [f"{{name={tc.get('name', '')!r}, id={tc.get('id', '')[:20] if tc.get('id') else ''}...}}" for tc in msg.tool_calls]
-            result_summary.append(f"[{i}] AIMessage({len(msg.tool_calls)} tool_calls: {tc_summary})")
-        elif isinstance(msg, AIMessage):
-            result_summary.append(f"[{i}] AIMessage(no tool_calls)")
-        elif isinstance(msg, ToolMessage):
-            result_summary.append(f"[{i}] ToolMessage(name={msg.name}, id={msg.tool_call_id[:20] if msg.tool_call_id else ''}...)")
-        else:
-            result_summary.append(f"[{i}] {type(msg).__name__}")
-
-    logger.info(
-        "[RESOLVE_ORPHANS] Result: %d messages: %s",
-        len(result),
-        "; ".join(result_summary)
-    )
+    # Single summary log for all changes
+    if synthetic_inserted > 0 or orphaned_removed > 0 or out_of_order_removed > 0 or malformed_tool_call_count > 0:
+        logger.info(
+            "[RESOLVE_ORPHANS] Fixed %d messages: inserted=%d cancelled, removed=%d orphaned/%d out-of-order, filtered=%d malformed",
+            len(messages) - len(result) + synthetic_inserted,
+            synthetic_inserted,
+            orphaned_removed,
+            out_of_order_removed,
+            malformed_tool_call_count
+        )
 
     return result
 
@@ -437,24 +336,21 @@ async def convert_collection_read_image_to_multimodal(messages: List[BaseMessage
             name = data.get("metadata", {}).get("name", "Image")
 
             if not signed_url:
-                logger.warning(f"[COLLECTION_READ_IMAGE] No signed_url found in tool result")
+                logger.debug("[COLLECTION_READ_IMAGE] No signed_url found in tool result")
                 processed_messages.append(message)
                 continue
 
             # Fix localhost URL issue (kong:8000 -> localhost:8000)
             if "kong:8000" in signed_url:
                 signed_url = signed_url.replace("kong:8000", "localhost:8000")
-                logger.debug(f"[COLLECTION_READ_IMAGE] Fixed kong URL to localhost")
 
             # Convert HTTP URLs to base64 for local development (Claude requires HTTPS)
             if signed_url.startswith("http://"):
-                logger.info(f"[COLLECTION_READ_IMAGE] Converting HTTP URL to base64 for local dev")
                 data_url = await convert_http_url_to_base64(signed_url)
                 if data_url:
                     signed_url = data_url
-                    logger.info(f"[COLLECTION_READ_IMAGE] Successfully converted to base64 data URL")
                 else:
-                    logger.warning(f"[COLLECTION_READ_IMAGE] Failed to convert HTTP URL to base64, will fail with Claude API")
+                    logger.warning("[COLLECTION_READ_IMAGE] Failed to convert HTTP URL to base64")
 
             # Create multimodal content blocks
             multimodal_content = [
@@ -477,11 +373,9 @@ async def convert_collection_read_image_to_multimodal(messages: List[BaseMessage
                 additional_kwargs=message.additional_kwargs
             )
 
-            logger.info(f"[COLLECTION_READ_IMAGE] Converted tool result to multimodal content: {name}")
             processed_messages.append(processed_msg)
 
-        except (json.JSONDecodeError, KeyError, TypeError) as e:
-            logger.warning(f"[COLLECTION_READ_IMAGE] Failed to parse tool result as JSON: {e}")
+        except (json.JSONDecodeError, KeyError, TypeError):
             processed_messages.append(message)
             continue
 
@@ -550,7 +444,7 @@ def detect_image_format(image_data: bytes) -> str:
         return "image/tiff"
 
     else:
-        logger.warning(f"[IMAGE_FORMAT] Unknown magic bytes: {image_data[:8].hex()}, defaulting to PNG")
+        logger.debug("[IMAGE_FORMAT] Unknown magic bytes: %s, defaulting to PNG", image_data[:8].hex())
         return "image/png"  # Safe fallback
 
 
@@ -586,16 +480,11 @@ async def convert_http_url_to_base64(url: str) -> Optional[str]:
 
             # Create data URL
             data_url = f"data:{content_type};base64,{base64_data}"
-
-            logger.info(
-                f"[MESSAGE_UTILS] Converted HTTP URL to base64 data URL: "
-                f"{len(image_data)} bytes, detected format: {content_type}"
-            )
-
+            logger.debug("[MESSAGE_UTILS] Converted HTTP URL to base64: %d bytes", len(image_data))
             return data_url
 
     except Exception as e:
-        logger.exception(f"[MESSAGE_UTILS] Failed to convert HTTP URL to base64: {url[:50]}...")
+        logger.warning("[MESSAGE_UTILS] Failed to convert HTTP URL to base64: %s", str(e)[:100])
         return None
 
 
@@ -624,12 +513,6 @@ async def batch_generate_signed_urls(
     unique_paths = list(set(storage_paths))
 
     try:
-        # Call LangConnect batch URL generation endpoint
-        logger.info(
-            f"[MESSAGE_UTILS] Requesting signed URLs for {len(unique_paths)} paths: "
-            f"{unique_paths}"
-        )
-
         async with httpx.AsyncClient() as client:
             response = await client.post(
                 f"{langconnect_api_url}/agent-filesystem/storage/batch-signed-urls",
@@ -642,24 +525,17 @@ async def batch_generate_signed_urls(
             )
             response.raise_for_status()
             data = response.json()
-
-            logger.debug(
-                f"[MESSAGE_UTILS] Batch signed URLs API response: {data}"
-            )
-
-            # Returns: {"signed_urls": {"path1": "url1", "path2": "url2", ...}}
             signed_urls = data.get("signed_urls", {})
 
-            if not signed_urls:
-                logger.warning(
-                    f"[MESSAGE_UTILS] API returned no signed URLs! "
-                    f"Response data: {data}"
-                )
+            if signed_urls:
+                logger.debug("[MESSAGE_UTILS] Generated %d signed URLs", len(signed_urls))
+            else:
+                logger.warning("[MESSAGE_UTILS] API returned no signed URLs")
 
             return signed_urls
 
     except Exception as e:
-        logger.exception(f"[MESSAGE_UTILS] Failed to batch generate signed URLs: {e}")
+        logger.warning("[MESSAGE_UTILS] Failed to batch generate signed URLs: %s", str(e)[:100])
         return {}
 
 
@@ -740,15 +616,6 @@ def extract_storage_paths_from_content(content: Any) -> List[str]:
                 storage_path = extract_storage_path_from_metadata(block)
                 if storage_path:
                     paths.append(storage_path)
-                    logger.info(
-                        f"[MESSAGE_UTILS] Extracted storage_path from metadata for converted URL "
-                        f"(historical message): {storage_path}"
-                    )
-                else:
-                    logger.warning(
-                        f"[MESSAGE_UTILS] Found converted URL but no storage_path in metadata! "
-                        f"URL: {url[:60]}..., metadata keys: {list(block.get('metadata', {}).keys())}"
-                    )
 
         # OpenAI style format: {"type": "image_url", "image_url": {"url": "..."}}
         elif block.get("type") == "image_url":
@@ -774,15 +641,6 @@ def extract_storage_paths_from_content(content: Any) -> List[str]:
                     storage_path = extract_storage_path_from_metadata(block)
                     if storage_path:
                         paths.append(storage_path)
-                        logger.info(
-                            f"[MESSAGE_UTILS] Extracted storage_path from metadata for converted URL "
-                            f"(historical message, OpenAI format): {storage_path}"
-                        )
-                    else:
-                        logger.warning(
-                            f"[MESSAGE_UTILS] Found converted URL (OpenAI format) but no storage_path in metadata! "
-                            f"URL: {url[:60]}..., metadata keys: {list(block.get('metadata', {}).keys())}"
-                        )
 
     return paths
 
@@ -844,15 +702,6 @@ def replace_storage_paths_in_content(content: Any, url_mapping: Dict[str, str]) 
                 metadata_path = extract_storage_path_from_metadata(block)
                 if metadata_path and metadata_path in url_mapping:
                     modified_block["url"] = url_mapping[metadata_path]
-                    logger.info(
-                        f"[MESSAGE_UTILS] Replaced converted URL using metadata storage_path "
-                        f"(historical message): {metadata_path}"
-                    )
-                elif metadata_path:
-                    logger.warning(
-                        f"[MESSAGE_UTILS] Found metadata storage_path but no mapping! "
-                        f"Path: {metadata_path}, available mappings: {list(url_mapping.keys())}"
-                    )
 
         # OpenAI style format: {"type": "image_url", "image_url": {"url": "..."}}
         elif block.get("type") == "image_url" and isinstance(block.get("image_url"), dict):
@@ -873,15 +722,6 @@ def replace_storage_paths_in_content(content: Any, url_mapping: Dict[str, str]) 
                 metadata_path = extract_storage_path_from_metadata(block)
                 if metadata_path and metadata_path in url_mapping:
                     modified_block["image_url"] = {"url": url_mapping[metadata_path]}
-                    logger.info(
-                        f"[MESSAGE_UTILS] Replaced converted URL using metadata storage_path "
-                        f"(historical message, OpenAI format): {metadata_path}"
-                    )
-                elif metadata_path:
-                    logger.warning(
-                        f"[MESSAGE_UTILS] Found metadata storage_path (OpenAI format) but no mapping! "
-                        f"Path: {metadata_path}, available mappings: {list(url_mapping.keys())}"
-                    )
 
         # All other blocks (including text) are left completely untouched
         modified_blocks.append(modified_block)
@@ -943,22 +783,14 @@ async def process_messages_with_signed_urls(
     # Step 1: Extract all storage paths from image blocks across all messages
     all_storage_paths = []
     for message in messages:
-        content = message.content
-        paths = extract_storage_paths_from_content(content)
-        if paths:
-            logger.info(
-                f"[MESSAGE_UTILS] Extracted {len(paths)} paths from message: {paths}"
-            )
+        paths = extract_storage_paths_from_content(message.content)
         all_storage_paths.extend(paths)
 
     if not all_storage_paths:
-        # No storage paths found in image blocks
         return messages
 
-    logger.info(
-        f"[MESSAGE_UTILS] Found {len(set(all_storage_paths))} unique storage paths "
-        f"in image blocks across {len(messages)} messages: {list(set(all_storage_paths))}"
-    )
+    unique_paths = set(all_storage_paths)
+    logger.debug("[MESSAGE_UTILS] Found %d unique storage paths in image blocks", len(unique_paths))
 
     # Step 2: Batch generate signed URLs
     url_mapping = await batch_generate_signed_urls(
@@ -969,38 +801,27 @@ async def process_messages_with_signed_urls(
     )
 
     if not url_mapping:
-        logger.warning("[MESSAGE_UTILS] Failed to generate any signed URLs")
+        logger.warning("[MESSAGE_UTILS] Failed to generate signed URLs")
         return messages
-
-    logger.info(
-        f"[MESSAGE_UTILS] Generated {len(url_mapping)} signed URLs "
-        f"(expiry: {expiry_seconds}s)"
-    )
 
     # Step 2.5: Convert HTTP URLs to base64 data URLs (local development fallback)
     # Claude's API requires HTTPS URLs, so we convert local HTTP URLs to base64
-    http_conversions = []
+    http_converted = 0
+    http_failed = 0
 
     for storage_path, signed_url in list(url_mapping.items()):
         if signed_url.startswith("http://"):
-            logger.info(
-                f"[MESSAGE_UTILS] Converting HTTP URL to base64 for local dev: "
-                f"{signed_url[:60]}..."
-            )
             data_url = await convert_http_url_to_base64(signed_url)
             if data_url:
                 url_mapping[storage_path] = data_url
-                http_conversions.append(storage_path)
+                http_converted += 1
             else:
-                logger.warning(
-                    f"[MESSAGE_UTILS] Failed to convert HTTP URL, will try anyway: "
-                    f"{signed_url[:60]}..."
-                )
+                http_failed += 1
 
-    if http_conversions:
-        logger.info(
-            f"[MESSAGE_UTILS] Converted {len(http_conversions)} HTTP URLs to base64 data URLs "
-            f"(local development fallback)"
+    if http_converted > 0 or http_failed > 0:
+        logger.debug(
+            "[MESSAGE_UTILS] HTTP to base64 conversion: %d succeeded, %d failed",
+            http_converted, http_failed
         )
 
     # Step 3: Replace storage paths in image blocks only
@@ -1093,7 +914,7 @@ def create_image_preprocessor(
         )
 
         if not access_token:
-            logger.warning("[IMAGE_HOOK] No access token found in config, skipping image processing")
+            logger.debug("[IMAGE_HOOK] No access token found in config, skipping image processing")
             return state
 
         # Process messages
@@ -1115,8 +936,7 @@ def create_image_preprocessor(
             return {**state, messages_key: processed_messages}
 
         except Exception as e:
-            logger.exception(f"[IMAGE_HOOK] Error processing messages: {e}")
-            # On error, return original state
+            logger.warning("[IMAGE_HOOK] Error processing messages: %s", str(e)[:100])
             return state
 
     return image_preprocessor_hook

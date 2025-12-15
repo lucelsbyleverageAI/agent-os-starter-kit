@@ -37,6 +37,26 @@ from agent_platform.utils.tool_utils import (
     create_collection_tools,
 )
 
+# SSE cost capture for OpenRouter streaming responses
+try:
+    from agent_platform.utils.sse_cost_capture import set_current_run_id
+    SSE_COST_CAPTURE_AVAILABLE = True
+except Exception:  # pragma: no cover
+    SSE_COST_CAPTURE_AVAILABLE = False
+    set_current_run_id = None  # type: ignore
+
+
+def _set_run_id_for_cost_capture(config: RunnableConfig) -> None:
+    """Extract run_id from config and set it for SSE cost capture."""
+    if not SSE_COST_CAPTURE_AVAILABLE or not set_current_run_id:
+        return
+    run_id = (
+        config.get("configurable", {}).get("run_id") or
+        config.get("metadata", {}).get("run_id") or
+        "unknown"
+    )
+    set_current_run_id(run_id)
+
 ##########################
 # Tavily Search Tool Utils
 ##########################
@@ -96,11 +116,14 @@ async def tavily_search(
         .with_retry(stop_after_attempt=configurable.max_structured_output_retries)
     )
     
+    # Set run_id for SSE cost capture before summarization
+    _set_run_id_for_cost_capture(config)
+
     # Step 4: Create summarization tasks (skip empty content)
     async def noop():
         """No-op function for results without raw content."""
         return None
-    
+
     summarization_tasks = [
         noop() if not result.get("raw_content") 
         else summarize_webpage(
@@ -713,59 +736,35 @@ def _check_gemini_token_limit(exception: Exception, error_str: str) -> bool:
     
     return False
 
-# NOTE: This may be out of date or not applicable to your models. Please update this as needed.
-# Synced with MODEL_REGISTRY in agent_platform/utils/model_utils.py
+# NOTE: This is a fallback for models not in the main registry.
+# For models in MODEL_REGISTRY, use get_model_info(name).context_window instead.
+# Uses OpenRouter model ID format (provider/model-name)
 MODEL_TOKEN_LIMITS = {
-    # Anthropic Models (aligned with main registry)
-    "anthropic:claude-haiku-4-5-20251001": 200000,
-    "anthropic:claude-sonnet-4-5-20250929": 200000,
-    "anthropic:claude-opus-4-1-20250805": 200000,
-    "anthropic:claude-sonnet-4-5-20250929-extended-thinking": 200000,
+    # Anthropic Claude 4.5 Models (OpenRouter format)
+    "anthropic/claude-haiku-4.5": 200000,
+    "anthropic/claude-sonnet-4.5": 200000,
+    "anthropic/claude-opus-4.5": 200000,
 
-    # OpenAI Models (aligned with main registry)
-    "openai:gpt-4.1-mini": 128000,
-    "openai:gpt-4.1-nano": 128000,
-    "openai:gpt-5-mini": 128000,
-    "openai:gpt-5-nano": 128000,
-    "openai:gpt-4.1": 128000,
-    "openai:gpt-5": 200000,
-    "openai:gpt-5.1": 200000,
-    "openai:gpt-5-thinking": 200000,
-    "openai:gpt-5.1-thinking": 200000,
+    # OpenAI Models (OpenRouter format)
+    "openai/gpt-4.1-nano": 1047576,
+    "openai/gpt-4.1-mini": 1047576,
+    "openai/gpt-4.1": 1047576,
+    "openai/gpt-5.2": 200000,
 
-    # Legacy OpenAI Models
-    "openai:gpt-4o-mini": 128000,
-    "openai:gpt-4o": 128000,
-    "openai:o4-mini": 200000,
-    "openai:o3-mini": 200000,
-    "openai:o3": 200000,
-    "openai:o3-pro": 200000,
-    "openai:o1": 200000,
-    "openai:o1-pro": 200000,
+    # Google Gemini Models (OpenRouter format)
+    "google/gemini-2.5-flash-lite": 1048576,
+    "google/gemini-2.5-flash": 1048576,
+    "google/gemini-2.5-pro": 1048576,
 
-    # Other Providers
-    "google:gemini-1.5-pro": 2097152,
-    "google:gemini-1.5-flash": 1048576,
-    "google:gemini-pro": 32768,
-    "cohere:command-r-plus": 128000,
-    "cohere:command-r": 128000,
-    "cohere:command-light": 4096,
-    "cohere:command": 4096,
-    "mistral:mistral-large": 32768,
-    "mistral:mistral-medium": 32768,
-    "mistral:mistral-small": 32768,
-    "mistral:mistral-7b-instruct": 32768,
-    "ollama:codellama": 16384,
-    "ollama:llama2:70b": 4096,
-    "ollama:llama2:13b": 4096,
-    "ollama:llama2": 4096,
-    "ollama:mistral": 32768,
-    "bedrock:us.amazon.nova-premier-v1:0": 1000000,
-    "bedrock:us.amazon.nova-pro-v1:0": 300000,
-    "bedrock:us.amazon.nova-lite-v1:0": 300000,
-    "bedrock:us.amazon.nova-micro-v1:0": 128000,
-    "bedrock:us.anthropic.claude-sonnet-4-20250514-v1:0": 200000,
-    "bedrock:us.anthropic.claude-opus-4-20250514-v1:0": 200000,
+    # xAI Grok Models (OpenRouter format)
+    "x-ai/grok-4.1-fast": 131072,
+    "x-ai/grok-4": 131072,
+
+    # Moonshot Models (OpenRouter format)
+    "moonshotai/kimi-k2-thinking": 131072,
+
+    # Groq Provider Models (OpenRouter format)
+    "openai/gpt-oss-120b": 131072,
 }
 
 def get_model_token_limit(model_string):

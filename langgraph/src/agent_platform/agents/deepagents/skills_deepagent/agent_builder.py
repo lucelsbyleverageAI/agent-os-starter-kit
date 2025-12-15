@@ -193,6 +193,7 @@ def skills_agent_builder(
         config_schema=config_schema,
         checkpointer=checkpointer,
         file_attachment_processor=file_attachment_processor,
+        name="skills_deepagent",  # For cost tracking graph_name
     )
 
 

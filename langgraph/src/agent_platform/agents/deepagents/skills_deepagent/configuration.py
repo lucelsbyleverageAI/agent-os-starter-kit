@@ -120,11 +120,11 @@ class SkillsSubAgentConfig(BaseModel):
         },
     )
     model_name: Optional[str] = Field(
-        default="anthropic:claude-sonnet-4-5-20250929",
+        default="anthropic/claude-sonnet-4",
         metadata={
             "x_oap_ui_config": {
                 "type": "select",
-                "default": "anthropic:claude-sonnet-4-5-20250929",
+                "default": "anthropic/claude-sonnet-4",
                 "description": "Select the AI model for this sub-agent.",
                 "options": get_model_options_for_ui(),
             }
@@ -189,11 +189,11 @@ class GraphConfigPydantic(BaseModel):
     )
 
     model_name: Optional[str] = Field(
-        default="anthropic:claude-sonnet-4-5-20250929",
+        default="anthropic/claude-sonnet-4",
         metadata={
             "x_oap_ui_config": {
                 "type": "select",
-                "default": "anthropic:claude-sonnet-4-5-20250929",
+                "default": "anthropic/claude-sonnet-4",
                 "description": "Select the AI model to use.",
                 "options": get_model_options_for_ui(),
             }
