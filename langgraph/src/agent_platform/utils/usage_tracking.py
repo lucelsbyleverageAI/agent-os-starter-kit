@@ -246,7 +246,7 @@ async def record_usage(
     Returns:
         True if recording succeeded, False otherwise
     """
-    langconnect_url = os.environ.get("LANGCONNECT_URL", "http://localhost:8080")
+    langconnect_url = os.environ.get("LANGCONNECT_API_URL", "http://localhost:8080")
     service_key = os.environ.get("LANGCONNECT_SERVICE_ACCOUNT_KEY")
 
     if not service_key:
