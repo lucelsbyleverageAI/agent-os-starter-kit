@@ -78,6 +78,7 @@ async def initialize_platform(
     - Discovers graphs from LangGraph
     - Populates graph metadata (name, description) from config files
     - Grants graph permissions to all dev_admin users
+    - Refreshes all assistant schemas from LangGraph (picks up model changes)
 
     NOTE: This does NOT create or enhance any assistants. System assistants created
     by LangGraph remain hidden. Only user-created assistants appear in the UI.
@@ -250,7 +251,58 @@ async def initialize_platform(
                 errors=[str(e)]
             ))
 
-        # Step 4: Generate summary
+        # Step 4: Refresh all assistant schemas
+        # This ensures config schemas reflect current model options after migrations
+        if not request.dry_run:
+            log.info("Step 4: Refreshing assistant schemas from LangGraph")
+            try:
+                sync_service = get_sync_service()
+                schemas_result = await sync_service.sync_all_schemas()
+                schemas_updated = schemas_result.get("updated", 0)
+                schemas_total = schemas_result.get("total", 0)
+                schemas_errors = schemas_result.get("errors", [])
+
+                operations_performed.append(EnhancementResult(
+                    operation="refresh_assistant_schemas",
+                    success=len(schemas_errors) == 0,
+                    total_enhanced=schemas_updated,
+                    failed=len(schemas_errors),
+                    message=f"Refreshed {schemas_updated}/{schemas_total} assistant schemas",
+                    errors=schemas_errors[:5] if schemas_errors else []  # Limit errors shown
+                ))
+
+                if len(schemas_errors) == 0:
+                    successful_operations += 1
+                else:
+                    failed_operations += 1
+
+                log.info(f"Schema refresh completed: {schemas_updated}/{schemas_total} updated, {len(schemas_errors)} errors")
+
+            except Exception as e:
+                failed_operations += 1
+                error_msg = f"Schema refresh failed: {str(e)}"
+                log.error(error_msg)
+                warnings.append(error_msg)
+                operations_performed.append(EnhancementResult(
+                    operation="refresh_assistant_schemas",
+                    success=False,
+                    total_enhanced=0,
+                    failed=1,
+                    message="Failed to refresh assistant schemas",
+                    errors=[str(e)]
+                ))
+        else:
+            # Dry run - just report what would happen
+            operations_performed.append(EnhancementResult(
+                operation="refresh_assistant_schemas",
+                success=True,
+                total_enhanced=0,
+                failed=0,
+                message="Would refresh all assistant schemas from LangGraph",
+                errors=[]
+            ))
+
+        # Step 5: Generate summary
         total_operations = len(operations_performed)
         duration_ms = int((time.time() - start_time) * 1000)
 
